@@ -27,7 +27,14 @@ Keep this list short so upstream merges stay trivial.
 
 ## Set up a machine
 
-Needs T3 Code installed and this repo cloned (`gh repo clone RyanIgo/t3code && git checkout feat/fleet-board`).
+Needs T3 Code installed (stable channel) and this repo cloned. `feat/fleet-board` is the fork's
+default branch, so a plain clone is enough:
+
+```sh
+gh repo clone RyanIgo/t3code && cd t3code   # or: git clone https://github.com/RyanIgo/t3code.git
+```
+
+`main` stays a mirror of upstream; the board lives on `feat/fleet-board`.
 
 ```sh
 fleet/setup.sh
