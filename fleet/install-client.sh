@@ -64,9 +64,9 @@ restart_service() {
 # Restarting the service kills every agent it launched, including a chat that
 # is running this script. Re-run the rest in its own systemd job instead.
 detach_if_inside_t3() {
-  [[ "$detached" == 1 ]] && return
-  grep -q 'app-t3code' /proc/self/cgroup 2>/dev/null || return
-  command -v systemd-run >/dev/null || return
+  [[ "$detached" == 1 ]] && return 0
+  grep -q 'app-t3code' /proc/self/cgroup 2>/dev/null || return 0
+  command -v systemd-run >/dev/null || return 0
   local args=(--detached --no-build)
   [[ "$restore" == 1 ]] && args+=(--restore)
   [[ "$update" == 1 ]] && args+=(--update)
