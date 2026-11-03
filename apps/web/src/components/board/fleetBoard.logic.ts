@@ -167,6 +167,8 @@ export interface FleetBoardRow<
 > {
   readonly group: G;
   readonly columns: Readonly<Record<FleetBoardColumn, ReadonlyArray<FleetBoardCard<T>>>>;
+  /** One sub-row per chat: Needs me first, then Running, Done, Queued, each in its column's order. */
+  readonly chats: ReadonlyArray<FleetBoardCard<T>>;
   readonly total: number;
 }
 
@@ -226,7 +228,8 @@ export function buildFleetBoard<G extends FleetBoardGroupInput, T extends FleetB
       for (const column of ["running", "queued", "done"] as const) {
         columns[column].sort((a, b) => timestampMs(b.since) - timestampMs(a.since));
       }
-      return { group: row.group, columns, total: row.cards.length };
+      const chats = ROW_URGENCY.flatMap((column) => columns[column]);
+      return { group: row.group, columns, chats, total: row.cards.length };
     });
 
   const urgencyKey = (row: FleetBoardRow<G, T>) => {
@@ -236,6 +239,21 @@ export function buildFleetBoard<G extends FleetBoardGroupInput, T extends FleetB
   // Stable sort keeps the sidebar's own group order inside each urgency tier.
   built.sort((a, b) => urgencyKey(a) - urgencyKey(b));
   return { rows: built, totals };
+}
+
+/**
+ * Orders threads the way a board row reads: Needs me, Running, Done, then Queued.
+ * Stable, so each tier keeps the caller's order (the sidebar's send order).
+ */
+export function sortByFleetBoardUrgency<T>(
+  threads: ReadonlyArray<T>,
+  toInput: (thread: T) => FleetBoardThreadInput,
+): T[] {
+  const rank = new Map<T, number>();
+  for (const thread of threads) {
+    rank.set(thread, ROW_URGENCY.indexOf(resolveFleetBoardCard(toInput(thread)).column));
+  }
+  return threads.toSorted((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0));
 }
 
 /**

@@ -24,12 +24,16 @@ import {
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
+import { useFleetBoardNeedsCount } from "../board/useFleetBoardThreads";
+import { installFleetFolderDefault } from "../board/fleetFolderDefault";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
+
+installFleetFolderDefault();
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -72,9 +76,49 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </div>
         ) : null}
       </div>
+      <SidebarBoardButton />
     </div>
   );
 });
+
+/** Always in the top bar, so the board is one click from any chat; counts what needs you. */
+function SidebarBoardButton() {
+  const navigate = useNavigate();
+  const { isMobile, setOpenMobile } = useSidebar();
+  const onBoard = useLocation({ select: (location) => location.pathname === "/board" });
+  const needsCount = useFleetBoardNeedsCount();
+  const label = needsCount > 0 ? `Board, ${needsCount} need you` : "Board";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            aria-current={onBoard ? "page" : undefined}
+            onClick={() => {
+              if (isMobile) setOpenMobile(false);
+              void navigate({ to: "/board" });
+            }}
+            className={cn(
+              "relative z-10 flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-sidebar-border px-2 text-xs font-medium text-sidebar-foreground/80 outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+              onBoard && "bg-sidebar-row-hover text-sidebar-foreground",
+            )}
+          />
+        }
+      >
+        <SquareKanbanIcon aria-hidden className="size-3.5" />
+        <span>Board</span>
+        {needsCount > 0 ? (
+          <span className="min-w-4 rounded-full bg-warning px-1 text-center text-3xs leading-4 font-semibold text-warning-foreground tabular-nums">
+            {needsCount}
+          </span>
+        ) : null}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom">{label}</TooltipPopup>
+    </Tooltip>
+  );
+}
 
 export function SidebarBrandWidthProbe({
   onWidthChange,
@@ -188,11 +232,6 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/usage" });
   };
 
-  const handleBoardClick = () => {
-    closeMobileSidebar();
-    void navigate({ to: "/board" });
-  };
-
   const handleBackClick = () => {
     closeMobileSidebar();
     void navigateToMainApp();
@@ -213,11 +252,6 @@ const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
             icon={<SettingsIcon />}
             label="Settings"
             onClick={handleSettingsClick}
-          />
-          <SidebarUtilityItem
-            icon={<SquareKanbanIcon />}
-            label="Board"
-            onClick={handleBoardClick}
           />
           {pullRequestsSupported ? (
             <SidebarUtilityItem

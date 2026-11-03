@@ -1,20 +1,15 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import type { EnvironmentId } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { isElectron } from "../../env";
-import { useNowMinute } from "../../hooks/useNowMinute";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { cn } from "../../lib/utils";
-import { useDelegatedUnderParent, useQuietThreadShells } from "../../state/entities";
 import { environmentSummaries } from "../../state/presentation";
-import type { SidebarThreadSummary } from "../../types";
-import { useUiStateStore } from "../../uiStateStore";
 import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
-import { filterSidebarV2VisibleThreads, resolveThreadLastVisitedAt } from "../Sidebar.logic";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Label } from "../ui/label";
 import { ScrollArea } from "../ui/scroll-area";
@@ -26,17 +21,13 @@ import {
   buildFleetBoard,
   FLEET_BOARD_COLUMNS,
   formatFleetBoardAge,
-  minuteTickToMs,
   type FleetBoardCard,
   type FleetBoardTone,
 } from "./fleetBoard.logic";
+import { type BoardThread, useFleetBoardThreads } from "./useFleetBoardThreads";
 
-/** Needs me always shows everything; quieter columns fold after this many. */
-const COLLAPSED_CARD_LIMIT = 3;
-
-type BoardThread = Omit<SidebarThreadSummary, "lastVisitedAt"> & {
-  readonly lastVisitedAt: string | null | undefined;
-};
+/** Chats that need you, run, or finished always show; idle chats fold after this many per project. */
+const COLLAPSED_IDLE_LIMIT = 3;
 
 const TONE_BORDER: Record<FleetBoardTone, string> = {
   attention: "border-l-warning",
@@ -63,19 +54,21 @@ const COLUMN_HEADER_TEXT: Record<(typeof FLEET_BOARD_COLUMNS)[number]["id"], str
 
 export function FleetBoardPage() {
   const navigate = useNavigate();
-  const nowMs = minuteTickToMs(useNowMinute());
   const [showSettled, setShowSettled] = useState(false);
-  const [expandedCells, setExpandedCells] = useState<ReadonlySet<string>>(() => new Set());
-  const toggleCell = (cellKey: string) =>
-    setExpandedCells((current) => {
-      const next = new Set(current);
-      if (!next.delete(cellKey)) next.add(cellKey);
-      return next;
-    });
+  const [expandedIdle, setExpandedIdle] = useState<ReadonlySet<string>>(() => new Set());
+  const [collapsedProjects, setCollapsedProjects] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleIn =
+    (setter: typeof setExpandedIdle) =>
+    (key: string): void =>
+      setter((current) => {
+        const next = new Set(current);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      });
+  const toggleIdle = toggleIn(setExpandedIdle);
+  const toggleProject = toggleIn(setCollapsedProjects);
   const groups = useSidebarProjectGroups();
-  const threads = useQuietThreadShells();
-  const delegatedUnderParent = useDelegatedUnderParent();
-  const localLastVisitedAt = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const { threads: boardThreads, nowMs } = useFleetBoardThreads(showSettled);
   const environments = useAtomValue(environmentSummaries.environmentsAtom);
 
   const enabledEnvironments = environments.filter((environment) => environment.isEnabled);
@@ -83,26 +76,6 @@ export function FleetBoardPage() {
     environments.map((environment) => [environment.environmentId, environment.environmentLabel]),
   );
   const showMachine = enabledEnvironments.length > 1;
-  // Render must stay pure, so snooze expiry is checked to the minute (the sidebar: to the ms).
-  const nowIso = new Date(nowMs).toISOString();
-
-  const boardThreads: BoardThread[] = filterSidebarV2VisibleThreads(
-    threads,
-    null,
-    delegatedUnderParent,
-  )
-    .filter(
-      (thread) =>
-        showSettled ||
-        (thread.settledOverride !== "settled" && !effectiveSnoozed(thread, { now: nowIso })),
-    )
-    .map((thread) => ({
-      ...thread,
-      lastVisitedAt: resolveThreadLastVisitedAt(
-        thread.lastVisitedAt,
-        localLastVisitedAt[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
-      ),
-    }));
   const { rows, totals } = buildFleetBoard(groups, boardThreads);
 
   const openThread = (thread: BoardThread) => {
@@ -168,8 +141,10 @@ export function FleetBoardPage() {
           </Empty>
         ) : (
           <ScrollArea className="min-h-0 flex-1">
-            <div className="grid grid-cols-1 gap-x-3 px-4 pb-6 lg:grid-cols-[minmax(8rem,11rem)_repeat(4,minmax(0,1fr))]">
-              <div className="sticky top-0 z-10 hidden bg-background lg:block" />
+            <div className="grid grid-cols-1 gap-x-3 px-4 pb-6 lg:grid-cols-[minmax(10rem,16rem)_repeat(4,minmax(0,1fr))]">
+              <div className="sticky top-0 z-10 hidden bg-background py-2 text-2xs font-semibold tracking-wide text-muted-foreground uppercase lg:block">
+                Project › chat
+              </div>
               {FLEET_BOARD_COLUMNS.map((column) => (
                 <div
                   key={column.id}
@@ -185,38 +160,50 @@ export function FleetBoardPage() {
                 </div>
               ))}
 
-              {rows.map((row) => (
-                <div key={row.group.projectKey} className="contents">
-                  <div className="truncate border-t border-border pt-3 pb-1 text-sm font-medium lg:pb-3">
-                    {row.group.displayName}
-                  </div>
-                  {FLEET_BOARD_COLUMNS.map((column) => {
-                    const cards = row.columns[column.id];
-                    const cellKey = `${row.group.projectKey}:${column.id}`;
-                    const expanded = expandedCells.has(cellKey);
-                    const hiddenCount = Math.max(0, cards.length - COLLAPSED_CARD_LIMIT);
-                    const shownCards =
-                      expanded || column.id === "needs"
-                        ? cards
-                        : cards.slice(0, COLLAPSED_CARD_LIMIT);
-                    return (
-                      <div
-                        key={column.id}
+              {rows.map((row) => {
+                const projectKey = row.group.projectKey;
+                const collapsed = collapsedProjects.has(projectKey);
+                const idleExpanded = expandedIdle.has(projectKey);
+                const idleChats = row.columns.queued.filter((entry) => entry.tone === "quiet");
+                const hiddenIdle = idleExpanded
+                  ? []
+                  : idleChats.slice(COLLAPSED_IDLE_LIMIT).map((entry) => entry.thread.id);
+                const shownChats = row.chats.filter(
+                  (entry) => !hiddenIdle.includes(entry.thread.id),
+                );
+                return (
+                  <div key={projectKey} className="contents">
+                    <button
+                      type="button"
+                      onClick={() => toggleProject(projectKey)}
+                      aria-expanded={!collapsed}
+                      className="col-span-full flex min-w-0 cursor-pointer items-center gap-1.5 border-t border-border pt-3 pb-2 text-left text-sm font-medium hover:text-foreground"
+                    >
+                      <ChevronRightIcon
                         className={cn(
-                          "flex min-w-0 flex-col gap-1.5 lg:border-t lg:border-border lg:py-3",
-                          cards.length === 0 && "hidden lg:flex",
+                          "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                          !collapsed && "rotate-90",
                         )}
-                      >
-                        <span
-                          className={cn(
-                            "text-2xs font-semibold tracking-wide uppercase lg:hidden",
-                            COLUMN_HEADER_TEXT[column.id],
-                          )}
-                        >
-                          {column.label}
+                      />
+                      <span className="truncate">{row.group.displayName}</span>
+                      <span className="flex shrink-0 items-center gap-2 text-2xs font-normal text-muted-foreground">
+                        <span>
+                          {row.total} chat{row.total === 1 ? "" : "s"}
                         </span>
-                        {shownCards.map((entry) => (
-                          <FleetBoardCardView
+                        {row.columns.needs.length > 0 ? (
+                          <span className={COLUMN_HEADER_TEXT.needs}>
+                            {row.columns.needs.length} need you
+                          </span>
+                        ) : null}
+                        {row.columns.running.length > 0 ? (
+                          <span>{row.columns.running.length} running</span>
+                        ) : null}
+                      </span>
+                    </button>
+                    {collapsed
+                      ? null
+                      : shownChats.map((entry) => (
+                          <FleetBoardChatRow
                             key={scopedThreadKey(
                               scopeThreadRef(entry.thread.environmentId, entry.thread.id),
                             )}
@@ -230,25 +217,53 @@ export function FleetBoardPage() {
                             onOpen={() => openThread(entry.thread)}
                           />
                         ))}
-                        {column.id !== "needs" && hiddenCount > 0 ? (
-                          <button
-                            type="button"
-                            onClick={() => toggleCell(cellKey)}
-                            className="cursor-pointer self-start rounded px-1 text-2xs text-muted-foreground hover:text-foreground"
-                          >
-                            {expanded ? "Show less" : `+${hiddenCount} more`}
-                          </button>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+                    {!collapsed && (hiddenIdle.length > 0 || idleExpanded) ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleIdle(projectKey)}
+                        className="col-span-full cursor-pointer justify-self-start rounded px-1 pb-2 text-2xs text-muted-foreground hover:text-foreground lg:ps-5"
+                      >
+                        {idleExpanded ? "Show fewer idle chats" : `+${hiddenIdle.length} idle`}
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </ScrollArea>
         )}
       </div>
     </SidebarInset>
+  );
+}
+
+/** One chat: its name in the first column, its card under its status column. */
+function FleetBoardChatRow(props: {
+  readonly entry: FleetBoardCard<BoardThread>;
+  readonly machineLabel: string | null;
+  readonly nowMs: number;
+  readonly onOpen: () => void;
+}) {
+  const { entry } = props;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={props.onOpen}
+        className="hidden min-w-0 cursor-pointer truncate py-1 ps-5 text-left text-sm text-muted-foreground hover:text-foreground lg:block"
+      >
+        {entry.thread.title}
+      </button>
+      {FLEET_BOARD_COLUMNS.map((column) =>
+        column.id === entry.column ? (
+          <div key={column.id} className="min-w-0 py-1">
+            <FleetBoardCardView {...props} />
+          </div>
+        ) : (
+          <div key={column.id} aria-hidden className="hidden lg:block" />
+        ),
+      )}
+    </>
   );
 }
 
@@ -270,7 +285,7 @@ function FleetBoardCardView(props: {
         entry.column === "done" && "opacity-85",
       )}
     >
-      <span className="truncate text-sm font-medium">{entry.thread.title}</span>
+      <span className="truncate text-sm font-medium lg:hidden">{entry.thread.title}</span>
       <span className={cn("line-clamp-2 text-xs", TONE_TEXT[entry.tone])}>{entry.nextStep}</span>
       <span className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
         {entry.tone === "working" ? (
@@ -282,6 +297,9 @@ function FleetBoardCardView(props: {
           </span>
         ) : null}
         {age ? <span className="shrink-0">{age}</span> : null}
+        <span className="truncate lg:hidden">
+          · {FLEET_BOARD_COLUMNS.find((column) => column.id === entry.column)?.label}
+        </span>
       </span>
     </button>
   );

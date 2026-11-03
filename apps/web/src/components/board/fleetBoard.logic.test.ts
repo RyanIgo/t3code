@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildFleetBoard,
+  sortByFleetBoardUrgency,
   formatFleetBoardAge,
   minuteTickToMs,
   resolveFleetBoardCard,
@@ -179,6 +180,30 @@ describe("buildFleetBoard", () => {
       thread({ id: "older", hasPendingUserInput: true, updatedAt: "2026-11-01T09:05:00.000Z" }),
     ]);
     expect(rows[0]?.columns.needs.map((c) => c.thread.id)).toEqual(["older", "newer"]);
+  });
+
+  it("lists a project's chats as sub-rows, most urgent first", () => {
+    const { rows } = buildFleetBoard(groups, [
+      thread({ id: "idle", updatedAt: "2026-11-01T11:00:00.000Z" }),
+      thread({ id: "run", runtime: runtime("running") }),
+      thread({ id: "ask", hasPendingUserInput: true }),
+    ]);
+    expect(rows[0]?.chats.map((c) => c.thread.id)).toEqual(["ask", "run", "idle"]);
+  });
+});
+
+describe("sortByFleetBoardUrgency", () => {
+  it("puts what needs you first and keeps the given order within a tier", () => {
+    const sorted = sortByFleetBoardUrgency(
+      [
+        thread({ id: "idle-a" }),
+        thread({ id: "run", runtime: runtime("running") }),
+        thread({ id: "idle-b" }),
+        thread({ id: "ask", hasPendingApprovals: true }),
+      ],
+      (entry) => entry,
+    );
+    expect(sorted.map((entry) => entry.id)).toEqual(["ask", "run", "idle-a", "idle-b"]);
   });
 });
 
