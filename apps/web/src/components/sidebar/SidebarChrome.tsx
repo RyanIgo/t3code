@@ -1,4 +1,11 @@
-import { ArrowLeftIcon, ChartNoAxesColumnIcon, SquareKanbanIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowDownUpIcon,
+  ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
+  ListIcon,
+  SquareKanbanIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
@@ -26,6 +33,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { useFleetBoardNeedsCount } from "../board/useFleetBoardThreads";
 import { installFleetFolderDefault } from "../board/fleetFolderDefault";
+import { useFleetSidebarOrder } from "./fleetSidebarOrder";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
@@ -76,10 +84,44 @@ export const SidebarChromeHeader = memo(function SidebarChromeHeader({
           </div>
         ) : null}
       </div>
+      <SidebarOrderButton />
       <SidebarBoardButton />
     </div>
   );
 });
+
+/** Fleet fork: switches the chat list between a held order and activity order. */
+function SidebarOrderButton() {
+  const [order, setOrder] = useFleetSidebarOrder();
+  const fixed = order === "fixed";
+  const label = fixed
+    ? "Chat order held: chats stay put and new ones appear on top. Click to sort by activity."
+    : "Chats sort by activity: sending moves a chat up. Click to hold the order.";
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={label}
+            aria-pressed={fixed}
+            onClick={() => setOrder(fixed ? "activity" : "fixed")}
+            className="relative z-10 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-sidebar-foreground/70 outline-hidden hover:bg-sidebar-row-hover hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          />
+        }
+      >
+        {fixed ? (
+          <ListIcon aria-hidden className="size-3.5" />
+        ) : (
+          <ArrowDownUpIcon aria-hidden className="size-3.5" />
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-64">
+        {label}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
 
 /** Always in the top bar, so the board is one click from any chat; counts what needs you. */
 function SidebarBoardButton() {

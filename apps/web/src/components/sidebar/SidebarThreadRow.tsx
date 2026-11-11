@@ -560,6 +560,8 @@ type SidebarThreadRowProps = {
   environmentLabel: string | null;
   environmentMachine: EnvironmentMachineKind;
   scratchMachineLabel: string | null;
+  /** Fleet fork: the machine's name on the detail line, set when several machines are paired. */
+  machineTag?: string | null;
   project: EnvironmentProject | null;
   projectDisplayName: string | null;
   providerEntryByInstanceId: ReadonlyMap<string, SidebarProviderEntry>;
@@ -800,6 +802,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isRemote = thread.environmentId !== props.currentEnvironmentId;
   const showsScratchMachine = !thread.branch && props.scratchMachineLabel !== null;
+  const machineTag = showsScratchMachine ? null : (props.machineTag ?? null);
 
   const detailsTooltip = (
     <SidebarThreadTooltip
@@ -947,7 +950,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       !props.isActive &&
       "[&:not(:hover):not(:focus-within)_*]:text-secondary-label",
     props.isActive
-      ? "bg-sidebar-row-active text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
+      ? "bg-primary/12 text-sidebar-foreground ring-1 ring-inset ring-primary/45"
       : isSelected || props.sweepAction !== null
         ? "bg-sidebar-row-selected text-sidebar-foreground light:ring-1 light:ring-inset light:ring-sidebar-border/70"
         : hasUnsentDraft
@@ -995,6 +998,37 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       </span>
     ) : null;
 
+  // Fleet: a colored rail on the row's left edge shows status at a glance, and
+  // the active chat gets a solid primary rail so it stands out from status.
+  const statusRailClassName = props.isActive
+    ? "w-1 bg-primary"
+    : topStatus === null
+      ? null
+      : cn(
+          "w-[3px]",
+          topStatus.icon === "working" && "bg-info motion-safe:animate-pulse",
+          topStatus.icon === "waiting" && "bg-muted-foreground/50",
+          (topStatus.icon === "approval" ||
+            topStatus.icon === "input" ||
+            topStatus.icon === "woke") &&
+            "bg-warning",
+          topStatus.label === "Limited" && "bg-warning",
+
+          topStatus.icon === "request" && "bg-guest",
+          topStatus.icon === "failed" && topStatus.label === "Failed" && "bg-destructive",
+          topStatus.icon === "done" && "bg-success",
+        );
+  const statusRail =
+    statusRailClassName === null ? null : (
+      <span
+        aria-hidden
+        data-testid="sidebar-status-rail"
+        className={cn(
+          "pointer-events-none absolute inset-y-1 left-0.5 z-20 rounded-full",
+          statusRailClassName,
+        )}
+      />
+    );
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
     statusLabel: topStatus?.label ?? null,
@@ -1130,9 +1164,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     prBadge === null &&
     diff === null &&
     !isRemote &&
+    machineTag === null &&
     runningTerminalIds.length === 0;
   const metaLine = metaLineEmpty ? null : (
     <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-secondary-label text-xs">
+      {machineTag !== null ? (
+        <span className="inline-flex max-w-28 min-w-0 shrink-0 items-center gap-1 text-sidebar-muted-foreground">
+          <EnvironmentMachineIcon
+            aria-hidden
+            kind={props.environmentMachine}
+            className="size-3 shrink-0"
+          />
+          <span className="truncate">{machineTag}</span>
+          {thread.branch ? <span aria-hidden>·</span> : null}
+        </span>
+      ) : null}
       {thread.branch ? (
         <>
           <ThreadWorktreeIndicator thread={thread} />
@@ -1164,7 +1210,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         aria-hidden
         className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
       >
-        {isRemote && !showsScratchMachine ? (
+        {machineTag === null && isRemote && !showsScratchMachine ? (
           <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
             <EnvironmentMachineIcon
               aria-hidden
@@ -1233,6 +1279,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           >
             {/* `contents` keeps one-line rows a single flex row. */}
             <div className={multiline ? "flex h-6 min-w-0 items-center gap-2.5" : "contents"}>
+              {statusRail}
               {accessibleTitle}
               {inFolder ? null : (
                 <span
@@ -1412,6 +1459,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             />
           }
         >
+          {statusRail}
           {accessibleTitle}
           <div
             className={cn(

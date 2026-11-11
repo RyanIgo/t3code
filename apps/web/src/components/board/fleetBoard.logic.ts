@@ -242,21 +242,6 @@ export function buildFleetBoard<G extends FleetBoardGroupInput, T extends FleetB
 }
 
 /**
- * Orders threads the way a board row reads: Needs me, Running, Done, then Queued.
- * Stable, so each tier keeps the caller's order (the sidebar's send order).
- */
-export function sortByFleetBoardUrgency<T>(
-  threads: ReadonlyArray<T>,
-  toInput: (thread: T) => FleetBoardThreadInput,
-): T[] {
-  const rank = new Map<T, number>();
-  for (const thread of threads) {
-    rank.set(thread, ROW_URGENCY.indexOf(resolveFleetBoardCard(toInput(thread)).column));
-  }
-  return threads.toSorted((a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0));
-}
-
-/**
  * `minuteTick` snapshots are UTC ISO strings cut to the minute ("2026-11-01T11:05")
  * with no zone suffix, which `Date.parse` would read as local time.
  */

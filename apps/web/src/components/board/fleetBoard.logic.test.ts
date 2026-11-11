@@ -3,7 +3,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   buildFleetBoard,
-  sortByFleetBoardUrgency,
   formatFleetBoardAge,
   minuteTickToMs,
   resolveFleetBoardCard,
@@ -189,21 +188,6 @@ describe("buildFleetBoard", () => {
       thread({ id: "ask", hasPendingUserInput: true }),
     ]);
     expect(rows[0]?.chats.map((c) => c.thread.id)).toEqual(["ask", "run", "idle"]);
-  });
-});
-
-describe("sortByFleetBoardUrgency", () => {
-  it("puts what needs you first and keeps the given order within a tier", () => {
-    const sorted = sortByFleetBoardUrgency(
-      [
-        thread({ id: "idle-a" }),
-        thread({ id: "run", runtime: runtime("running") }),
-        thread({ id: "idle-b" }),
-        thread({ id: "ask", hasPendingApprovals: true }),
-      ],
-      (entry) => entry,
-    );
-    expect(sorted.map((entry) => entry.id)).toEqual(["ask", "run", "idle-a", "idle-b"]);
   });
 });
 

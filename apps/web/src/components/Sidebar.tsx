@@ -111,7 +111,7 @@ import {
   type SidebarProjectSnapshot,
 } from "../sidebarProjectGrouping";
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
-import { sortByFleetBoardUrgency } from "./board/fleetBoard.logic";
+import { useFleetSidebarOrder } from "./sidebar/fleetSidebarOrder";
 import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
@@ -190,7 +190,6 @@ import {
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
   resolveSidebarThreadSection,
-  resolveThreadLastVisitedAt,
   searchSidebarThreads,
   shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
@@ -345,6 +344,8 @@ interface SidebarThreadPartitionInput {
   readonly workingShelfEnabled: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  /** Fleet fork: keep chats where they are instead of moving them on activity. */
+  readonly holdOrder: boolean;
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -448,7 +449,7 @@ function useSidebarThreads(input: {
   );
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
-  const localLastVisitedAt = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const [sidebarOrder] = useFleetSidebarOrder();
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const [settledTail, setSettledTail] = useState({
     scopeKey: projectScopeKey,
@@ -467,7 +468,8 @@ function useSidebarThreads(input: {
     serverConfigs,
     optimisticDrop,
     workingShelfEnabled,
-    sortActiveBySend: folderGroups !== null,
+    sortActiveBySend: folderGroups !== null && sidebarOrder === "activity",
+    holdOrder: sidebarOrder === "fixed",
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
@@ -508,18 +510,7 @@ function useSidebarThreads(input: {
   const projectFolders =
     folderGroups === null
       ? null
-      : groupSidebarThreadsByProject(folderGroups, activeThreads, keepEmpty).map((unsorted) => {
-          // Fleet fork: folders read like a board row, what needs you first.
-          const folder = {
-            ...unsorted,
-            threads: sortByFleetBoardUrgency(unsorted.threads, (thread) => ({
-              ...thread,
-              lastVisitedAt: resolveThreadLastVisitedAt(
-                thread.lastVisitedAt,
-                localLastVisitedAt[threadShellKey(thread)],
-              ),
-            })),
-          };
+      : groupSidebarThreadsByProject(folderGroups, activeThreads, keepEmpty).map((folder) => {
           const collapsed = !resolveProjectExpanded(
             projectExpandedById,
             sidebarFolderExpansionKeys(folder.group),
@@ -614,6 +605,7 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     optimisticDrop,
     workingShelfEnabled,
     sortActiveBySend,
+    holdOrder,
   } = input;
   const preciseNow = new Date().toISOString();
   const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
@@ -672,11 +664,13 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
   }
   // A loaded config gates dragging only; the sort must not depend on it, so web and mobile agree.
   const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive = sortActiveBySend
-    ? sortWorkingThreadsBySend(active)
-    : workingShelfEnabled
-      ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
-      : sortThreadsForSidebar(active);
+  const sortedActive = holdOrder
+    ? sortThreadsForSidebar(active)
+    : sortActiveBySend
+      ? sortWorkingThreadsBySend(active)
+      : workingShelfEnabled
+        ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
+        : sortThreadsForSidebar(active);
   return {
     pinnedThreads:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -3284,6 +3278,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
                             scratchMachineLabel={scratchMachineLabelFor(thread)}
+                            machineTag={
+                              environmentLabelById.size > 1
+                                ? (environmentLabelById.get(thread.environmentId) ?? null)
+                                : null
+                            }
                             project={
                               projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
                               null

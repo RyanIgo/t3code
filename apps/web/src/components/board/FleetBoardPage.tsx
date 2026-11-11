@@ -6,8 +6,10 @@ import { ChevronRightIcon } from "lucide-react";
 import { useState } from "react";
 
 import { isElectron } from "../../env";
+import { useUpdatePrimarySettings } from "../../hooks/useSettings";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { cn } from "../../lib/utils";
+import { useEnvironments } from "../../state/environments";
 import { environmentSummaries } from "../../state/presentation";
 import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
@@ -76,6 +78,26 @@ export function FleetBoardPage() {
     environments.map((environment) => [environment.environmentId, environment.environmentLabel]),
   );
   const showMachine = enabledEnvironments.length > 1;
+
+  // Auto-settle is a shared setting: one save reaches every connected machine.
+  const { environments: settingsTargets } = useEnvironments();
+  const updatePrimarySettings = useUpdatePrimarySettings();
+  const connectedSettings = settingsTargets.flatMap((environment) =>
+    environment.connection.phase === "connected" && environment.serverConfig
+      ? [{ label: environment.label, settings: environment.serverConfig.settings }]
+      : [],
+  );
+  const autoSettlingOn = connectedSettings.filter(
+    ({ settings }) =>
+      settings.sidebarAutoSettleAfterDays !== null || settings.sidebarAutoSettleOnMerge,
+  );
+  const autoSettleOn = autoSettlingOn.length > 0;
+  const setAutoSettle = (on: boolean) =>
+    updatePrimarySettings(
+      on
+        ? { sidebarAutoSettleAfterDays: 3, sidebarAutoSettleOnMerge: true }
+        : { sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false },
+    );
   const { rows, totals } = buildFleetBoard(groups, boardThreads);
 
   const openThread = (thread: BoardThread) => {
@@ -118,6 +140,23 @@ export function FleetBoardPage() {
             </span>
             <span>{totals.running} running</span>
           </div>
+          <Tooltip>
+            <TooltipTrigger render={<div className="flex shrink-0 items-center gap-1.5" />}>
+              <Switch
+                id="fleet-board-auto-settle"
+                size="sm"
+                checked={autoSettleOn}
+                disabled={connectedSettings.length === 0}
+                onCheckedChange={setAutoSettle}
+              />
+              <Label htmlFor="fleet-board-auto-settle">Auto-settle</Label>
+            </TooltipTrigger>
+            <TooltipPopup side="bottom">
+              {autoSettleOn
+                ? `On for ${autoSettlingOn.map(({ label }) => label).join(", ")}. Turn off to stop settling idle and merged chats on every connected machine.`
+                : "Off on every connected machine. Turn on to settle chats after 3 idle days or a merge."}
+            </TooltipPopup>
+          </Tooltip>
           <div className="flex shrink-0 items-center gap-1.5">
             <Switch
               id="fleet-board-show-settled"

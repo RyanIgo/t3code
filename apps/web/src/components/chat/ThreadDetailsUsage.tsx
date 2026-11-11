@@ -94,10 +94,15 @@ function LimitRow({
   const left = remainingPercent(window);
   const pace = paceOf(window, now);
   const resetsAt = window.resetsAt ? Date.parse(window.resetsAt) : Number.NaN;
+  const resetDetail =
+    window.resetsAt && resetsAt > now
+      ? `Resets ${formatUpcomingTimestamp(window.resetsAt, timestampFormat, now)} · in ${formatDuration(resetsAt - now)}`
+      : undefined;
   return (
     <UsageRow
       label={window.label}
       left={left}
+      detail={resetDetail}
       tooltip={
         <>
           <span className="text-foreground">
@@ -157,6 +162,7 @@ function UsageRow({
   tooltip,
   value,
   muted = false,
+  detail,
   className,
 }: {
   readonly label: string;
@@ -165,6 +171,8 @@ function UsageRow({
   /** Replaces the percentage when there is none. */
   readonly value?: string | undefined;
   readonly muted?: boolean;
+  /** Fleet: a second line shown under the row, such as when the limit resets. */
+  readonly detail?: string | undefined;
   readonly className?: string | undefined;
 }) {
   const tone = left === null ? null : left <= 10 ? "error" : left <= 20 ? "warning" : null;
@@ -176,7 +184,8 @@ function UsageRow({
             tabIndex={0}
             aria-label={`${label}: ${value ?? `${left}% left`}`}
             className={cn(
-              "col-span-3 grid h-6 cursor-default grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]",
+              "col-span-3 grid cursor-default grid-cols-subgrid items-center rounded-lg px-2.5 outline-none hover:bg-black/[0.035] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring data-popup-open:bg-black/[0.035] dark:hover:bg-white/[0.08] dark:data-popup-open:bg-white/[0.08]",
+              detail === undefined ? "h-6" : "py-1",
               className,
             )}
           />
@@ -218,6 +227,11 @@ function UsageRow({
         >
           {value ?? `${left}%`}
         </span>
+        {detail !== undefined ? (
+          <span className="col-span-3 truncate text-2xs text-muted-foreground tabular-nums">
+            {detail}
+          </span>
+        ) : null}
       </TooltipTrigger>
       {/* Rows sit 8px inside the card; clear its edge instead of overlapping it. */}
       <TooltipPopup side="left" sideOffset={16}>
