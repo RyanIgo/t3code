@@ -39,6 +39,7 @@ import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
+import { mirrorCatalogToBackup, requestPersistentStorage } from "./fleetCatalogBackup";
 
 const DATABASE_NAME = "t3code:connection-runtime";
 const DATABASE_VERSION = 4;
@@ -387,6 +388,7 @@ export interface CatalogBackend {
 
 export function makeCatalogBackend(database: DatabaseHandle): CatalogBackend {
   const bridge = window.desktopBridge;
+  if (bridge === undefined) requestPersistentStorage();
   if (bridge !== undefined) {
     return {
       read: Effect.tryPromise({
@@ -416,7 +418,10 @@ export function makeCatalogBackend(database: DatabaseHandle): CatalogBackend {
     read: readDatabaseValue(database, CATALOG_STORE_NAME, CATALOG_KEY).pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
     ),
-    write: (raw) => writeDatabaseValue(database, CATALOG_STORE_NAME, CATALOG_KEY, raw),
+    write: (raw) =>
+      writeDatabaseValue(database, CATALOG_STORE_NAME, CATALOG_KEY, raw).pipe(
+        Effect.tap(() => Effect.sync(() => void mirrorCatalogToBackup(raw))),
+      ),
     quarantine: (raw) =>
       writeDatabaseValue(database, CATALOG_STORE_NAME, `${CATALOG_KEY}:corrupt:${Date.now()}`, raw),
   };
