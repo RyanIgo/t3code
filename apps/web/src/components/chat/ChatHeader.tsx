@@ -9,7 +9,7 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, RadarIcon } from "lucide-react";
 import {
   memo,
   useEffect,
@@ -27,6 +27,7 @@ import { readLocalApi } from "~/localApi";
 import { threadEnvironment } from "../../state/threads";
 import { useEnvironmentIdentities, useEnvironmentMachines } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
+import { isOrchestratorTitle, toggleOrchestratorTitle } from "../command/fleetOrchestrator";
 import { canShareWithGuestAtom } from "./guestShareAvailability";
 import { useAtomValue } from "@effect/atom-react";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -174,6 +175,23 @@ export const ChatHeader = memo(function ChatHeader({
       environmentId: activeThreadEnvironmentId,
       threadId: activeThreadId,
       title: activeThreadTitle,
+    });
+  };
+  const isOrchestrator = isOrchestratorTitle(activeThreadTitle);
+  const toggleOrchestrator = () => {
+    if (!readEnvironmentScope(activeThreadEnvironmentId, AuthOrchestrationOperateScope)) return;
+    void updateThreadMetadata({
+      environmentId: activeThreadEnvironmentId,
+      input: { threadId: activeThreadId, title: toggleOrchestratorTitle(activeThreadTitle) },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Failed to change the chat's role",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
     });
   };
   const commitRename = (title: string) => {
@@ -449,6 +467,35 @@ export const ChatHeader = memo(function ChatHeader({
           ) : null}
         </WorkspaceBreadcrumbItem>
       </WorkspaceBreadcrumb>
+      {isServerThread && (isOrchestrator || canOperateThread) ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                aria-pressed={isOrchestrator}
+                aria-label={isOrchestrator ? "Orchestrator chat" : "Make this an orchestrator chat"}
+                disabled={!canOperateThread}
+                onClick={toggleOrchestrator}
+                className={cn(
+                  "inline-flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md px-1.5 text-xs font-medium outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:cursor-default",
+                  isOrchestrator
+                    ? "border border-primary/40 bg-primary/12 text-primary"
+                    : "text-muted-foreground/70 hover:bg-accent hover:text-foreground",
+                )}
+              />
+            }
+          >
+            <RadarIcon aria-hidden className="size-3.5" />
+            {isOrchestrator ? <span>Command</span> : null}
+          </TooltipTrigger>
+          <TooltipPopup side="bottom" className="max-w-64">
+            {isOrchestrator
+              ? "This chat is an orchestrator, so it sits in the Command panel. Click to make it a regular chat."
+              : "Make this an orchestrator: it moves to the Command panel above your other chats."}
+          </TooltipPopup>
+        </Tooltip>
+      ) : null}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );

@@ -72,6 +72,7 @@ import {
   SquarePenIcon,
   TextSearchIcon,
   UserPlusIcon,
+  RadarIcon,
 } from "lucide-react";
 import { openThreadFind } from "./chat/threadFindStore";
 import {
@@ -232,6 +233,7 @@ import { resolveShortcutCommand, threadJumpIndexFromCommand } from "../keybindin
 import { CommandDialog, CommandDialogPopup, CommandFooterAction } from "./ui/command";
 import { Button } from "./ui/button";
 import { stackedThreadToast, toastManager } from "./ui/toast";
+import { ORCHESTRATOR_ROLES, useStartOrchestrator } from "./command/useStartOrchestrator";
 import { suggestAppAccessForRemote } from "./sourceControlAppAccessToast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { ComposerHandleContext, useComposerHandleContext } from "../composerHandleContext";
@@ -374,6 +376,7 @@ function OpenCommandPaletteDialog(props: {
   readonly initialContext: CommandPaletteReturnContext | undefined;
 }) {
   const navigate = useNavigate();
+  const startOrchestrator = useStartOrchestrator();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { openChildSearch, setOpen } = props;
   // Keyed by palette session: the intent and restored search only seed this
@@ -1504,6 +1507,27 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/board" });
     },
   });
+
+  for (const { role, summary } of ORCHESTRATOR_ROLES) {
+    actionItems.push({
+      kind: "action",
+      value: `action:orchestrator:${role.toLowerCase()}`,
+      searchTerms: [
+        "orchestrator",
+        "command",
+        "start",
+        role.toLowerCase(),
+        "planner",
+        "github",
+        summary,
+      ],
+      title: `Start ${role} orchestrator`,
+      icon: <RadarIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        startOrchestrator(role);
+      },
+    });
+  }
 
   actionItems.push({
     kind: "action",

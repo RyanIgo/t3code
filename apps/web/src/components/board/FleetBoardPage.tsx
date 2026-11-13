@@ -27,6 +27,8 @@ import {
   type FleetBoardTone,
 } from "./fleetBoard.logic";
 import { type BoardThread, useFleetBoardThreads } from "./useFleetBoardThreads";
+import { CommandPanel } from "../command/CommandPanel";
+import { isOrchestratorTitle } from "../command/fleetOrchestrator";
 
 /** Chats that need you, run, or finished always show; idle chats fold after this many per project. */
 const COLLAPSED_IDLE_LIMIT = 3;
@@ -98,7 +100,10 @@ export function FleetBoardPage() {
         ? { sidebarAutoSettleAfterDays: 3, sidebarAutoSettleOnMerge: true }
         : { sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false },
     );
-  const { rows, totals } = buildFleetBoard(groups, boardThreads);
+  const { rows, totals } = buildFleetBoard(
+    groups,
+    boardThreads.filter((thread) => !isOrchestratorTitle(thread.title)),
+  );
 
   const openThread = (thread: BoardThread) => {
     void navigate({
@@ -168,6 +173,9 @@ export function FleetBoardPage() {
           </div>
         </WorkspacePageHeader>
 
+        <div className="shrink-0 px-4 pt-3 empty:hidden">
+          <CommandPanel layout="board" />
+        </div>
         {rows.length === 0 ? (
           <Empty className="flex-1">
             <EmptyHeader>
