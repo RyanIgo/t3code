@@ -113,6 +113,14 @@ import {
 import { resolveProjectExpanded, useUiStateStore } from "../uiStateStore";
 import { useFleetSidebarOrder } from "./sidebar/fleetSidebarOrder";
 import {
+  countFleetThreadStates,
+  fleetThreadStateOf,
+  useFleetThreadStateFilter,
+} from "./sidebar/fleetThreadState";
+import { SidebarStateFilterBar } from "./sidebar/SidebarStateFilterBar";
+import { CommandPanel } from "./command/CommandPanel";
+import { isOrchestratorTitle } from "./command/fleetOrchestrator";
+import {
   getThreadKeysToDeselectAfterDelete,
   useThreadSelectionStore,
 } from "../threadSelectionStore";
@@ -416,12 +424,14 @@ function useSidebarThreads(input: {
     scopedProjectKeys,
     serverConfigs,
     optimisticDrop,
-    threads,
+    threads: allThreads,
     delegatedUnderParent,
     routeRowThreadKey,
     folderGroups,
     keepEmptyFolders: keepEmpty,
   } = input;
+  // Orchestrator chats live in the Command panel, not among the work they oversee.
+  const threads = allThreads.filter((thread) => !isOrchestratorTitle(thread.title));
   // Folders already separate the work, so boring mode has no Working shelf.
   const workingShelfEnabled =
     useClientSettings((s) => s.sidebarWorkingShelfEnabled) && folderGroups === null;
@@ -450,6 +460,8 @@ function useSidebarThreads(input: {
   // Shared with the old per-project sidebar, so folders keep their open state.
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
   const [sidebarOrder] = useFleetSidebarOrder();
+  const [stateFilter] = useFleetThreadStateFilter();
+  const localLastVisitedAt = useUiStateStore((store) => store.threadLastVisitedAtById);
   const setProjectExpanded = useUiStateStore((store) => store.setProjectExpanded);
   const [settledTail, setSettledTail] = useState({
     scopeKey: projectScopeKey,
@@ -461,7 +473,7 @@ function useSidebarThreads(input: {
   const settledVisibleCount =
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
-  const partition = partitionSidebarThreads({
+  const unfilteredPartition = partitionSidebarThreads({
     threads,
     scopedProjectKeys,
     delegatedUnderParent,
@@ -472,6 +484,26 @@ function useSidebarThreads(input: {
     holdOrder: sidebarOrder === "fixed",
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
+  // Fleet fork: badge states for the open lists, and the quick filter over them.
+  const stateOf = (thread: EnvironmentThreadShell) =>
+    fleetThreadStateOf(thread, localLastVisitedAt, unfilteredPartition.snoozeNow);
+  const openThreads = [
+    ...unfilteredPartition.pinnedThreads,
+    ...unfilteredPartition.activeThreads,
+    ...unfilteredPartition.workingThreads,
+  ];
+  const stateCounts = countFleetThreadStates(openThreads.map(stateOf));
+  const keepState = (thread: EnvironmentThreadShell) =>
+    stateFilter === "all" || stateOf(thread) === stateFilter;
+  const partition =
+    stateFilter === "all"
+      ? unfilteredPartition
+      : {
+          ...unfilteredPartition,
+          pinnedThreads: unfilteredPartition.pinnedThreads.filter(keepState),
+          activeThreads: unfilteredPartition.activeThreads.filter(keepState),
+          workingThreads: unfilteredPartition.workingThreads.filter(keepState),
+        };
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
@@ -549,6 +581,7 @@ function useSidebarThreads(input: {
   return {
     ...partition,
     threads,
+    stateCounts,
     workingShelfEnabled,
     searchableThreads: [
       ...pinnedThreads,
@@ -1281,6 +1314,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     activeKeys,
     pinnedKeysById,
     activeKeysById,
+    stateCounts,
   } = useSidebarThreads({
     projectScopeKey,
     scopedProjectKeys,
@@ -2905,6 +2939,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         className="min-h-full"
         fixedHeader={
           <SidebarGroup className="z-[1]">
+            <CommandPanel layout="sidebar" />
+            <SidebarStateFilterBar counts={stateCounts} />
             <SidebarThreadHeader
               searchFieldRef={headerSearchRef}
               hasProjects={projectGroups.length > 0}

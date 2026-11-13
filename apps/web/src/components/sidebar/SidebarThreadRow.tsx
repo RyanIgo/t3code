@@ -1,4 +1,10 @@
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
+import {
+  FLEET_THREAD_STATES,
+  type FleetThreadState,
+  pullRequestPhase,
+  resolveFleetThreadState,
+} from "./fleetThreadState";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -114,6 +120,17 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
 
+const FLEET_STATE_LABEL = Object.fromEntries(
+  FLEET_THREAD_STATES.map(({ id, label }) => [id, label]),
+) as Record<FleetThreadState, string>;
+
+const FLEET_STATE_PILL: Record<FleetThreadState, string> = {
+  me: "border-warning/50 bg-warning/15 text-warning-foreground",
+  active: "border-info/50 bg-info/15 text-info-foreground",
+  code: "border-primary/40 bg-primary/10 text-primary",
+  merged: "border-success/50 bg-success/15 text-success-foreground",
+  inactive: "border-sidebar-border text-sidebar-muted-foreground",
+};
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
 // environment's map, and every memoized row, stable across them.
@@ -715,6 +732,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
+  const fleetState = resolveFleetThreadState({
+    status,
+    isUnread,
+    isWoke,
+    pullRequest: pullRequestPhase(thread.pullRequests),
+  });
   const shouldRecede = shouldRecedeSidebarThread({
     status,
     isUnread,
@@ -1002,22 +1025,24 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
   // the active chat gets a solid primary rail so it stands out from status.
   const statusRailClassName = props.isActive
     ? "w-1 bg-primary"
-    : topStatus === null
-      ? null
-      : cn(
-          "w-[3px]",
-          topStatus.icon === "working" && "bg-info motion-safe:animate-pulse",
-          topStatus.icon === "waiting" && "bg-muted-foreground/50",
-          (topStatus.icon === "approval" ||
-            topStatus.icon === "input" ||
-            topStatus.icon === "woke") &&
-            "bg-warning",
-          topStatus.label === "Limited" && "bg-warning",
+    : fleetState === "merged"
+      ? "w-[3px] bg-success"
+      : topStatus === null
+        ? null
+        : cn(
+            "w-[3px]",
+            topStatus.icon === "working" && "bg-info motion-safe:animate-status-pulse",
+            topStatus.icon === "waiting" && "bg-muted-foreground/50",
+            (topStatus.icon === "approval" ||
+              topStatus.icon === "input" ||
+              topStatus.icon === "woke") &&
+              "bg-warning",
+            topStatus.label === "Limited" && "bg-warning",
 
-          topStatus.icon === "request" && "bg-guest",
-          topStatus.icon === "failed" && topStatus.label === "Failed" && "bg-destructive",
-          topStatus.icon === "done" && "bg-success",
-        );
+            topStatus.icon === "request" && "bg-guest",
+            topStatus.icon === "failed" && topStatus.label === "Failed" && "bg-destructive",
+            topStatus.icon === "done" && "bg-success",
+          );
   const statusRail =
     statusRailClassName === null ? null : (
       <span
@@ -1342,16 +1367,21 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                         />
                         <TooltipPopup side="top">Dismiss Woke notification</TooltipPopup>
                       </Tooltip>
-                    ) : inFolder && topStatus ? (
-                      // Folder rows have no status line, so the status takes the time slot.
+                    ) : inFolder ? (
+                      // Fleet fork: folder rows always show one of the four states as a badge.
                       <span
                         className={cn(
-                          "inline-flex items-center gap-1 text-xs font-medium",
-                          topStatus.className,
+                          "inline-flex items-center gap-1 rounded-full border px-1.5 text-2xs leading-4 font-medium whitespace-nowrap",
+                          FLEET_STATE_PILL[fleetState],
                         )}
                       >
-                        <TopStatusIcon icon={topStatus.icon} className="size-3" />
-                        {topStatus.label}
+                        {topStatus ? (
+                          <TopStatusIcon icon={topStatus.icon} className="size-3" />
+                        ) : null}
+                        {FLEET_STATE_LABEL[fleetState]}
+                        {topStatus && fleetState === "me" ? (
+                          <span className="sr-only">: {topStatus.label}</span>
+                        ) : null}
                       </span>
                     ) : (
                       <span className="text-xs">
