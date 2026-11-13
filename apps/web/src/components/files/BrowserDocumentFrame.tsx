@@ -1,4 +1,5 @@
 import { useAtomValue } from "@effect/atom-react";
+import { type PageFeedback, readPageFeedback } from "../chat/pageFeedback.logic";
 import {
   type KeybindingCommand,
   type KeybindingShortcut,
@@ -147,6 +148,8 @@ export function HtmlRenderDocument(props: {
   readonly onContentHeight?: (height: number) => void;
   /** Reports fullscreen changes so virtualized rows can stay mounted. */
   readonly onFullscreenChange?: ((fullscreen: boolean) => void) | undefined;
+  /** Fleet fork: feedback the page sends back to the chat; resolves whether it was taken. */
+  readonly onPageFeedback?: ((feedback: PageFeedback) => Promise<boolean>) | undefined;
 }) {
   const theme = useHtmlRenderTheme();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -248,6 +251,14 @@ export function HtmlRenderDocument(props: {
       return;
     }
     if (document.activeElement !== frame || navigator.userActivation?.isActive === false) return;
+    const feedback = readPageFeedback(event.data);
+    if (feedback !== undefined) {
+      const reply = (ok: boolean) =>
+        frame.contentWindow?.postMessage({ type: "t3-page:result", id: feedback.id, ok }, "*");
+      if (props.onPageFeedback === undefined) reply(false);
+      else void props.onPageFeedback(feedback).then(reply);
+      return;
+    }
     const linkRequest = readHtmlRenderLinkRequest(event.data);
     if (linkRequest !== undefined) {
       open(linkRequest.url, linkRequest);

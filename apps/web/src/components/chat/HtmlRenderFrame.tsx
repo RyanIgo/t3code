@@ -1,4 +1,5 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import { makePageFeedbackHandler } from "./pageFeedbackHandler";
 import {
   HTML_RENDER_COLUMN_WIDTH,
   htmlRenderFileName,
@@ -25,8 +26,14 @@ export function HtmlRenderFrame(props: {
   readonly htmlRender: HtmlRenderReference;
   readonly threadRef: ScopedThreadRef | undefined;
   readonly onFullscreenChange?: (fullscreen: boolean) => void;
+  readonly onSendMessage?: ((text: string) => Promise<void>) | undefined;
 }) {
   const { attachmentId, title } = props.htmlRender;
+  const onPageFeedback = makePageFeedbackHandler({
+    threadRef: props.threadRef,
+    pageTitle: title,
+    onSendMessage: props.onSendMessage,
+  });
   const [width, setWidth] = useState(HTML_RENDER_COLUMN_WIDTH);
   const observeBox = (box: HTMLDivElement) => {
     setWidth(box.clientWidth);
@@ -76,6 +83,7 @@ export function HtmlRenderFrame(props: {
             threadRef={props.threadRef}
             className="block size-full"
             onContentHeight={setContentHeight}
+            onPageFeedback={onPageFeedback}
             onFullscreenChange={onFullscreenChange}
           />
           <div className="absolute end-2 top-2 flex gap-1 opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/html-render:opacity-100 pointer-coarse:opacity-100">
@@ -112,6 +120,7 @@ export function HtmlRenderFrame(props: {
               src={expandedSrc}
               title={title}
               threadRef={props.threadRef}
+              onPageFeedback={onPageFeedback}
               onClose={() => setExpandedSrc(null)}
             />
           ) : null}

@@ -1,4 +1,5 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { PageFeedback } from "./pageFeedback.logic";
 import { MinusIcon, PlusIcon, XIcon } from "lucide-react";
 import { useRef, useState } from "react";
 
@@ -10,6 +11,7 @@ export function HtmlRenderDialog(props: {
   readonly src: string;
   readonly title: string;
   readonly threadRef?: ScopedThreadRef | undefined;
+  readonly onPageFeedback?: ((feedback: PageFeedback) => Promise<boolean>) | undefined;
   readonly onClose: () => void;
 }) {
   const [zoom, setZoom] = useState(1);
@@ -41,6 +43,7 @@ export function HtmlRenderDialog(props: {
                 src={props.src}
                 title={props.title}
                 threadRef={props.threadRef}
+                onPageFeedback={props.onPageFeedback}
                 className="block size-full"
               />
             </div>

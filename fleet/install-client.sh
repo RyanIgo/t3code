@@ -53,6 +53,21 @@ client_paths() {
   backup_dir="$client_dir.upstream"
 }
 
+# Agent skills that teach agents the fork's features, for Claude Code and Codex.
+install_agent_skills() {
+  local skill name target
+  for skill in "$repo_root"/fleet/skills/*/; do
+    [[ -f "$skill/SKILL.md" ]] || continue
+    name="$(basename "$skill")"
+    for target in "$HOME/.claude/skills" "$HOME/.codex/skills"; do
+      [[ -d "$(dirname "$target")" ]] || continue
+      mkdir -p "$target/$name"
+      cp -a "$skill/." "$target/$name/"
+    done
+    echo "Installed agent skill $name."
+  done
+}
+
 restart_service() {
   if t3 service status 2>/dev/null | grep -qi "installed"; then
     t3 service restart
@@ -118,6 +133,8 @@ if [[ ! -f "$dist_dir/index.html" ]]; then
   echo "No build at $dist_dir; run without --no-build." >&2
   exit 1
 fi
+
+install_agent_skills
 
 detach_if_inside_t3
 
