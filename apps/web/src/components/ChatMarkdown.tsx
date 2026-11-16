@@ -1,4 +1,6 @@
 import { buildFileLinkParentSuffixByPath, fileLinkLabel } from "@t3tools/shared/fileLinks";
+import { QuestionSheetCard } from "./review/QuestionSheetCard";
+import { parseQuestionSheet, QUESTIONS_FENCE_LANGUAGE } from "./review/questionSheet.logic";
 import {
   isWindowsDrivePathHref,
   normalizeMarkdownLinkDestination,
@@ -876,6 +878,7 @@ function useChatMarkdownState({
   };
 
   const componentState = {
+    questionThreadRef: threadRef,
     canOperateHost,
     canOperatePreview,
     cwd,
@@ -1551,6 +1554,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
       onRunShellCommand,
       inline,
       mathEnabled,
+      cwd,
+      questionThreadRef,
     } = use(ChatMarkdownRendererContext);
     const text = use(ChatMarkdownTextContext);
     const codeBlock = extractCodeBlock(children);
@@ -1569,6 +1574,24 @@ const CHAT_MARKDOWN_COMPONENTS = {
       return <MarkdownMath tex={codeBlock.code} display focusable={!inline} />;
     }
     const fenceTitle = extractFenceTitle(extractPreCodeMeta(node));
+    // Fleet fork: a closed questions fence becomes a form the user answers.
+    if (
+      language === QUESTIONS_FENCE_LANGUAGE &&
+      (!isStreaming || isClosedCodeFence(node, text, codeBlock.code))
+    ) {
+      const sheet = parseQuestionSheet(codeBlock.code, extractPreCodeMeta(node) ?? null);
+      if (sheet) {
+        return (
+          <QuestionSheetCard
+            sheet={sheet}
+            threadRef={questionThreadRef}
+            renderMarkdown={(markdown) => (
+              <ChatMarkdown text={markdown} cwd={cwd} threadRef={questionThreadRef} />
+            )}
+          />
+        );
+      }
+    }
     const highlightedCode = (
       <RenderErrorBoundary
         resetKeys={[codeBlock.code, language, diffThemeName, isStreaming]}

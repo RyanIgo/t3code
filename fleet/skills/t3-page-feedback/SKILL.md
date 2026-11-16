@@ -19,6 +19,12 @@ The page posts a message to its parent window, and T3 Code turns it into one of 
 
 T3 Code only accepts these right after the user clicks or types inside the page. Call them from event handlers (click, change, submit), never on load or on a timer.
 
+## Where the user sees it
+
+The page shows inline in the chat, and also at the top left of T3's Review window, above the chat, where the newest page opens by itself. The right side of that window is T3's browser, showing the app under review at its Tailscale address (see the `t3-app-review` skill). Send works the same everywhere. Pages should fill the width they get and scroll inside themselves rather than assume a fixed size.
+
+For three or more plain questions, a question sheet (the `t3-questions` skill) is quicker for the user than a page; build a page when the decision needs controls (ranking, per-item choices, sliders, comparisons).
+
 ## The helper
 
 Paste this into the page's `<script>` and call `t3.send`, `t3.draft` or `t3.context`. Each returns a promise of `true` when T3 Code took it.

@@ -9,7 +9,9 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import { ChevronDownIcon, RadarIcon } from "lucide-react";
+import { ChevronDownIcon, PanelsLeftRightIcon, RadarIcon } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
+import { isReviewWindow, openReviewWindow, supportsReviewWindow } from "../review/reviewWindow";
 import {
   memo,
   useEffect,
@@ -496,7 +498,48 @@ export const ChatHeader = memo(function ChatHeader({
           </TooltipPopup>
         </Tooltip>
       ) : null}
+      {isServerThread && supportsReviewWindow() && !isReviewWindow() ? (
+        <ReviewWindowButton environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
+      ) : null}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );
 });
+
+/** Fleet fork: opens this chat in the Review window, beside its pages, PRs and links. */
+function ReviewWindowButton(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
+}) {
+  const router = useRouter();
+  const open = () => {
+    const path = `/${encodeURIComponent(props.environmentId)}/${encodeURIComponent(props.threadId)}`;
+    if (!openReviewWindow(router.history.createHref(path))) {
+      toastManager.add({
+        type: "error",
+        title: "The browser blocked the Review window",
+        description: "Allow pop-ups for this site, then try again.",
+      });
+    }
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Open in a Review window"
+            onClick={open}
+            className="inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md px-1.5 text-muted-foreground/70 outline-hidden hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          />
+        }
+      >
+        <PanelsLeftRightIcon aria-hidden className="size-3.5" />
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-64">
+        Open this chat in a Review window: no sidebar, with its pages, PRs and links on the left.
+        Drag it to your second screen.
+      </TooltipPopup>
+    </Tooltip>
+  );
+}

@@ -111,6 +111,8 @@ import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ReviewGuidePane } from "./review/ReviewGuidePane";
+import { isReviewWindow, lendAppMessageSender } from "./review/reviewWindow";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
@@ -1849,6 +1851,14 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const sendAppMessageStable = useStableCallback(sendAppMessage);
+  // Fleet fork: Review pane pages and question sheets send their answers into this chat through it.
+  const reviewSenderKey =
+    isServerThread && activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- holds a registry entry (this chat's sender) for review pages and question sheets until unmount
+  useEffect(() => {
+    if (reviewSenderKey === null) return;
+    return lendAppMessageSender(reviewSenderKey, sendAppMessageStable);
+  }, [reviewSenderKey, sendAppMessageStable]);
   const queuedRunsControlRef = useRef<QueuedRunsControlHandle>(null);
 
   const {
@@ -3203,6 +3213,9 @@ export default function ChatView(props: ChatViewProps) {
         data-chat-column
         inert={rightPanelMaximized}
       >
+        {isReviewWindow() && isServerThread && activeThreadRef ? (
+          <ReviewGuidePane key={activeThreadKey} threadRef={activeThreadRef} />
+        ) : null}
         <header
           ref={threadPanelPopoverAnchorRef}
           data-chat-header

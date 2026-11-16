@@ -39,6 +39,7 @@ import {
 } from "../panelAnimations";
 import { BackgroundThreadAnnouncer } from "./BackgroundThreadAnnouncer";
 import ThreadSidebar from "./Sidebar";
+import { isReviewWindow } from "./review/reviewWindow";
 import { SidebarBrandWidthProbe } from "./sidebar/SidebarChrome";
 import { isAppModalPage } from "./sidebar/mainAppLocation";
 import type { SidebarRouteReveal } from "./sidebar/routeReveal";
@@ -376,6 +377,8 @@ function SidebarControl() {
       className={cn(
         "pointer-events-none fixed left-[var(--workspace-controls-left)] top-[var(--workspace-controls-top)] z-50 ml-px flex h-[var(--workspace-topbar-height)] items-center",
         isMobile && mobileSheetMounted && "hidden",
+        // Fleet fork: the Review window has no sidebar to toggle.
+        isReviewWindow() && "hidden",
       )}
       data-sidebar-control=""
     >
@@ -450,27 +453,30 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
         style={sidebarProviderStyle}
       >
         <SidebarBrandWidthProbe onWidthChange={setBrandWidth} />
-        <Sidebar
-          side="left"
-          collapsible="offcanvas"
-          data-app-sidebar=""
-          {...sidebarArea}
-          role="navigation"
-          aria-label="Threads"
-          resizable={{
-            maxWidth: sidebarMaximumWidth,
-            minWidth: sidebarMinimumWidth,
-            shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
-              nextWidth <= currentWidth ||
-              wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
-            storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
-            onResize: setSidebarWidth,
-          }}
-          style={windowControlsInsetStyle}
-        >
-          <ThreadSidebar routeReveal={sidebarRouteReveal} />
-          <SidebarRail onDoubleClick={resetSidebarWidth} />
-        </Sidebar>
+        {/* Fleet fork: the Review window shows one chat, with no chat list. */}
+        {isReviewWindow() ? null : (
+          <Sidebar
+            side="left"
+            collapsible="offcanvas"
+            data-app-sidebar=""
+            {...sidebarArea}
+            role="navigation"
+            aria-label="Threads"
+            resizable={{
+              maxWidth: sidebarMaximumWidth,
+              minWidth: sidebarMinimumWidth,
+              shouldAcceptWidth: ({ currentWidth, nextWidth, wrapper }) =>
+                nextWidth <= currentWidth ||
+                wrapper.clientWidth - nextWidth >= THREAD_MAIN_CONTENT_MIN_WIDTH,
+              storageKey: THREAD_SIDEBAR_WIDTH_STORAGE_KEY,
+              onResize: setSidebarWidth,
+            }}
+            style={windowControlsInsetStyle}
+          >
+            <ThreadSidebar routeReveal={sidebarRouteReveal} />
+            <SidebarRail onDoubleClick={resetSidebarWidth} />
+          </Sidebar>
+        )}
         {children}
         <BackgroundThreadAnnouncer />
         <SidebarControl />
