@@ -4,6 +4,7 @@ import {
   type BoardCard,
   type CardChatState,
   buildBoardLists,
+  githubCardLink,
   listInitiatives,
   mergeBoards,
   orderAt,
@@ -22,6 +23,7 @@ const chat = (overrides: Partial<CardChatState> = {}): CardChatState => ({
   working: false,
   hasPullRequest: false,
   pullRequestNumber: null,
+  pullRequests: [],
   since: "2026-11-16T10:00:00.000Z",
   ...overrides,
 });
@@ -34,7 +36,8 @@ const card = (overrides: Partial<BoardCard> = {}): BoardCard => ({
   stage: "planned",
   stageSetAt: "2026-11-16T09:00:00.000Z",
   category: null,
-  initiative: null,
+  initiatives: [],
+  links: [],
   order: 1000,
   chats: [{ environmentId: "env", threadId: "t1" }],
   testing: null,
@@ -66,6 +69,20 @@ describe("placeCard", () => {
     expect(placeCard(moved, [chat({ working: true })]).stage).toBe("ideas");
   });
 
+  it("moves to Done once every PR on its chats merged, and not before", () => {
+    const pr = (state: "open" | "merged") => ({
+      url: `https://github.com/o/r/pull/${state === "open" ? 1 : 2}`,
+      label: "r#1",
+      state,
+      checks: null,
+      mergeability: null,
+    });
+    const placedWith = (states: Array<"open" | "merged">) =>
+      placeCard(card({ stage: "ready" }), [chat({ pullRequests: states.map(pr) })]).stage;
+    expect(placedWith(["merged"])).toBe("done");
+    expect(placedWith(["merged", "open"])).not.toBe("done");
+  });
+
   it("never pulls a card out of Done", () => {
     expect(placeCard(card({ stage: "done" }), [chat({ working: true })]).stage).toBe("done");
   });
@@ -90,9 +107,9 @@ describe("buildBoardLists", () => {
     const document = {
       schemaVersion: 1 as const,
       cards: [
-        card({ id: "a", projectKey: "p", initiative: "Dev workflow" }),
-        card({ id: "b", projectKey: "q", initiative: " dev  Workflow", chats: [] }),
-        card({ id: "c", projectKey: "q", initiative: "Other", chats: [] }),
+        card({ id: "a", projectKey: "p", initiatives: ["Dev workflow"] }),
+        card({ id: "b", projectKey: "q", initiatives: ["Other", " dev  Workflow"], chats: [] }),
+        card({ id: "c", projectKey: "q", initiatives: ["Other"], chats: [] }),
       ],
       removed: [],
     };
@@ -127,6 +144,16 @@ describe("mergeBoards", () => {
   });
 });
 
+describe("githubCardLink", () => {
+  it.each([
+    ["https://github.com/cfevans/claude-setup/issues/76", "claude-setup#76"],
+    ["https://github.com/o/r/pull/12/files", "r#12"],
+    ["https://gitlab.com/o/r/issues/1", null],
+  ])("%s", (url, label) => {
+    expect(githubCardLink(url)?.label ?? null).toBe(label);
+  });
+});
+
 describe("orderAt", () => {
   const list = [{ card: card({ order: 1000 }) }, { card: card({ order: 2000 }) }];
   it.each([
@@ -150,6 +177,20 @@ describe("parseBoardDocument", () => {
     );
     expect(parsed.cards).toHaveLength(1);
     expect(parsed.cards[0]).toMatchObject({ category: null, testing: null });
+    expect(
+      parseBoardDocument(
+        JSON.stringify({
+          cards: [
+            {
+              ...card(),
+              initiatives: undefined,
+              initiative: "Legacy",
+              links: [{ url: "javascript:alert(1)", label: "x" }],
+            },
+          ],
+        }),
+      ).cards[0],
+    ).toMatchObject({ initiatives: ["Legacy"], links: [] });
     expect(parseBoardDocument("not json").cards).toEqual([]);
   });
 });

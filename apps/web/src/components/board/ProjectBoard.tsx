@@ -19,6 +19,7 @@ import { Input } from "../ui/input";
 import {
   type BoardDocument,
   type CardChatState,
+  type CardPullRequest,
   type CardStage,
   type PlacedCard,
   type BoardScope,
@@ -62,7 +63,7 @@ export function ProjectBoard(props: {
   const sequence = stages.flatMap((stage) => lists[stage.id].map((placed) => placed.card.id));
   const newCard = {
     projectKey: props.scope.kind === "project" ? props.scope.projectKey : props.newCardProjectKey,
-    ...(props.scope.kind === "initiative" ? { initiative: props.scope.initiative } : {}),
+    ...(props.scope.kind === "initiative" ? { initiatives: [props.scope.initiative] } : {}),
   };
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -111,7 +112,7 @@ function BoardList(props: {
   readonly label: string;
   readonly cards: ReadonlyArray<PlacedCard>;
   readonly planning: boolean;
-  readonly newCard: { readonly projectKey: string; readonly initiative?: string };
+  readonly newCard: { readonly projectKey: string; readonly initiatives?: ReadonlyArray<string> };
   readonly machineLabel: (environmentId: string) => string | null;
   readonly projectLabel: ((projectKey: string) => string) | null;
   readonly onOpen: (placed: PlacedCard) => void;
@@ -239,9 +240,9 @@ export function BoardCardTile(props: {
     id: placed.card.id,
     data: { stage: props.stage },
   });
-  const pullRequests = placed.chats.flatMap((chat) =>
-    chat.pullRequestNumber === null ? [] : [chat.pullRequestNumber],
-  );
+  const pullRequests = placed.chats.flatMap((chat) => chat.pullRequests);
+  const pullRequestUrls = new Set(pullRequests.map((pr) => pr.url));
+  const issues = placed.card.links.filter((link) => !pullRequestUrls.has(link.url));
   const machines = [
     ...new Set(placed.card.chats.flatMap((ref) => props.machineLabel(ref.environmentId) ?? [])),
   ];
@@ -271,11 +272,13 @@ export function BoardCardTile(props: {
               {CATEGORY_LABEL.get(placed.card.category)}
             </Badge>
           ) : null}
-          {props.showInitiative !== false && placed.card.initiative ? (
-            <Badge variant="outline" size="sm">
-              {placed.card.initiative}
-            </Badge>
-          ) : null}
+          {props.showInitiative !== false
+            ? placed.card.initiatives.map((name) => (
+                <Badge key={name} variant="outline" size="sm">
+                  {name}
+                </Badge>
+              ))
+            : null}
           {props.showStage ? (
             <Badge variant="outline" size="sm">
               {CARD_STAGES.find((stage) => stage.id === placed.stage)?.label}
@@ -303,11 +306,16 @@ export function BoardCardTile(props: {
               Waiting on testing
             </Badge>
           ) : null}
-          {pullRequests.map((number) => (
-            <Badge key={number} variant="outline" size="sm">
-              PR #{number}
-            </Badge>
+          {pullRequests.map((pr) => (
+            <PullRequestBadge key={pr.url} pullRequest={pr} />
           ))}
+          {issues.length > 0 ? (
+            <span className="text-2xs text-muted-foreground">
+              {issues.length <= 2
+                ? issues.map((link) => link.label).join(", ")
+                : `${issues.length} issues`}
+            </span>
+          ) : null}
           {machines.map((label) => (
             <span
               key={label}
@@ -322,5 +330,28 @@ export function BoardCardTile(props: {
         </span>
       </button>
     </li>
+  );
+}
+
+/** A PR's state at a glance: merged, closed, can't merge, failing checks, or open. */
+export function PullRequestBadge(props: { readonly pullRequest: CardPullRequest }) {
+  const pr = props.pullRequest;
+  const [variant, note] =
+    pr.state === "merged"
+      ? (["success", "merged"] as const)
+      : pr.state === "closed"
+        ? (["secondary", "closed"] as const)
+        : pr.mergeability === "conflicting"
+          ? (["error", "can't merge"] as const)
+          : pr.checks === "failing"
+            ? (["error", "checks failing"] as const)
+            : pr.state === "draft"
+              ? (["outline", "draft"] as const)
+              : (["outline", null] as const);
+  return (
+    <Badge variant={variant} size="sm">
+      {pr.label}
+      {note ? ` · ${note}` : ""}
+    </Badge>
   );
 }

@@ -28,6 +28,7 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import {
   type CardCategory,
   type CardChatState,
+  type CardPullRequestState,
   type PlacedCard,
   buildCategoryView,
   CARD_CATEGORIES,
@@ -54,6 +55,15 @@ const VIEW_OPTIONS: ReadonlyArray<{ readonly id: BoardView; readonly label: stri
   { id: "activity", label: "Activity" },
 ];
 
+function pullRequestState(
+  snapshot: { state: string; isDraft: boolean; mergedAt?: string | null | undefined } | null,
+): CardPullRequestState {
+  if (snapshot === null) return "unknown";
+  if (snapshot.mergedAt || snapshot.state === "merged") return "merged";
+  if (snapshot.state === "open") return snapshot.isDraft ? "draft" : "open";
+  return "closed";
+}
+
 /** Every chat the board can place, with the project (sidebar group) it belongs to. */
 function useCardChats(): CardChatState[] {
   const groups = useSidebarProjectGroups();
@@ -78,6 +88,15 @@ function useCardChats(): CardChatState[] {
         working: resolved.tone === "working",
         hasPullRequest: Boolean(thread.linkedPullRequest),
         pullRequestNumber: thread.linkedPullRequest?.number ?? null,
+        pullRequests: (thread.pullRequests ?? [])
+          .filter((link) => link.source !== "stack-dismissed")
+          .map((link) => ({
+            url: link.url,
+            label: `${link.repository.split("/").pop() ?? link.repository}#${link.number}`,
+            state: pullRequestState(link.snapshot),
+            checks: link.snapshot?.checksState ?? null,
+            mergeability: link.snapshot?.mergeability ?? null,
+          })),
         since: resolved.since ?? thread.updatedAt,
       };
     });

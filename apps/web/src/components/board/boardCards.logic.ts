@@ -34,6 +34,25 @@ export interface CardChatRef {
   readonly threadId: string;
 }
 
+export interface CardLink {
+  readonly url: string;
+  /** "repo#12" for GitHub issues and PRs. */
+  readonly label: string;
+  /** Picked up from a chat, so removing it would only bring it back; added by hand otherwise. */
+  readonly fromChat?: boolean;
+}
+
+export type CardPullRequestState = "open" | "draft" | "merged" | "closed" | "unknown";
+
+/** A pull request linked to one of the card's chats, as its machine last synced it. */
+export interface CardPullRequest {
+  readonly url: string;
+  readonly label: string;
+  readonly state: CardPullRequestState;
+  readonly checks: "passing" | "failing" | "pending" | null;
+  readonly mergeability: "mergeable" | "conflicting" | "unknown" | null;
+}
+
 export interface BoardCard {
   readonly id: string;
   readonly projectKey: string;
@@ -43,8 +62,10 @@ export interface BoardCard {
   /** When `stage` was last set by hand; a chat change after this moves the card again. */
   readonly stageSetAt: string;
   readonly category: CardCategory | null;
-  /** Cross-repo theme the card belongs to, e.g. "Dev workflow"; free text, shared by name. */
-  readonly initiative: string | null;
+  /** Cross-repo themes the card belongs to, e.g. "Dev workflow"; free text, shared by name. */
+  readonly initiatives: ReadonlyArray<string>;
+  /** GitHub issues and PRs this work touches: added by hand or picked up from its chats. */
+  readonly links: ReadonlyArray<CardLink>;
   /** Position inside its list; lower first. */
   readonly order: number;
   readonly chats: ReadonlyArray<CardChatRef>;
@@ -74,6 +95,7 @@ export interface CardChatState {
   readonly working: boolean;
   readonly hasPullRequest: boolean;
   readonly pullRequestNumber: number | null;
+  readonly pullRequests: ReadonlyArray<CardPullRequest>;
   /** When the chat last changed state. */
   readonly since: string | null;
 }
@@ -123,9 +145,12 @@ export function placeCard(card: BoardCard, chats: ReadonlyArray<CardChatState>):
   const latestChange = Math.max(0, ...own.map((chat) => ms(chat.since)));
   const useDerived =
     derived !== null && card.stage !== "done" && latestChange > ms(card.stageSetAt);
+  // Merged is final: once every PR on the card's chats merged, the work is done.
+  const pullRequests = own.flatMap((chat) => chat.pullRequests);
+  const allMerged = pullRequests.length > 0 && pullRequests.every((pr) => pr.state === "merged");
   return {
     card,
-    stage: useDerived ? derived : card.stage,
+    stage: allMerged ? "done" : useDerived ? derived : card.stage,
     chats: own,
     loose: false,
     needsYou: own.some((chat) => chat.needsYou),
@@ -144,7 +169,8 @@ export function looseCard(chat: CardChatState): PlacedCard {
     stage: "progress",
     stageSetAt: new Date(0).toISOString(),
     category: null,
-    initiative: null,
+    initiatives: [],
+    links: [],
     order: Number.MAX_SAFE_INTEGER - ms(at),
     chats: [{ environmentId: chat.environmentId, threadId: chat.threadId }],
     testing: null,
@@ -186,7 +212,7 @@ export function buildBoardLists(
     const inScope =
       scope.kind === "project"
         ? card.projectKey === scope.projectKey
-        : sameInitiative(card.initiative, scope.initiative);
+        : card.initiatives.some((name) => sameInitiative(name, scope.initiative));
     if (!inScope) continue;
     const placed = placeCard(card, chats);
     lists[placed.stage].push(placed);
@@ -206,16 +232,30 @@ export function buildBoardLists(
 
 const normalizeInitiative = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
 
-function sameInitiative(name: string | null, wanted: string): boolean {
-  return name !== null && normalizeInitiative(name) === normalizeInitiative(wanted);
+function sameInitiative(name: string, wanted: string): boolean {
+  return normalizeInitiative(name) === normalizeInitiative(wanted);
+}
+
+/** Adds initiative names, skipping ones already there under another spelling. */
+export function addInitiatives(
+  current: ReadonlyArray<string>,
+  names: ReadonlyArray<string>,
+): string[] {
+  const next = [...current];
+  for (const raw of names) {
+    const name = raw.trim().replace(/\s+/g, " ");
+    if (name && !next.some((existing) => sameInitiative(existing, name))) next.push(name);
+  }
+  return next;
 }
 
 /** Initiative names in use, spelled as first written, alphabetically. */
 export function listInitiatives(document: BoardDocument): string[] {
   const byKey = new Map<string, string>();
   for (const card of document.cards) {
-    const name = card.initiative?.trim();
-    if (name && !byKey.has(normalizeInitiative(name))) byKey.set(normalizeInitiative(name), name);
+    for (const name of card.initiatives) {
+      if (!byKey.has(normalizeInitiative(name))) byKey.set(normalizeInitiative(name), name);
+    }
   }
   return [...byKey.values()].toSorted((a, b) => a.localeCompare(b));
 }
@@ -318,10 +358,31 @@ export function parseBoardDocument(raw: string | null): BoardDocument {
         stage: card.stage as CardStage,
         stageSetAt: typeof card.stageSetAt === "string" ? card.stageSetAt : now,
         category: CATEGORY_IDS.has(String(card.category)) ? (card.category as CardCategory) : null,
-        initiative:
-          typeof card.initiative === "string" && card.initiative.trim() !== ""
-            ? card.initiative.trim()
-            : null,
+        initiatives: addInitiatives(
+          [],
+          [
+            ...(Array.isArray(card.initiatives) ? card.initiatives : []),
+            // Cards saved before initiatives became tags.
+            card.initiative,
+          ].filter((name): name is string => typeof name === "string"),
+        ),
+        links: (Array.isArray(card.links) ? card.links : []).flatMap((entry): CardLink[] => {
+          const link = (typeof entry === "object" && entry !== null ? entry : {}) as Record<
+            string,
+            unknown
+          >;
+          return typeof link.url === "string" &&
+            /^https?:\/\//.test(link.url) &&
+            typeof link.label === "string"
+            ? [
+                {
+                  url: link.url,
+                  label: link.label,
+                  ...(link.fromChat === true ? { fromChat: true } : {}),
+                },
+              ]
+            : [];
+        }),
         order: typeof card.order === "number" && Number.isFinite(card.order) ? card.order : 0,
         chats,
         testing: card.testing === "passed" || card.testing === "failed" ? card.testing : null,
@@ -334,4 +395,22 @@ export function parseBoardDocument(raw: string | null): BoardDocument {
     (id): id is string => typeof id === "string",
   );
   return { schemaVersion: 1, cards, removed };
+}
+
+const GITHUB_ITEM_URL = /^https:\/\/github\.com\/[^/]+\/([^/]+)\/(issues|pull)\/(\d+)/;
+
+/** A GitHub issue or PR link as a card link, or null for anything else. */
+export function githubCardLink(raw: string): CardLink | null {
+  const match = GITHUB_ITEM_URL.exec(raw.trim());
+  if (!match) return null;
+  return { url: match[0], label: `${match[1]}#${match[3]}` };
+}
+
+/** `current` plus any of `found` it lacks, by URL. */
+export function addLinks(
+  current: ReadonlyArray<CardLink>,
+  found: ReadonlyArray<CardLink>,
+): CardLink[] {
+  const urls = new Set(current.map((link) => link.url));
+  return [...current, ...found.filter((link) => !urls.has(link.url) && urls.add(link.url))];
 }

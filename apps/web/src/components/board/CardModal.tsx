@@ -1,9 +1,14 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
-import { useState } from "react";
+import { XIcon } from "lucide-react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useThreadVisibleTurnItems } from "../../state/entities";
+import { collectReviewLinks } from "../review/reviewItems.logic";
+import { Badge } from "../ui/badge";
 
 import ChatView from "../ChatView";
 import { Button } from "../ui/button";
@@ -21,9 +26,13 @@ import {
   type PlacedCard,
   CARD_CATEGORIES,
   CARD_STAGES,
+  addInitiatives,
+  addLinks,
   chatKey,
+  githubCardLink,
 } from "./boardCards.logic";
 import { addCard, removeCard, updateCard } from "./boardStore";
+import { PullRequestBadge } from "./ProjectBoard";
 
 const TabsBy = Schema.Literals(["list", "category"]);
 type TabsBy = typeof TabsBy.Type;
@@ -125,6 +134,32 @@ export function CardModal(props: {
     return created.id;
   };
   const change = (changes: Parameters<typeof updateCard>[1]) => updateCard(editableId(), changes);
+
+  // Issues and PRs the agent mentions in the open chat join the card's links.
+  const turnItems = useThreadVisibleTurnItems(
+    shownChat
+      ? scopeThreadRef(shownChat.environmentId as EnvironmentId, shownChat.threadId as ThreadId)
+      : null,
+  );
+  const chatLinks = collectReviewLinks(
+    turnItems.flatMap(({ item }) =>
+      item.type === "assistant_message" && !item.streaming ? [item.text] : [],
+    ),
+  ).flatMap((link) => {
+    const found = githubCardLink(link.url);
+    return found ? [{ ...found, fromChat: true }] : [];
+  });
+  const newChatLinks = placed.loose
+    ? []
+    : chatLinks.filter((link) => !card.links.some((saved) => saved.url === link.url));
+  const newChatLinksKey = newChatLinks.map((link) => link.url).join(" ");
+  const saveChatLinks = useEffectEvent(() => {
+    updateCard(card.id, { links: addLinks(card.links, newChatLinks) });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- copies links from the chat history as it streams in to the shared board store
+  useEffect(() => {
+    if (newChatLinksKey !== "") saveChatLinks();
+  }, [newChatLinksKey]);
 
   return (
     <Dialog
@@ -291,15 +326,34 @@ function CardDetails(props: {
   const card = placed.card;
   const [title, setTitle] = useState(card.title);
   const [notes, setNotes] = useState(card.notes);
-  const [initiative, setInitiative] = useState(card.initiative ?? "");
+  const [initiativeDraft, setInitiativeDraft] = useState("");
+  const [linkDraft, setLinkDraft] = useState("");
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const pullRequests = placed.chats.flatMap((chat) => chat.pullRequests);
+  const pullRequestUrls = new Set(pullRequests.map((pr) => pr.url));
+  const links = card.links.filter((link) => !pullRequestUrls.has(link.url));
+  const addInitiative = () => {
+    const next = addInitiatives(card.initiatives, initiativeDraft.split(","));
+    if (next.length !== card.initiatives.length) onChange({ initiatives: next });
+    setInitiativeDraft("");
+  };
+  const addLink = () => {
+    if (linkDraft.trim() === "") return;
+    const link = githubCardLink(linkDraft);
+    if (!link) {
+      setLinkError("Paste a GitHub issue or pull request link.");
+      return;
+    }
+    onChange({ links: addLinks(card.links, [link]) });
+    setLinkDraft("");
+    setLinkError(null);
+  };
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const commitText = () => {
     const trimmedTitle = title.trim();
-    const trimmedInitiative = initiative.trim() || null;
     const changes = {
       ...(trimmedTitle && trimmedTitle !== card.title ? { title: trimmedTitle } : {}),
       ...(notes !== card.notes ? { notes } : {}),
-      ...(trimmedInitiative !== card.initiative ? { initiative: trimmedInitiative } : {}),
     };
     if (Object.keys(changes).length > 0) onChange(changes);
   };
@@ -345,22 +399,109 @@ function CardDetails(props: {
           </SelectPopup>
         </Select>
       </div>
-      <label className="flex flex-col gap-1.5">
-        <span>Initiative</span>
+      <div className="flex flex-col gap-1.5">
+        <span id="card-initiatives-label">Initiatives</span>
+        {card.initiatives.length > 0 ? (
+          <ul className="flex flex-wrap gap-1" aria-labelledby="card-initiatives-label">
+            {card.initiatives.map((name) => (
+              <li key={name}>
+                <Badge variant="outline" size="lg">
+                  {name}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${name}`}
+                    className="cursor-pointer text-muted-foreground hover:text-foreground"
+                    onClick={() =>
+                      onChange({ initiatives: card.initiatives.filter((entry) => entry !== name) })
+                    }
+                  >
+                    <XIcon className="size-3" />
+                  </button>
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         <Input
           id="card-initiative"
           list="card-initiative-options"
-          placeholder="e.g. Dev workflow"
-          value={initiative}
-          onChange={(event) => setInitiative(event.target.value)}
-          onBlur={commitText}
+          aria-labelledby="card-initiatives-label"
+          placeholder={card.initiatives.length > 0 ? "Add another…" : "e.g. Dev workflow"}
+          value={initiativeDraft}
+          onChange={(event) => setInitiativeDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addInitiative();
+            }
+          }}
+          onBlur={addInitiative}
         />
         <datalist id="card-initiative-options">
-          {props.initiatives.map((name) => (
-            <option key={name} value={name} />
-          ))}
+          {props.initiatives
+            .filter((name) => !card.initiatives.includes(name))
+            .map((name) => (
+              <option key={name} value={name} />
+            ))}
         </datalist>
-      </label>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span id="card-links-label">Issues & PRs</span>
+        {pullRequests.length + links.length > 0 ? (
+          <ul className="flex flex-wrap gap-1" aria-labelledby="card-links-label">
+            {pullRequests.map((pr) => (
+              <li key={pr.url}>
+                <a href={pr.url} target="_blank" rel="noreferrer">
+                  <PullRequestBadge pullRequest={pr} />
+                </a>
+              </li>
+            ))}
+            {links.map((link) => (
+              <li key={link.url}>
+                <Badge variant="outline" size="lg">
+                  <a href={link.url} target="_blank" rel="noreferrer" className="hover:underline">
+                    {link.label}
+                  </a>
+                  {link.fromChat ? null : (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${link.label}`}
+                      className="cursor-pointer text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        onChange({ links: card.links.filter((entry) => entry.url !== link.url) })
+                      }
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  )}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Issues and PRs mentioned in this card's chats show up here.
+          </p>
+        )}
+        <Input
+          id="card-link"
+          aria-labelledby="card-links-label"
+          placeholder="Paste a GitHub issue or PR link"
+          value={linkDraft}
+          onChange={(event) => {
+            setLinkDraft(event.target.value);
+            setLinkError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              addLink();
+            }
+          }}
+          onBlur={addLink}
+        />
+        {linkError ? <p className="text-xs text-destructive-foreground">{linkError}</p> : null}
+      </div>
       <div className="flex flex-col gap-1.5">
         <span id="card-category-label">Category</span>
         <ToggleGroup

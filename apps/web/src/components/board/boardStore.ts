@@ -173,7 +173,8 @@ export function addCard(
   const card: BoardCard = {
     notes: "",
     category: null,
-    initiative: null,
+    initiatives: [],
+    links: [],
     chats: [],
     testing: null,
     ...fields,
