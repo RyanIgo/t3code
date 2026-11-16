@@ -43,6 +43,8 @@ export interface BoardCard {
   /** When `stage` was last set by hand; a chat change after this moves the card again. */
   readonly stageSetAt: string;
   readonly category: CardCategory | null;
+  /** Cross-repo theme the card belongs to, e.g. "Dev workflow"; free text, shared by name. */
+  readonly initiative: string | null;
   /** Position inside its list; lower first. */
   readonly order: number;
   readonly chats: ReadonlyArray<CardChatRef>;
@@ -132,7 +134,7 @@ export function placeCard(card: BoardCard, chats: ReadonlyArray<CardChatState>):
 }
 
 /** A temporary card for a chat that no card owns yet. */
-function looseCard(chat: CardChatState): PlacedCard {
+export function looseCard(chat: CardChatState): PlacedCard {
   const at = chat.since ?? new Date(0).toISOString();
   const card: BoardCard = {
     id: `chat:${chat.environmentId}:${chat.threadId}`,
@@ -142,6 +144,7 @@ function looseCard(chat: CardChatState): PlacedCard {
     stage: "progress",
     stageSetAt: new Date(0).toISOString(),
     category: null,
+    initiative: null,
     order: Number.MAX_SAFE_INTEGER - ms(at),
     chats: [{ environmentId: chat.environmentId, threadId: chat.threadId }],
     testing: null,
@@ -159,12 +162,15 @@ function looseCard(chat: CardChatState): PlacedCard {
   };
 }
 
-/** Every card in a project, placed into lists, plus chats no card owns. */
-export function buildProjectLists(
+/** Which cards a board shows: one repo's (plus its chats no card owns), or one initiative's. */
+export type BoardScope =
+  | { readonly kind: "project"; readonly projectKey: string }
+  | { readonly kind: "initiative"; readonly initiative: string };
+
+export function buildBoardLists(
   document: BoardDocument,
-  projectKey: string,
+  scope: BoardScope,
   chats: ReadonlyArray<CardChatState>,
-  options: { readonly includeLooseChats: boolean },
 ): Record<CardStage, PlacedCard[]> {
   const lists: Record<CardStage, PlacedCard[]> = {
     ideas: [],
@@ -177,13 +183,17 @@ export function buildProjectLists(
   const owned = new Set<string>();
   for (const card of document.cards) {
     for (const ref of card.chats) owned.add(chatKey(ref));
-    if (card.projectKey !== projectKey) continue;
+    const inScope =
+      scope.kind === "project"
+        ? card.projectKey === scope.projectKey
+        : sameInitiative(card.initiative, scope.initiative);
+    if (!inScope) continue;
     const placed = placeCard(card, chats);
     lists[placed.stage].push(placed);
   }
-  if (options.includeLooseChats) {
+  if (scope.kind === "project") {
     for (const chat of chats) {
-      if (chat.projectKey !== projectKey || owned.has(chatKey(chat))) continue;
+      if (chat.projectKey !== scope.projectKey || owned.has(chatKey(chat))) continue;
       // Idle chats nobody looked at in a while are noise on a planning board.
       if (chat.column === "queued" && !chat.working) continue;
       const placed = looseCard(chat);
@@ -192,6 +202,22 @@ export function buildProjectLists(
   }
   for (const list of Object.values(lists)) list.sort((a, b) => a.card.order - b.card.order);
   return lists;
+}
+
+const normalizeInitiative = (name: string) => name.trim().replace(/\s+/g, " ").toLowerCase();
+
+function sameInitiative(name: string | null, wanted: string): boolean {
+  return name !== null && normalizeInitiative(name) === normalizeInitiative(wanted);
+}
+
+/** Initiative names in use, spelled as first written, alphabetically. */
+export function listInitiatives(document: BoardDocument): string[] {
+  const byKey = new Map<string, string>();
+  for (const card of document.cards) {
+    const name = card.initiative?.trim();
+    if (name && !byKey.has(normalizeInitiative(name))) byKey.set(normalizeInitiative(name), name);
+  }
+  return [...byKey.values()].toSorted((a, b) => a.localeCompare(b));
 }
 
 /** Cards across every project, grouped by category, for the at-a-glance views. */
@@ -292,6 +318,10 @@ export function parseBoardDocument(raw: string | null): BoardDocument {
         stage: card.stage as CardStage,
         stageSetAt: typeof card.stageSetAt === "string" ? card.stageSetAt : now,
         category: CATEGORY_IDS.has(String(card.category)) ? (card.category as CardCategory) : null,
+        initiative:
+          typeof card.initiative === "string" && card.initiative.trim() !== ""
+            ? card.initiative.trim()
+            : null,
         order: typeof card.order === "number" && Number.isFinite(card.order) ? card.order : 0,
         chats,
         testing: card.testing === "passed" || card.testing === "failed" ? card.testing : null,

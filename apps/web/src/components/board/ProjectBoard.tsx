@@ -9,7 +9,6 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useNavigate } from "@tanstack/react-router";
 import { PlusIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -22,7 +21,8 @@ import {
   type CardChatState,
   type CardStage,
   type PlacedCard,
-  buildProjectLists,
+  type BoardScope,
+  buildBoardLists,
   CARD_CATEGORIES,
   CARD_STAGES,
   orderAt,
@@ -34,28 +34,36 @@ const STAGE_HINT: Partial<Record<CardStage, string>> = {
   ready: "Tested; the PR can merge",
 };
 
-/** A project's board: one list per work stage. Planning mode adds, edits and shows Ideas. */
+/**
+ * A board: one list per work stage, for one repo or one initiative across repos. Planning mode
+ * shows Ideas and lets you add cards; clicking any card opens it with its chat.
+ */
 export function ProjectBoard(props: {
-  readonly projectKey: string;
+  readonly scope: BoardScope;
+  /** Where a card added on an initiative board goes; changeable on the card. */
+  readonly newCardProjectKey: string;
   readonly document: BoardDocument;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly planning: boolean;
   readonly machineLabel: (environmentId: string) => string | null;
-  readonly onEdit: (cardId: string) => void;
+  readonly projectLabel: (projectKey: string) => string;
+  readonly onOpen: (cardId: string, sequence: ReadonlyArray<string>) => void;
 }) {
-  const navigate = useNavigate();
-  const lists = buildProjectLists(props.document, props.projectKey, props.chats, {
-    includeLooseChats: true,
-  });
+  const lists = buildBoardLists(props.document, props.scope, props.chats);
   const stages = props.planning ? CARD_STAGES : CARD_STAGES.filter((stage) => stage.id !== "ideas");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
   );
-
   const placedById = new Map(
     Object.values(lists).flatMap((list) => list.map((placed) => [placed.card.id, placed] as const)),
   );
+  // Left to right, top to bottom: the order the card window steps through.
+  const sequence = stages.flatMap((stage) => lists[stage.id].map((placed) => placed.card.id));
+  const newCard = {
+    projectKey: props.scope.kind === "project" ? props.scope.projectKey : props.newCardProjectKey,
+    ...(props.scope.kind === "initiative" ? { initiative: props.scope.initiative } : {}),
+  };
 
   const onDragEnd = (event: DragEndEvent) => {
     const placed = placedById.get(String(event.active.id));
@@ -66,7 +74,7 @@ export function ProjectBoard(props: {
     const order = orderAt(target, overIndex === -1 ? target.length : overIndex);
     if (placed.loose) {
       addCard({
-        projectKey: props.projectKey,
+        projectKey: placed.card.projectKey,
         title: placed.card.title,
         stage,
         order,
@@ -75,29 +83,6 @@ export function ProjectBoard(props: {
       return;
     }
     updateCard(placed.card.id, stage === placed.stage ? { order } : { stage, order });
-  };
-
-  const open = (placed: PlacedCard) => {
-    const chat = placed.card.chats[0];
-    if (!props.planning && chat) {
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: { environmentId: chat.environmentId, threadId: chat.threadId },
-      });
-      return;
-    }
-    if (placed.loose) {
-      const created = addCard({
-        projectKey: props.projectKey,
-        title: placed.card.title,
-        stage: placed.stage,
-        order: orderAt(lists[placed.stage], lists[placed.stage].length),
-        chats: placed.card.chats,
-      });
-      props.onEdit(created.id);
-      return;
-    }
-    props.onEdit(placed.card.id);
   };
 
   return (
@@ -110,9 +95,10 @@ export function ProjectBoard(props: {
             label={stage.label}
             cards={lists[stage.id]}
             planning={props.planning}
-            projectKey={props.projectKey}
+            newCard={newCard}
             machineLabel={props.machineLabel}
-            onOpen={open}
+            projectLabel={props.scope.kind === "initiative" ? props.projectLabel : null}
+            onOpen={(placed) => props.onOpen(placed.card.id, sequence)}
           />
         ))}
       </div>
@@ -125,8 +111,9 @@ function BoardList(props: {
   readonly label: string;
   readonly cards: ReadonlyArray<PlacedCard>;
   readonly planning: boolean;
-  readonly projectKey: string;
+  readonly newCard: { readonly projectKey: string; readonly initiative?: string };
   readonly machineLabel: (environmentId: string) => string | null;
+  readonly projectLabel: ((projectKey: string) => string) | null;
   readonly onOpen: (placed: PlacedCard) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -141,7 +128,7 @@ function BoardList(props: {
     const title = draft?.trim();
     if (title) {
       addCard({
-        projectKey: props.projectKey,
+        ...props.newCard,
         title,
         stage: props.stage,
         order: orderAt(props.cards, props.cards.length),
@@ -184,6 +171,8 @@ function BoardList(props: {
               placed={placed}
               stage={props.stage}
               machineLabel={props.machineLabel}
+              projectLabel={props.projectLabel?.(placed.card.projectKey)}
+              showInitiative={props.projectLabel === null}
               onOpen={() => props.onOpen(placed)}
             />
           ))}
@@ -243,6 +232,7 @@ export function BoardCardTile(props: {
   readonly onOpen: () => void;
   readonly projectLabel?: string | undefined;
   readonly showStage?: boolean | undefined;
+  readonly showInitiative?: boolean | undefined;
 }) {
   const { placed } = props;
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -279,6 +269,11 @@ export function BoardCardTile(props: {
           {placed.card.category ? (
             <Badge variant={placed.card.category === "critical" ? "error" : "secondary"} size="sm">
               {CATEGORY_LABEL.get(placed.card.category)}
+            </Badge>
+          ) : null}
+          {props.showInitiative !== false && placed.card.initiative ? (
+            <Badge variant="outline" size="sm">
+              {placed.card.initiative}
             </Badge>
           ) : null}
           {props.showStage ? (

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   type BoardCard,
   type CardChatState,
-  buildProjectLists,
+  buildBoardLists,
+  listInitiatives,
   mergeBoards,
   orderAt,
   parseBoardDocument,
@@ -33,6 +34,7 @@ const card = (overrides: Partial<BoardCard> = {}): BoardCard => ({
   stage: "planned",
   stageSetAt: "2026-11-16T09:00:00.000Z",
   category: null,
+  initiative: null,
   order: 1000,
   chats: [{ environmentId: "env", threadId: "t1" }],
   testing: null,
@@ -69,20 +71,37 @@ describe("placeCard", () => {
   });
 });
 
-describe("buildProjectLists", () => {
+describe("buildBoardLists", () => {
   it("shows chats no card owns, but not idle ones, and not owned ones twice", () => {
-    const lists = buildProjectLists(
+    const lists = buildBoardLists(
       { schemaVersion: 1, cards: [card()], removed: [] },
-      "p",
+      { kind: "project", projectKey: "p" },
       [
         chat(),
         chat({ threadId: "t2", working: true, column: "running" }),
         chat({ threadId: "t3", column: "queued" }),
       ],
-      { includeLooseChats: true },
     );
     const ids = Object.values(lists).flatMap((list) => list.map((placed) => placed.card.id));
     expect(ids.toSorted()).toEqual(["c1", "chat:env:t2"]);
+  });
+
+  it("shows an initiative's cards from every repo, matched loosely by name, without chats", () => {
+    const document = {
+      schemaVersion: 1 as const,
+      cards: [
+        card({ id: "a", projectKey: "p", initiative: "Dev workflow" }),
+        card({ id: "b", projectKey: "q", initiative: " dev  Workflow", chats: [] }),
+        card({ id: "c", projectKey: "q", initiative: "Other", chats: [] }),
+      ],
+      removed: [],
+    };
+    const lists = buildBoardLists(document, { kind: "initiative", initiative: "dev workflow" }, [
+      chat({ threadId: "loose", working: true }),
+    ]);
+    const ids = Object.values(lists).flatMap((list) => list.map((placed) => placed.card.id));
+    expect(ids.toSorted()).toEqual(["a", "b"]);
+    expect(listInitiatives(document)).toEqual(["Dev workflow", "Other"]);
   });
 });
 

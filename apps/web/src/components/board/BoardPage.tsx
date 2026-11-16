@@ -31,11 +31,13 @@ import {
   type PlacedCard,
   buildCategoryView,
   CARD_CATEGORIES,
+  listInitiatives,
+  looseCard,
   orderAt,
   placeCard,
 } from "./boardCards.logic";
 import { useBoard, updateCard } from "./boardStore";
-import { CardEditorDialog } from "./CardEditorDialog";
+import { CardModal } from "./CardModal";
 import { resolveFleetBoardCard } from "./fleetBoard.logic";
 import { FleetBoardPage } from "./FleetBoardPage";
 import { BoardCardTile, ProjectBoard } from "./ProjectBoard";
@@ -43,6 +45,9 @@ import { useFleetBoardThreads } from "./useFleetBoardThreads";
 
 const BoardView = Schema.Literals(["board", "views", "activity"]);
 type BoardView = typeof BoardView.Type;
+const GroupBy = Schema.Literals(["repo", "initiative"]);
+type GroupBy = typeof GroupBy.Type;
+
 const VIEW_OPTIONS: ReadonlyArray<{ readonly id: BoardView; readonly label: string }> = [
   { id: "board", label: "Board" },
   { id: "views", label: "Views" },
@@ -115,8 +120,14 @@ function CardsPage(props: {
     Schema.String,
   );
   const [planning, setPlanning] = useLocalStorage("t3-fleet:board-planning", false, Schema.Boolean);
+  const [groupBy, setGroupBy] = useLocalStorage("t3-fleet:board-group", "repo" as GroupBy, GroupBy);
+  const [storedInitiative, setStoredInitiative] = useLocalStorage(
+    "t3-fleet:board-initiative",
+    "",
+    Schema.String,
+  );
   const [hideDone, setHideDone] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [open, setOpen] = useState<{ id: string; sequence: ReadonlyArray<string> } | null>(null);
 
   const labelByEnvironment = new Map<string, string>(
     environments.map((environment) => [environment.environmentId, environment.environmentLabel]),
@@ -128,7 +139,37 @@ function CardsPage(props: {
   const projectKey = projectLabel.has(storedProject)
     ? storedProject
     : (groups[0]?.projectKey ?? "");
-  const editing = board.document.cards.find((card) => card.id === editingId) ?? null;
+  const initiatives = listInitiatives(board.document);
+  const initiative =
+    initiatives.find((name) => name.toLowerCase() === storedInitiative.toLowerCase()) ??
+    initiatives[0] ??
+    null;
+  const byInitiative = groupBy === "initiative" && initiative !== null;
+  const projects = groups.map((group) => ({
+    projectKey: group.projectKey,
+    displayName: group.displayName,
+  }));
+
+  const openPlaced = (() => {
+    if (!open) return null;
+    const stored = board.document.cards.find((card) => card.id === open.id);
+    if (stored) return placeCard(stored, chats);
+    const chat = chats.find((entry) => `chat:${entry.environmentId}:${entry.threadId}` === open.id);
+    return chat ? looseCard(chat) : null;
+  })();
+  const openCard = (id: string, sequence: ReadonlyArray<string>) => setOpen({ id, sequence });
+  const navigateCard = (id: string) =>
+    setOpen((current) =>
+      current === null
+        ? null
+        : {
+            id,
+            // A chat turned into a card keeps its place in the sequence under its new id.
+            sequence: current.sequence.includes(id)
+              ? current.sequence
+              : current.sequence.map((entry) => (entry === current.id ? id : entry)),
+          },
+    );
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
@@ -145,25 +186,61 @@ function CardsPage(props: {
         </WorkspacePageHeader>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
           {props.view === "board" ? (
-            <div className="w-56 max-w-full min-w-0">
-              <Select
-                value={projectKey}
-                onValueChange={(value) => {
-                  if (typeof value === "string") setStoredProject(value);
+            <>
+              <ToggleGroup
+                aria-label="Group by"
+                value={[groupBy]}
+                onValueChange={(next) => {
+                  if (next[0] === "repo" || next[0] === "initiative") setGroupBy(next[0]);
                 }}
               >
-                <SelectTrigger aria-label="Project" size="sm" className="w-full">
-                  <SelectValue>{projectLabel.get(projectKey) ?? "Pick a project"}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {groups.map((group) => (
-                    <SelectItem key={group.projectKey} value={group.projectKey}>
-                      {group.displayName}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </div>
+                <Toggle value="repo">Repo</Toggle>
+                <Toggle value="initiative">Initiative</Toggle>
+              </ToggleGroup>
+              <div className="w-56 max-w-full min-w-0">
+                {groupBy === "repo" ? (
+                  <Select
+                    value={projectKey}
+                    onValueChange={(value) => {
+                      if (typeof value === "string") setStoredProject(value);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Repo" size="sm" className="w-full">
+                      <SelectValue>{projectLabel.get(projectKey) ?? "Pick a repo"}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {groups.map((group) => (
+                        <SelectItem key={group.projectKey} value={group.projectKey}>
+                          {group.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                ) : initiative === null ? (
+                  <span className="text-xs text-muted-foreground">
+                    No initiatives yet. Set one on a card.
+                  </span>
+                ) : (
+                  <Select
+                    value={initiative}
+                    onValueChange={(value) => {
+                      if (typeof value === "string") setStoredInitiative(value);
+                    }}
+                  >
+                    <SelectTrigger aria-label="Initiative" size="sm" className="w-full">
+                      <SelectValue>{initiative}</SelectValue>
+                    </SelectTrigger>
+                    <SelectPopup>
+                      {initiatives.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectPopup>
+                  </Select>
+                )}
+              </div>
+            </>
           ) : (
             <div className="flex shrink-0 items-center gap-1.5">
               <Switch
@@ -202,17 +279,23 @@ function CardsPage(props: {
           <div className="flex min-h-0 flex-1 flex-col pt-2">
             {planning ? (
               <p className="px-4 pb-2 text-xs text-muted-foreground">
-                Planning: add and arrange cards. Nothing starts until you start a chat. Click a card
-                to edit it.
+                Planning: add and arrange cards. Nothing starts until you start a chat.
+                {byInitiative
+                  ? ` New cards go to ${projectLabel.get(projectKey) ?? "the last repo you picked"}; change it on the card.`
+                  : ""}
               </p>
             ) : null}
             <ProjectBoard
-              projectKey={projectKey}
+              scope={
+                byInitiative ? { kind: "initiative", initiative } : { kind: "project", projectKey }
+              }
+              newCardProjectKey={projectKey}
               document={board.document}
               chats={chats}
               planning={planning}
               machineLabel={machineLabel}
-              onEdit={setEditingId}
+              projectLabel={(key) => projectLabel.get(key) ?? "Unknown project"}
+              onOpen={openCard}
             />
           </div>
         ) : (
@@ -221,18 +304,19 @@ function CardsPage(props: {
             hideDone={hideDone}
             projectLabel={(key) => projectLabel.get(key) ?? "Unknown project"}
             machineLabel={machineLabel}
-            onEdit={setEditingId}
+            onOpen={openCard}
           />
         )}
       </div>
-      {editing ? (
-        <CardEditorDialog
-          key={editing.id}
-          card={editing}
-          stage={placeCard(editing, chats).stage}
+      {openPlaced && open ? (
+        <CardModal
+          placed={openPlaced}
           chats={chats}
-          projectLabel={projectLabel.get(editing.projectKey) ?? "Unknown project"}
-          onClose={() => setEditingId(null)}
+          projects={projects}
+          initiatives={initiatives}
+          sequence={open.sequence}
+          onNavigate={navigateCard}
+          onClose={() => setOpen(null)}
         />
       ) : null}
     </SidebarInset>
@@ -248,7 +332,7 @@ function CategoryViews(props: {
   readonly hideDone: boolean;
   readonly projectLabel: (projectKey: string) => string;
   readonly machineLabel: (environmentId: string) => string | null;
-  readonly onEdit: (cardId: string) => void;
+  readonly onOpen: (cardId: string, sequence: ReadonlyArray<string>) => void;
 }) {
   const board = useBoard();
   const view = buildCategoryView(board.document, props.chats);
@@ -258,6 +342,9 @@ function CategoryViews(props: {
   );
   const visible = (list: ReadonlyArray<PlacedCard>) =>
     props.hideDone ? list.filter((placed) => placed.stage !== "done") : list;
+  const sequence = VIEW_COLUMNS.flatMap((column) =>
+    visible(view[column.id]).map((placed) => placed.card.id),
+  );
   const categoryOf = new Map(
     board.document.cards.map((card) => [card.id, card.category ?? "none"] as const),
   );
@@ -302,7 +389,7 @@ function CategoryViews(props: {
             cards={visible(view[column.id])}
             projectLabel={props.projectLabel}
             machineLabel={props.machineLabel}
-            onEdit={props.onEdit}
+            onOpen={(id) => props.onOpen(id, sequence)}
           />
         ))}
       </div>
@@ -316,7 +403,7 @@ function CategoryColumn(props: {
   readonly cards: ReadonlyArray<PlacedCard>;
   readonly projectLabel: (projectKey: string) => string;
   readonly machineLabel: (environmentId: string) => string | null;
-  readonly onEdit: (cardId: string) => void;
+  readonly onOpen: (cardId: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `category:${props.id}`,
@@ -355,7 +442,7 @@ function CategoryColumn(props: {
               showStage
               projectLabel={props.projectLabel(placed.card.projectKey)}
               machineLabel={props.machineLabel}
-              onOpen={() => props.onEdit(placed.card.id)}
+              onOpen={() => props.onOpen(placed.card.id)}
             />
           ))}
         </ol>
