@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { PlusIcon, RadarIcon, XIcon } from "lucide-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { ArchiveIcon, PlusIcon, RadarIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import * as Schema from "effect/Schema";
 
 import { cn } from "../../lib/utils";
@@ -11,13 +12,20 @@ import {
   resolveFleetBoardCard,
 } from "../board/fleetBoard.logic";
 import { type BoardThread, useFleetBoardThreads } from "../board/useFleetBoardThreads";
+import { useThreadActions } from "../../hooks/useThreadActions";
+import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useSidebar } from "../ui/sidebar";
 import {
   isOrchestratorTitle,
   orchestratorDigestLine,
   orchestratorDisplayTitle,
 } from "./fleetOrchestrator";
-import { ORCHESTRATOR_ROLES, useStartOrchestrator } from "./useStartOrchestrator";
+import {
+  ORCHESTRATOR_ROLES,
+  type OrchestratorRole,
+  useStartOrchestrator,
+} from "./useStartOrchestrator";
 
 const INTRO_HIDDEN_KEY = "t3-fleet:command-intro-hidden";
 
@@ -36,6 +44,11 @@ const TONE_TEXT: Record<FleetBoardTone, string> = {
   done: "text-foreground",
   quiet: "text-muted-foreground",
 };
+
+function roleOf(title: string): OrchestratorRole | null {
+  const name = orchestratorDisplayTitle(title).toLowerCase();
+  return ORCHESTRATOR_ROLES.find(({ role }) => name.startsWith(role.toLowerCase()))?.role ?? null;
+}
 
 /** Orchestrator chats, settled or not: they are standing chats, not tasks. */
 function useOrchestratorThreads(): {
@@ -61,12 +74,24 @@ export function CommandPanel({ layout }: { readonly layout: "sidebar" | "board" 
   });
   const startOrchestrator = useStartOrchestrator();
   const [introHidden, setIntroHidden] = useLocalStorage(INTRO_HIDDEN_KEY, false, Schema.Boolean);
+  const { archiveThread } = useThreadActions();
   const missingRoles = ORCHESTRATOR_ROLES.filter(
-    ({ role }) =>
-      !threads.some((thread) =>
-        orchestratorDisplayTitle(thread.title).toLowerCase().startsWith(role.toLowerCase()),
-      ),
+    ({ role }) => !threads.some((thread) => roleOf(thread.title) === role),
   );
+  // Archiving keeps the chat (Settings → Archived, or Undo on the notice); starting fresh
+  // then opens a new one with the current instructions.
+  const archive = async (thread: BoardThread, restart: OrchestratorRole | null) => {
+    const result = await archiveThread(scopeThreadRef(thread.environmentId, thread.id));
+    if (result._tag === "Failure") {
+      toastManager.add({
+        type: "error",
+        title: "Could not archive this orchestrator",
+        description: "If it is still working, stop it first, then try again.",
+      });
+      return;
+    }
+    if (restart !== null) startOrchestrator(restart);
+  };
   if (threads.length === 0) {
     if (layout === "sidebar" && introHidden) return null;
     return (
@@ -171,9 +196,13 @@ export function CommandPanel({ layout }: { readonly layout: "sidebar" | "board" 
           const latest = thread.source.latestVisibleMessage;
           const digest = latest?.role === "assistant" ? orchestratorDigestLine(latest.text) : null;
           const age = formatFleetBoardAge(card.since, nowMs);
+          const role = roleOf(thread.title);
           const machine = labelById.size > 1 ? (labelById.get(thread.environmentId) ?? null) : null;
           return (
-            <li key={`${thread.environmentId}:${thread.id}`} className="min-w-0">
+            <li
+              key={`${thread.environmentId}:${thread.id}`}
+              className="group/orch relative min-w-0"
+            >
               <button
                 type="button"
                 aria-current={active ? "page" : undefined}
@@ -197,7 +226,7 @@ export function CommandPanel({ layout }: { readonly layout: "sidebar" | "board" 
                     {orchestratorDisplayTitle(thread.title)}
                   </span>
                   {age ? (
-                    <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
+                    <span className="shrink-0 text-2xs text-muted-foreground tabular-nums group-focus-within/orch:invisible group-hover/orch:invisible pointer-coarse:invisible">
                       {age}
                     </span>
                   ) : null}
@@ -219,10 +248,55 @@ export function CommandPanel({ layout }: { readonly layout: "sidebar" | "board" 
                   <span className="truncate text-2xs text-muted-foreground">{machine}</span>
                 ) : null}
               </button>
+              <span className="absolute end-1 top-1 hidden items-center gap-0.5 group-focus-within/orch:flex group-hover/orch:flex pointer-coarse:flex">
+                {role ? (
+                  <OrchestratorAction
+                    label={`Start a fresh ${role}`}
+                    hint={`Archive this chat and start a new ${role} with the latest instructions.`}
+                    onClick={() => void archive(thread, role)}
+                  >
+                    <RotateCcwIcon aria-hidden className="size-3" />
+                  </OrchestratorAction>
+                ) : null}
+                <OrchestratorAction
+                  label="Archive"
+                  hint="Archive this orchestrator. Undo from the notice, or restore it in Settings → Archived."
+                  onClick={() => void archive(thread, null)}
+                >
+                  <ArchiveIcon aria-hidden className="size-3" />
+                </OrchestratorAction>
+              </span>
             </li>
           );
         })}
       </ul>
     </section>
+  );
+}
+
+function OrchestratorAction(props: {
+  readonly label: string;
+  readonly hint: string;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            aria-label={props.label}
+            onClick={props.onClick}
+            className="inline-flex size-5 cursor-pointer items-center justify-center rounded-sm bg-card text-muted-foreground outline-hidden hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+          />
+        }
+      >
+        {props.children}
+      </TooltipTrigger>
+      <TooltipPopup side="bottom" className="max-w-56">
+        {props.hint}
+      </TooltipPopup>
+    </Tooltip>
   );
 }

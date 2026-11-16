@@ -2,6 +2,7 @@ import { useHandleNewThread } from "../../hooks/useHandleNewThread";
 import { toastManager } from "../ui/toast";
 import plannerPrompt from "./prompts/planner.md?raw";
 import reconcilerPrompt from "./prompts/reconciler.md?raw";
+import askingPrompt from "./prompts/asking.md?raw";
 
 export type OrchestratorRole = "Planner" | "Reconciler";
 
@@ -19,9 +20,17 @@ export const ORCHESTRATOR_ROLES: ReadonlyArray<{
   },
 ];
 
+// Both roles share how they ask questions and show pages; it sits before the closing "sweep" line.
+function withAsking(prompt: string): string {
+  const closing = prompt.lastIndexOf("\n\nWhen I say");
+  return closing === -1
+    ? `${prompt.trimEnd()}\n\n${askingPrompt.trim()}\n`
+    : `${prompt.slice(0, closing)}\n\n${askingPrompt.trim()}${prompt.slice(closing)}`;
+}
+
 const PROMPTS: Record<OrchestratorRole, string> = {
-  Planner: plannerPrompt,
-  Reconciler: reconcilerPrompt,
+  Planner: withAsking(plannerPrompt),
+  Reconciler: withAsking(reconcilerPrompt),
 };
 
 /** Opens a new chat with the role's standing prompt in the composer, ready to send. */
