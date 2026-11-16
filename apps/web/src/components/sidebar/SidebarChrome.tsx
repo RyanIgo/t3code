@@ -95,8 +95,8 @@ function SidebarOrderButton() {
   const [order, setOrder] = useFleetSidebarOrder();
   const fixed = order === "fixed";
   const label = fixed
-    ? "Chat order held: chats stay put and new ones appear on top. Click to sort by activity."
-    : "Chats sort by activity: sending moves a chat up. Click to hold the order.";
+    ? "Order held: chats and folders stay put, and new chats appear on top. Click to sort by activity."
+    : "Sorted by activity: sending moves a chat and its folder up. Click to hold the order.";
   return (
     <Tooltip>
       <TooltipTrigger

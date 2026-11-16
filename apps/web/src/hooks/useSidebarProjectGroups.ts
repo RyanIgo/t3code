@@ -7,6 +7,7 @@ import { buildSidebarProjectSnapshots } from "../sidebarProjectGrouping";
 import { useEnvironmentIdentities, usePrimaryEnvironmentId } from "../state/environments";
 import { useDelegatedUnderParent, useProjects, useQuietThreadShells } from "../state/entities";
 import { legacyProjectCwdPreferenceKey, useUiStateStore } from "../uiStateStore";
+import { useFleetSidebarOrder } from "../components/sidebar/fleetSidebarOrder";
 import { useClientSettings } from "./useSettings";
 
 export function useSidebarProjectGroups() {
@@ -16,7 +17,16 @@ export function useSidebarProjectGroups() {
   const threads = useQuietThreadShells();
   const delegatedUnderParent = useDelegatedUnderParent();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
-  const sortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const settingsSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  // Fleet fork: a held chat order holds folders too, so they don't jump up on every
+  // message. Folders keep a dragged order if there is one, otherwise their creation order.
+  const [fleetOrder] = useFleetSidebarOrder();
+  const sortOrder =
+    fleetOrder === "fixed" && settingsSortOrder === "updated_at"
+      ? projectOrder.length > 0
+        ? "manual"
+        : "created_at"
+      : settingsSortOrder;
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const environments = useEnvironmentIdentities();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
