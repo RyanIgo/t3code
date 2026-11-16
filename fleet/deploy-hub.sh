@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Deploy the fleet hub: the fork's UI as a hosted web app plus fleet/hub/server.mjs, on an
+# always-on Linux host on your tailnet (for example a DigitalOcean droplet).
+#
+#   fleet/deploy-hub.sh <ssh-host> --setup --owner you@example.com   first time
+#   fleet/deploy-hub.sh <ssh-host>                                    later updates
+#
+# The host needs Node 20+ and Tailscale. Everything lives in ~/t3-fleet-hub there and runs as
+# a systemd user service behind `tailscale serve` (HTTPS on the host's tailnet name).
+set -euo pipefail
+
+usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+host="" setup=0 owner="" port=3790
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --setup) setup=1 ;;
+    --owner) owner="${2:?--owner needs your Tailscale login}"; shift ;;
+    --port) port="${2:?}"; shift ;;
+    -h|--help) usage 0 ;;
+    -*) echo "Unknown option: $1" >&2; usage 1 ;;
+    *) host="$1" ;;
+  esac
+  shift
+done
+[[ -n "$host" ]] || usage 1
+if [[ "$setup" == 1 && -z "$owner" ]]; then
+  echo "--setup needs --owner <your Tailscale login>." >&2
+  exit 1
+fi
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+remote_root='$HOME/t3-fleet-hub'
+
+echo "Checking $host…"
+ssh "$host" 'command -v node >/dev/null && node -e "process.exit(Number(process.versions.node.split(\".\")[0]) >= 20 ? 0 : 1)"' \
+  || { echo "$host needs Node 20 or newer." >&2; exit 1; }
+hub_name="$(ssh "$host" "tailscale status --json" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).Self.DNSName.replace(/\.$/,"")))')"
+[[ -n "$hub_name" ]] || { echo "Could not read $host's Tailscale name." >&2; exit 1; }
+hub_url="https://$hub_name"
+echo "Hub address: $hub_url"
+
+# A separate output folder, so this machine's own client build in apps/web/dist is untouched.
+out_dir="$(mktemp -d)"
+trap 'rm -rf "$out_dir"' EXIT
+echo "Building the hosted UI…"
+(
+  cd "$repo_root/apps/web"
+  # Never set VITE_HTTP_URL / VITE_WS_URL: the hosted app connects to each machine itself.
+  unset VITE_HTTP_URL VITE_WS_URL
+  VITE_HOSTED_APP_URL="$hub_url" vp build --outDir "$out_dir/web" --emptyOutDir
+)
+cp "$repo_root/fleet/hub/server.mjs" "$out_dir/server.mjs"
+
+release="$(date -u +%Y%m%d-%H%M%S)"
+echo "Uploading release $release…"
+ssh "$host" "mkdir -p $remote_root/releases/$release $remote_root/data && chmod 700 $remote_root/data"
+tar -C "$out_dir" -czf - web server.mjs | ssh "$host" "tar -C $remote_root/releases/$release -xzf -"
+
+if [[ "$setup" == 1 ]]; then
+  echo "Setting up the service and tailscale serve…"
+  ssh "$host" "mkdir -p ~/.config/systemd/user && cat > ~/.config/systemd/user/t3-fleet-hub.service" <<UNIT
+[Unit]
+Description=T3 fleet hub (UI and shared connections)
+After=network-online.target
+
+[Service]
+Environment=HUB_PORT=$port
+Environment=HUB_OWNERS=$owner
+Environment=HUB_WEB=%h/t3-fleet-hub/current/web
+Environment=HUB_DATA=%h/t3-fleet-hub/data
+ExecStart=$(ssh "$host" 'command -v node') %h/t3-fleet-hub/current/server.mjs
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
+UNIT
+  ssh "$host" "loginctl enable-linger \$USER 2>/dev/null || sudo loginctl enable-linger \$USER; systemctl --user daemon-reload && systemctl --user enable t3-fleet-hub"
+  ssh "$host" "tailscale serve --bg --https=443 http://127.0.0.1:$port 2>/dev/null || sudo tailscale serve --bg --https=443 http://127.0.0.1:$port" \
+    || echo "Run on $host: sudo tailscale serve --bg --https=443 http://127.0.0.1:$port" >&2
+fi
+
+echo "Switching to the new release…"
+ssh "$host" "cd $remote_root && ln -sfn releases/$release current && systemctl --user restart t3-fleet-hub \
+  && ls -1dt releases/* | tail -n +4 | xargs -r rm -rf"
+
+sleep 1
+login="$(ssh "$host" "systemctl --user show t3-fleet-hub -p Environment" | tr ' ' '\n' | sed -n 's/^HUB_OWNERS=\([^,]*\).*/\1/p')"
+if ssh "$host" "curl -sf -H 'Tailscale-User-Login: $login' http://127.0.0.1:$port/fleet/whoami" >/dev/null; then
+  echo "Hub is up: $hub_url"
+else
+  echo "The hub service did not answer. Check: ssh $host journalctl --user -u t3-fleet-hub -n 50" >&2
+  exit 1
+fi

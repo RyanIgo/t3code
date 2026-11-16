@@ -40,6 +40,7 @@ import { LinkedEnvironmentsSettings } from "./LinkedEnvironmentsSettings";
 import { usePeerLinkHosts } from "~/state/peerLinks";
 import { LoadBalancingSettings } from "./LoadBalancingSettings";
 import { ConnectionsBackupSection } from "./ConnectionsBackupSection";
+import { HubSyncSection } from "./HubSyncSection";
 import { PullRequestRoutingSettings } from "./PullRequestRoutingSettings";
 import { Input } from "../ui/input";
 import {
@@ -1516,6 +1517,7 @@ export function ConnectionsSettings({ view }: { readonly view: "environments" | 
           savedEnvironments={savedEnvironments}
         />
       </SettingsSection>
+      <HubSyncSection />
       <ConnectionsBackupSection />
       {hasCloudPublicConfig() ? (
         <RemoveT3ConnectEnvironmentDialog

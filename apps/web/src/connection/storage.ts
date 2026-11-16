@@ -40,6 +40,7 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import { projectFaviconCache } from "../assets/projectFaviconCache";
 import { mirrorCatalogToBackup, requestPersistentStorage } from "./fleetCatalogBackup";
+import { withFleetHubSync } from "./fleetHubSync";
 
 const DATABASE_NAME = "t3code:connection-runtime";
 const DATABASE_VERSION = 4;
@@ -414,7 +415,7 @@ export function makeCatalogBackend(database: DatabaseHandle): CatalogBackend {
     };
   }
 
-  return {
+  return withFleetHubSync({
     read: readDatabaseValue(database, CATALOG_STORE_NAME, CATALOG_KEY).pipe(
       Effect.map((value) => (typeof value === "string" ? value : null)),
     ),
@@ -424,7 +425,7 @@ export function makeCatalogBackend(database: DatabaseHandle): CatalogBackend {
       ),
     quarantine: (raw) =>
       writeDatabaseValue(database, CATALOG_STORE_NAME, `${CATALOG_KEY}:corrupt:${Date.now()}`, raw),
-  };
+  });
 }
 
 interface CatalogStore {

@@ -27,6 +27,8 @@ Keep this list short so upstream merges stay trivial.
 | `apps/web/src/components/chat/pageFeedback*`         | New: page-to-chat feedback          |
 | `apps/web/src/components/review/*`                   | New: Review window, question sheets |
 | `apps/web/src/connection/fleetCatalogBackup.ts`      | New: connections backup file        |
+| `apps/web/src/connection/fleetHubSync*`              | New: connections on the hub         |
+| `fleet/hub/*`, `fleet/deploy-hub.sh`                 | New: the fleet hub                  |
 | `fleet/skills/*`                                     | Agent skills, installed             |
 | `fleet/*`                                            | README, setup, and installer        |
 
@@ -70,6 +72,25 @@ fleet/install-client.sh --restore  # undo: put the upstream client back
 Projects and threads live in each machine's own `~/.t3/userdata`, not in this repo. To see another
 machine's work, pair it into the one you look at: on the other machine run
 `t3 serve --tailscale-serve`, then on this one go to Settings → Connections → Add environment.
+
+## The hub: one UI for every device
+
+The hub serves this fork's UI from an always-on Linux host on your tailnet (for example a
+DigitalOcean droplet) and keeps the saved environments there, so any computer or phone that
+opens it gets every machine without pairing again. Sign-in is your Tailscale login: the hub
+only answers the logins you name.
+
+The host needs Node 20+ and Tailscale. From this repo:
+
+```sh
+fleet/deploy-hub.sh <ssh-host> --setup --owner you@example.com   # first time
+fleet/deploy-hub.sh <ssh-host>                                    # updates
+```
+
+Then open `https://<host>.<tailnet>.ts.net`, add each machine once with a pairing link from
+`t3 pair --tailscale` on that machine, and open the same address on your other devices.
+Settings → Environments shows whether this browser is in step with the hub. Every device
+shares each machine's sign-in, so revoking it on a machine signs all devices out of it.
 
 ## Pull in upstream
 
