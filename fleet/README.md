@@ -92,6 +92,17 @@ Then open `https://<host>.<tailnet>.ts.net`, add each machine once with a pairin
 Settings → Environments shows whether this browser is in step with the hub. Every device
 shares each machine's sign-in, so revoking it on a machine signs all devices out of it.
 
+The Board's cards live on the hub too, so planning on one device shows on all of them. Opened
+anywhere else, the Board keeps its cards in that browser only.
+
+A machine whose T3 server runs inside WSL has its Tailscale on Windows, where `t3 pair --tailscale`
+can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pair` and use the
+`https://<machine>.<tailnet>.ts.net/pair#token=…` form of the link:
+
+```sh
+"/mnt/c/Program Files/Tailscale/tailscale.exe" serve --bg --https=443 http://127.0.0.1:3773
+```
+
 ## Pull in upstream
 
 ```sh

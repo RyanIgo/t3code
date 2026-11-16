@@ -56,7 +56,8 @@ const COLUMN_HEADER_TEXT: Record<(typeof FLEET_BOARD_COLUMNS)[number]["id"], str
   done: "text-muted-foreground",
 };
 
-export function FleetBoardPage() {
+/** The chats-by-status view; the Board page shows it as "Activity". */
+export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode }) {
   const navigate = useNavigate();
   const [showSettled, setShowSettled] = useState(false);
   const [expandedIdle, setExpandedIdle] = useState<ReadonlySet<string>>(() => new Set());
@@ -117,6 +118,7 @@ export function FleetBoardPage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           <h1 className="shrink-0 text-sm font-medium">Board</h1>
+          {props.viewSwitcher}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
             {enabledEnvironments.map((environment) => (
               <Tooltip key={environment.environmentId}>

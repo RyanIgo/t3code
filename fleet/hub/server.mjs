@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fleet hub: serves the hosted fleet UI and one shared connection catalog. Listens on loopback
+// Fleet hub: serves the hosted fleet UI and the shared documents (connection catalog, board). Listens on loopback
 // behind `tailscale serve`, which adds the caller's `Tailscale-User-Login`; only HUB_OWNERS
 // may use it. Node 20+, no dependencies. See fleet/README.md.
 
@@ -17,8 +17,12 @@ const OWNERS = new Set(
     .map((login) => login.trim().toLowerCase())
     .filter(Boolean),
 );
-const CATALOG_FILE = NodePath.join(DATA_ROOT, "catalog.json");
 const HISTORY_DIR = NodePath.join(DATA_ROOT, "history");
+// Each shared document: its file, and the check a saved document must pass.
+const DOCUMENTS = {
+  catalog: (parsed) => Array.isArray(parsed?.targets),
+  board: (parsed) => Array.isArray(parsed?.cards),
+};
 const HISTORY_KEEP = 20;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;
 
@@ -60,9 +64,11 @@ function callerLogin(req) {
   return typeof login === "string" && login.trim() !== "" ? login.trim().toLowerCase() : null;
 }
 
-async function readCatalog() {
+const documentFile = (name) => NodePath.join(DATA_ROOT, `${name}.json`);
+
+async function readDocument(name) {
   try {
-    return JSON.parse(await NodeFSP.readFile(CATALOG_FILE, "utf8"));
+    return JSON.parse(await NodeFSP.readFile(documentFile(name), "utf8"));
   } catch (error) {
     if (error.code === "ENOENT")
       return { version: 0, updatedAt: null, updatedBy: null, document: null };
@@ -70,21 +76,22 @@ async function readCatalog() {
   }
 }
 
-async function writeCatalog(record) {
+async function writeDocument(name, record) {
   await NodeFSP.mkdir(HISTORY_DIR, { recursive: true, mode: 0o700 });
-  const tmp = `${CATALOG_FILE}.${process.pid}.tmp`;
+  const file = documentFile(name);
+  const tmp = `${file}.${process.pid}.tmp`;
   await NodeFSP.writeFile(tmp, JSON.stringify(record), { mode: 0o600 });
-  await NodeFSP.rename(tmp, CATALOG_FILE);
+  await NodeFSP.rename(tmp, file);
   await NodeFSP.writeFile(
-    NodePath.join(HISTORY_DIR, `catalog-${String(record.version).padStart(6, "0")}.json`),
+    NodePath.join(HISTORY_DIR, `${name}-${String(record.version).padStart(6, "0")}.json`),
     JSON.stringify(record),
     { mode: 0o600 },
   );
   const kept = (await NodeFSP.readdir(HISTORY_DIR))
-    .filter((name) => name.startsWith("catalog-"))
+    .filter((entry) => entry.startsWith(`${name}-`))
     .sort();
-  for (const name of kept.slice(0, Math.max(0, kept.length - HISTORY_KEEP))) {
-    await NodeFSP.rm(NodePath.join(HISTORY_DIR, name), { force: true });
+  for (const entry of kept.slice(0, Math.max(0, kept.length - HISTORY_KEEP))) {
+    await NodeFSP.rm(NodePath.join(HISTORY_DIR, entry), { force: true });
   }
 }
 
@@ -109,9 +116,9 @@ function readBody(req) {
 // Writes are serialized so two devices saving at once cannot both pass the version check.
 let writeQueue = Promise.resolve();
 
-async function handleCatalog(req, res, login) {
+async function handleDocument(name, req, res, login) {
   if (req.method === "GET") {
-    const record = await readCatalog();
+    const record = await readDocument(name);
     send(res, 200, record);
     return;
   }
@@ -125,12 +132,12 @@ async function handleCatalog(req, res, login) {
     return;
   }
   const parsed = JSON.parse(body.document);
-  if (!Array.isArray(parsed?.targets)) {
-    send(res, 400, { error: "not a connection catalog" });
+  if (!DOCUMENTS[name](parsed)) {
+    send(res, 400, { error: `not a ${name} document` });
     return;
   }
   const result = (writeQueue = writeQueue.then(async () => {
-    const current = await readCatalog();
+    const current = await readDocument(name);
     if (current.version !== body.baseVersion) return { conflict: current };
     const next = {
       version: current.version + 1,
@@ -138,7 +145,7 @@ async function handleCatalog(req, res, login) {
       updatedBy: login,
       document: body.document,
     };
-    await writeCatalog(next);
+    await writeDocument(name, next);
     return { saved: next };
   }));
   const outcome = await result;
@@ -146,11 +153,7 @@ async function handleCatalog(req, res, login) {
     send(res, 409, { error: "version-conflict", ...outcome.conflict });
     return;
   }
-  log("catalog saved", {
-    version: outcome.saved.version,
-    by: login,
-    targets: parsed.targets.length,
-  });
+  log(`${name} saved`, { version: outcome.saved.version, by: login });
   send(res, 200, { version: outcome.saved.version, updatedAt: outcome.saved.updatedAt });
 }
 
@@ -206,8 +209,9 @@ const server = NodeHttp.createServer(async (req, res) => {
       send(res, 200, { login });
       return;
     }
-    if (pathname === "/fleet/catalog") {
-      await handleCatalog(req, res, login);
+    const documentName = pathname.match(/^\/fleet\/(\w+)$/)?.[1];
+    if (documentName && Object.hasOwn(DOCUMENTS, documentName)) {
+      await handleDocument(documentName, req, res, login);
       return;
     }
     await serveStatic(req, res);
