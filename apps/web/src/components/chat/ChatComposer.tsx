@@ -1,4 +1,5 @@
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
+import { DictationButton } from "../voice/DictationButton";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
 import {
@@ -2394,6 +2395,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     );
   };
   const insertComposerTextStable = useStableCallback(insertComposerText);
+  // Fleet fork: dictated phrases land at the cursor, spaced from what is already typed.
+  const insertDictatedTextStable = useStableCallback((text: string) =>
+    insertComposerText(text, "cursor", { ensureLeadingBoundary: true }),
+  );
 
   const insertAttachmentReferences = (
     references: ReadonlyArray<ComposerContextReference>,
@@ -3429,7 +3434,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   showMobilePendingAnswerActions && "hidden sm:flex",
                 )}
               >
-                {composerAttachButton ? <div className="me-2">{composerAttachButton}</div> : null}
+                <div className="me-2 flex items-center gap-0.5">
+                  {composerAttachButton}
+                  <DictationButton onText={insertDictatedTextStable} />
+                </div>
                 <div
                   data-chat-composer-actions="right"
                   data-chat-composer-transition-actions="true"
