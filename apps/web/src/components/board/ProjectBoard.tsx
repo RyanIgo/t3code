@@ -98,7 +98,7 @@ export function ProjectBoard(props: {
             planning={props.planning}
             newCard={newCard}
             machineLabel={props.machineLabel}
-            projectLabel={props.scope.kind === "initiative" ? props.projectLabel : null}
+            projectLabel={props.scope.kind === "project" ? null : props.projectLabel}
             onOpen={(placed) => props.onOpen(placed.card.id, sequence)}
           />
         ))}

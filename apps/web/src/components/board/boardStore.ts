@@ -166,11 +166,10 @@ function save(document: BoardDocument) {
 
 const nowIso = () => new Date().toISOString();
 
-export function addCard(
-  fields: Pick<BoardCard, "projectKey" | "title" | "stage" | "order"> & Partial<BoardCard>,
-): BoardCard {
-  const at = nowIso();
-  const card: BoardCard = {
+type NewCard = Pick<BoardCard, "projectKey" | "title" | "stage" | "order"> & Partial<BoardCard>;
+
+function makeCard(fields: NewCard, at: string): BoardCard {
+  return {
     notes: "",
     category: null,
     initiatives: [],
@@ -183,8 +182,21 @@ export function addCard(
     createdAt: at,
     updatedAt: at,
   };
+}
+
+export function addCard(fields: NewCard): BoardCard {
+  const card = makeCard(fields, nowIso());
   save({ ...snapshot.document, cards: [...snapshot.document.cards, card] });
   return card;
+}
+
+/** Several cards in one save, so the hub gets one update. */
+export function addCards(fields: ReadonlyArray<NewCard>) {
+  const at = nowIso();
+  save({
+    ...snapshot.document,
+    cards: [...snapshot.document.cards, ...fields.map((entry) => makeCard(entry, at))],
+  });
 }
 
 export function updateCard(id: string, changes: Partial<Omit<BoardCard, "id" | "createdAt">>) {

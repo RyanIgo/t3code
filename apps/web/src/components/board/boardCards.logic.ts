@@ -177,10 +177,9 @@ export function looseCard(chat: CardChatState): PlacedCard {
     createdAt: at,
     updatedAt: at,
   };
-  const stage = stageFromChats([chat], null) ?? "progress";
   return {
     card,
-    stage,
+    stage: looseStage(chat),
     chats: [chat],
     loose: true,
     needsYou: chat.needsYou,
@@ -188,8 +187,24 @@ export function looseCard(chat: CardChatState): PlacedCard {
   };
 }
 
+/**
+ * Where a chat with no card sits. An idle chat you've already seen is unfinished work, not
+ * something to test, unless it has a PR to try.
+ */
+function looseStage(chat: CardChatState): CardStage {
+  if (chat.working || chat.needsYou) return "progress";
+  if (chat.pullRequests.length > 0 && chat.pullRequests.every((pr) => pr.state === "merged")) {
+    return "done";
+  }
+  if (chat.column === "done" || chat.pullRequests.some((pr) => pr.state === "open")) {
+    return "testing";
+  }
+  return "progress";
+}
+
 /** Which cards a board shows: one repo's (plus its chats no card owns), or one initiative's. */
 export type BoardScope =
+  | { readonly kind: "all" }
   | { readonly kind: "project"; readonly projectKey: string }
   | { readonly kind: "initiative"; readonly initiative: string };
 
@@ -210,18 +225,18 @@ export function buildBoardLists(
   for (const card of document.cards) {
     for (const ref of card.chats) owned.add(chatKey(ref));
     const inScope =
-      scope.kind === "project"
+      scope.kind === "all" ||
+      (scope.kind === "project"
         ? card.projectKey === scope.projectKey
-        : card.initiatives.some((name) => sameInitiative(name, scope.initiative));
+        : card.initiatives.some((name) => sameInitiative(name, scope.initiative)));
     if (!inScope) continue;
     const placed = placeCard(card, chats);
     lists[placed.stage].push(placed);
   }
-  if (scope.kind === "project") {
+  if (scope.kind !== "initiative") {
     for (const chat of chats) {
-      if (chat.projectKey !== scope.projectKey || owned.has(chatKey(chat))) continue;
-      // Idle chats nobody looked at in a while are noise on a planning board.
-      if (chat.column === "queued" && !chat.working) continue;
+      if (chat.projectKey === null || owned.has(chatKey(chat))) continue;
+      if (scope.kind === "project" && chat.projectKey !== scope.projectKey) continue;
       const placed = looseCard(chat);
       lists[placed.stage].push(placed);
     }

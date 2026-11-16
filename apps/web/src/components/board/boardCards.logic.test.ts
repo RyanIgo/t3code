@@ -89,7 +89,7 @@ describe("placeCard", () => {
 });
 
 describe("buildBoardLists", () => {
-  it("shows chats no card owns, but not idle ones, and not owned ones twice", () => {
+  it("shows every chat no card owns, in the list its state points to, and owned ones once", () => {
     const lists = buildBoardLists(
       { schemaVersion: 1, cards: [card()], removed: [] },
       { kind: "project", projectKey: "p" },
@@ -99,8 +99,16 @@ describe("buildBoardLists", () => {
         chat({ threadId: "t3", column: "queued" }),
       ],
     );
-    const ids = Object.values(lists).flatMap((list) => list.map((placed) => placed.card.id));
-    expect(ids.toSorted()).toEqual(["c1", "chat:env:t2"]);
+    const where = Object.fromEntries(
+      Object.entries(lists).flatMap(([stage, list]) =>
+        list.map((placed) => [placed.card.id, stage]),
+      ),
+    );
+    expect(where).toEqual({
+      c1: "testing",
+      "chat:env:t2": "progress",
+      "chat:env:t3": "progress",
+    });
   });
 
   it("shows an initiative's cards from every repo, matched loosely by name, without chats", () => {

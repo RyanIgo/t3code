@@ -18,6 +18,7 @@ import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { cn } from "../../lib/utils";
 import { environmentSummaries } from "../../state/presentation";
 import { isOrchestratorTitle } from "../command/fleetOrchestrator";
+import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Label } from "../ui/label";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
@@ -27,8 +28,11 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import {
   type CardCategory,
+  type BoardScope,
   type CardChatState,
   type CardPullRequestState,
+  buildBoardLists,
+  CARD_STAGES,
   type PlacedCard,
   buildCategoryView,
   CARD_CATEGORIES,
@@ -37,7 +41,7 @@ import {
   orderAt,
   placeCard,
 } from "./boardCards.logic";
-import { useBoard, updateCard } from "./boardStore";
+import { addCards, useBoard, updateCard } from "./boardStore";
 import { CardModal } from "./CardModal";
 import { resolveFleetBoardCard } from "./fleetBoard.logic";
 import { FleetBoardPage } from "./FleetBoardPage";
@@ -46,6 +50,9 @@ import { useFleetBoardThreads } from "./useFleetBoardThreads";
 
 const BoardView = Schema.Literals(["board", "views", "activity"]);
 type BoardView = typeof BoardView.Type;
+/** The repo picker's "All repos" entry; never a real project key. */
+const ALL_REPOS = "*";
+
 const GroupBy = Schema.Literals(["repo", "initiative"]);
 type GroupBy = typeof GroupBy.Type;
 
@@ -65,9 +72,9 @@ function pullRequestState(
 }
 
 /** Every chat the board can place, with the project (sidebar group) it belongs to. */
-function useCardChats(): CardChatState[] {
+function useCardChats(includeSettled: boolean): CardChatState[] {
   const groups = useSidebarProjectGroups();
-  const { threads } = useFleetBoardThreads(false);
+  const { threads } = useFleetBoardThreads(includeSettled);
   const projectKeyByRef = new Map<string, string>();
   for (const group of groups) {
     for (const ref of group.memberProjectRefs) {
@@ -130,7 +137,12 @@ function CardsPage(props: {
   readonly switcher: React.ReactNode;
 }) {
   const board = useBoard();
-  const chats = useCardChats();
+  const [includeSettled, setIncludeSettled] = useLocalStorage(
+    "t3-fleet:board-settled",
+    false,
+    Schema.Boolean,
+  );
+  const chats = useCardChats(includeSettled);
   const groups = useSidebarProjectGroups();
   const environments = useAtomValue(environmentSummaries.environmentsAtom);
   const [storedProject, setStoredProject] = useLocalStorage(
@@ -155,15 +167,44 @@ function CardsPage(props: {
   const machineLabel = (environmentId: string) =>
     showMachines ? (labelByEnvironment.get(environmentId) ?? null) : null;
   const projectLabel = new Map(groups.map((group) => [group.projectKey, group.displayName]));
-  const projectKey = projectLabel.has(storedProject)
-    ? storedProject
-    : (groups[0]?.projectKey ?? "");
   const initiatives = listInitiatives(board.document);
   const initiative =
     initiatives.find((name) => name.toLowerCase() === storedInitiative.toLowerCase()) ??
     initiatives[0] ??
     null;
-  const byInitiative = groupBy === "initiative" && initiative !== null;
+  const allRepos = storedProject === ALL_REPOS;
+  const projectKey = projectLabel.has(storedProject)
+    ? storedProject
+    : (groups[0]?.projectKey ?? "");
+  const scope: BoardScope =
+    groupBy === "initiative" && initiative !== null
+      ? { kind: "initiative", initiative }
+      : allRepos
+        ? { kind: "all" }
+        : { kind: "project", projectKey };
+  const boardLists = buildBoardLists(board.document, scope, chats);
+  const looseOnBoard = Object.values(boardLists).flatMap((list) =>
+    list.filter((placed) => placed.loose),
+  );
+  const addAllToBoard = () =>
+    addCards(
+      CARD_STAGES.flatMap((stage) => {
+        const list = boardLists[stage.id];
+        const last = Math.max(
+          0,
+          ...list.filter((placed) => !placed.loose).map((p) => p.card.order),
+        );
+        return list
+          .filter((placed) => placed.loose)
+          .map((placed, index) => ({
+            projectKey: placed.card.projectKey,
+            title: placed.card.title,
+            stage: placed.stage,
+            order: last + 1000 * (index + 1),
+            chats: placed.card.chats,
+          }));
+      }),
+    );
   const projects = groups.map((group) => ({
     projectKey: group.projectKey,
     displayName: group.displayName,
@@ -226,15 +267,18 @@ function CardsPage(props: {
               <div className="w-56 max-w-full min-w-0">
                 {groupBy === "repo" ? (
                   <Select
-                    value={projectKey}
+                    value={allRepos ? ALL_REPOS : projectKey}
                     onValueChange={(value) => {
                       if (typeof value === "string") setStoredProject(value);
                     }}
                   >
                     <SelectTrigger aria-label="Repo" size="sm" className="w-full">
-                      <SelectValue>{projectLabel.get(projectKey) ?? "Pick a repo"}</SelectValue>
+                      <SelectValue>
+                        {allRepos ? "All repos" : (projectLabel.get(projectKey) ?? "Pick a repo")}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectPopup>
+                      <SelectItem value={ALL_REPOS}>All repos</SelectItem>
                       {groups.map((group) => (
                         <SelectItem key={group.projectKey} value={group.projectKey}>
                           {group.displayName}
@@ -289,6 +333,22 @@ function CardsPage(props: {
               <Label htmlFor="board-planning">Planning</Label>
             </div>
           ) : null}
+          {props.view === "board" ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Switch
+                id="board-settled"
+                size="sm"
+                checked={includeSettled}
+                onCheckedChange={setIncludeSettled}
+              />
+              <Label htmlFor="board-settled">Settled chats</Label>
+            </div>
+          ) : null}
+          {props.view === "board" && looseOnBoard.length > 0 ? (
+            <Button variant="outline" size="xs" onClick={addAllToBoard}>
+              Add {looseOnBoard.length} chat{looseOnBoard.length === 1 ? "" : "s"} to the board
+            </Button>
+          ) : null}
         </div>
 
         {groups.length === 0 ? (
@@ -306,15 +366,13 @@ function CardsPage(props: {
             {planning ? (
               <p className="px-4 pb-2 text-xs text-muted-foreground">
                 Planning: add and arrange cards. Nothing starts until you start a chat.
-                {byInitiative
+                {scope.kind !== "project"
                   ? ` New cards go to ${projectLabel.get(projectKey) ?? "the last repo you picked"}; change it on the card.`
                   : ""}
               </p>
             ) : null}
             <ProjectBoard
-              scope={
-                byInitiative ? { kind: "initiative", initiative } : { kind: "project", projectKey }
-              }
+              scope={scope}
               newCardProjectKey={projectKey}
               document={board.document}
               chats={chats}
