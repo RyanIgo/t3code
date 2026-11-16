@@ -150,13 +150,20 @@ function CardsPage(props: {
     displayName: group.displayName,
   }));
 
-  const openPlaced = (() => {
-    if (!open) return null;
-    const stored = board.document.cards.find((card) => card.id === open.id);
+  const resolvePlaced = (id: string): PlacedCard | null => {
+    const stored = board.document.cards.find((card) => card.id === id);
     if (stored) return placeCard(stored, chats);
-    const chat = chats.find((entry) => `chat:${entry.environmentId}:${entry.threadId}` === open.id);
+    const chat = chats.find((entry) => `chat:${entry.environmentId}:${entry.threadId}` === id);
     return chat ? looseCard(chat) : null;
-  })();
+  };
+  const openPlaced = open ? resolvePlaced(open.id) : null;
+  // The cards the window cycles through, placed live so a card that changes list moves tab.
+  const openPool = open
+    ? open.sequence.flatMap((id) => {
+        const placed = resolvePlaced(id);
+        return placed ? [placed] : [];
+      })
+    : [];
   const openCard = (id: string, sequence: ReadonlyArray<string>) => setOpen({ id, sequence });
   const navigateCard = (id: string) =>
     setOpen((current) =>
@@ -314,7 +321,7 @@ function CardsPage(props: {
           chats={chats}
           projects={projects}
           initiatives={initiatives}
-          sequence={open.sequence}
+          pool={openPool}
           onNavigate={navigateCard}
           onClose={() => setOpen(null)}
         />

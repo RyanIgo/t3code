@@ -1,6 +1,9 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
+import * as Schema from "effect/Schema";
 import { useState } from "react";
+
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 
 import ChatView from "../ChatView";
 import { Button } from "../ui/button";
@@ -22,6 +25,28 @@ import {
 } from "./boardCards.logic";
 import { addCard, removeCard, updateCard } from "./boardStore";
 
+const TabsBy = Schema.Literals(["list", "category"]);
+type TabsBy = typeof TabsBy.Type;
+
+interface CardTab {
+  readonly id: string;
+  readonly label: string;
+  readonly cards: ReadonlyArray<PlacedCard>;
+}
+
+const tabOf = (placed: PlacedCard, by: TabsBy): string =>
+  by === "list" ? placed.stage : (placed.card.category ?? "none");
+
+/** One tab per list or category that has cards, in board order. */
+function buildTabs(pool: ReadonlyArray<PlacedCard>, by: TabsBy): CardTab[] {
+  const groups =
+    by === "list" ? CARD_STAGES : [...CARD_CATEGORIES, { id: "none", label: "No category" }];
+  return groups.flatMap((group) => {
+    const cards = pool.filter((entry) => tabOf(entry, by) === group.id);
+    return cards.length > 0 ? [{ id: group.id, label: group.label, cards }] : [];
+  });
+}
+
 const TESTING_OPTIONS: ReadonlyArray<{
   readonly id: CardTesting | "none";
   readonly label: string;
@@ -40,8 +65,8 @@ export function CardModal(props: {
   readonly chats: ReadonlyArray<CardChatState>;
   readonly projects: ReadonlyArray<{ readonly projectKey: string; readonly displayName: string }>;
   readonly initiatives: ReadonlyArray<string>;
-  /** Card ids in board order, for previous / next. */
-  readonly sequence: ReadonlyArray<string>;
+  /** The board's cards in board order; the window's tabs and previous / next cycle these. */
+  readonly pool: ReadonlyArray<PlacedCard>;
   readonly onNavigate: (cardId: string) => void;
   readonly onClose: () => void;
 }) {
@@ -56,9 +81,32 @@ export function CardModal(props: {
       ? chatRef
       : (card.chats[0] ?? null);
   const chatByKey = new Map(props.chats.map((chat) => [chatKey(chat), chat]));
-  const index = props.sequence.indexOf(card.id);
-  const previous = index > 0 ? props.sequence[index - 1] : undefined;
-  const next = index !== -1 ? props.sequence[index + 1] : undefined;
+  const [tabsBy, setTabsBy] = useLocalStorage("t3-fleet:card-tabs", "list" as TabsBy, TabsBy);
+  const tabs = buildTabs(props.pool, tabsBy);
+  const activeTab = tabs.find((tab) => tab.id === tabOf(placed, tabsBy)) ?? null;
+  const sequence = activeTab?.cards.map((entry) => entry.card.id) ?? [];
+  const index = sequence.indexOf(card.id);
+  const previous = index > 0 ? sequence[index - 1] : undefined;
+  const next = index !== -1 ? sequence[index + 1] : undefined;
+  const tabIndex = activeTab ? tabs.indexOf(activeTab) : -1;
+  const openTab = (tab: CardTab | undefined) => {
+    // Land on what needs you first, else the tab's first card.
+    const target = tab?.cards.find((entry) => entry.needsYou) ?? tab?.cards[0];
+    if (target) props.onNavigate(target.card.id);
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    const step: Record<string, () => void> = {
+      ArrowRight: () => next && props.onNavigate(next),
+      ArrowLeft: () => previous && props.onNavigate(previous),
+      ArrowDown: () => openTab(tabs[tabIndex + 1]),
+      ArrowUp: () => openTab(tabs[tabIndex - 1]),
+    };
+    const action = step[event.key];
+    if (!action) return;
+    event.preventDefault();
+    action();
+  };
   const projectName =
     props.projects.find((project) => project.projectKey === card.projectKey)?.displayName ??
     "Unknown project";
@@ -86,6 +134,7 @@ export function CardModal(props: {
       }}
     >
       <DialogPopup
+        onKeyDown={onKeyDown}
         showCloseButton={false}
         className="flex h-[92dvh] flex-col sm:max-w-[min(96vw,96rem)]"
       >
@@ -93,19 +142,19 @@ export function CardModal(props: {
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Previous card"
+            aria-label="Previous card (Alt+←)"
             disabled={!previous}
             onClick={() => previous && props.onNavigate(previous)}
           >
             <ChevronLeftIcon />
           </Button>
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-            {index === -1 ? "" : `${index + 1} of ${props.sequence.length}`}
+            {index === -1 ? "" : `${index + 1} of ${sequence.length}`}
           </span>
           <Button
             variant="ghost"
             size="icon-sm"
-            aria-label="Next card"
+            aria-label="Next card (Alt+→)"
             disabled={!next}
             onClick={() => next && props.onNavigate(next)}
           >
@@ -134,6 +183,44 @@ export function CardModal(props: {
             Close
           </Button>
         </header>
+        <nav
+          aria-label="Card groups"
+          className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
+        >
+          <ToggleGroup
+            aria-label="Tabs by"
+            className="me-2 shrink-0"
+            value={[tabsBy]}
+            onValueChange={(value) => {
+              if (value[0] === "list" || value[0] === "category") setTabsBy(value[0]);
+            }}
+          >
+            <Toggle value="list">List</Toggle>
+            <Toggle value="category">Category</Toggle>
+          </ToggleGroup>
+          {tabs.map((tab) => {
+            const needsYou = tab.cards.filter((entry) => entry.needsYou).length;
+            return (
+              <Button
+                key={tab.id}
+                variant={tab === activeTab ? "secondary" : "ghost"}
+                size="xs"
+                aria-current={tab === activeTab ? "true" : undefined}
+                className="shrink-0"
+                onClick={() => openTab(tab)}
+              >
+                {tab.label}
+                <span className="text-muted-foreground tabular-nums">{tab.cards.length}</span>
+                {needsYou > 0 ? (
+                  <span
+                    aria-label={`${needsYou} need you`}
+                    className="size-1.5 rounded-full bg-warning"
+                  />
+                ) : null}
+              </Button>
+            );
+          })}
+        </nav>
         <div className="flex min-h-0 flex-1">
           <aside
             className={
