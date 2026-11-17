@@ -80,6 +80,7 @@ async function publish(arg) {
     kind: spec.rows ? "sheet" : "html",
     title: spec.title,
     ...(spec.intro ? { intro: spec.intro } : {}),
+    ...(spec.app ? { app: spec.app } : {}),
     ...(spec.rows ? { rows: spec.rows } : { html: spec.html }),
     ...(threadId ? { thread: { environmentId: "", threadId } } : {}),
   });
@@ -111,12 +112,14 @@ async function read(id) {
         title: artifact.title,
         kind: artifact.kind,
         version: artifact.version,
+        ...(artifact.app ? { app: artifact.app } : {}),
         ...(artifact.counts ? { counts: artifact.counts } : {}),
         ...(artifact.kind === "sheet"
           ? {
               rows: (artifact.rows ?? []).map((row) => ({
                 id: row.id,
                 title: row.title,
+                ...(row.links ? { links: row.links.map((link) => link.url) } : {}),
                 status: rowState[row.id]?.status ?? null,
                 note: rowState[row.id]?.note || null,
                 by: rowState[row.id]?.by ?? null,

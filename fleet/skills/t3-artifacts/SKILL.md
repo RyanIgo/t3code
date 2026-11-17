@@ -28,13 +28,22 @@ For test plans and checklists, publish a sheet; you write no HTML.
 ```json
 {
   "title": "#201 Procore login matching",
-  "intro": "Run these on staging. Mark each one and note what you saw.",
+  "app": {
+    "url": "http://igo-dell.tail0392d7.ts.net:5190/people",
+    "start": "cd ~/code/cfe-data-warehouse && doppler run -- npm run dev -- --host 0.0.0.0 --port 5190",
+    "machine": "igo-dell"
+  },
+  "intro": "Mark each one and note what you saw.",
   "rows": [
     {
       "id": "match-exact",
       "group": "Matching",
       "title": "Exact login matches",
-      "detail": "Steps…\nExpect: linked."
+      "detail": "Open a person whose email matches their Procore login.\nExpect: linked.",
+      "url": "http://igo-dell.tail0392d7.ts.net:5190/people/42",
+      "links": [
+        { "label": "Issue #201", "url": "https://github.com/cfevans/cfe-data-warehouse/issues/201" }
+      ]
     },
     {
       "id": "no-user",
@@ -46,6 +55,10 @@ For test plans and checklists, publish a sheet; you write no HTML.
 }
 ```
 
+- `app` (for anything running): the app's Tailscale URL, the one-line command that starts it
+  again, and the machine. The sheet shows them at the top, with a Copy button for the command.
+- Each row can link the exact pages to review: `url`, and/or `links` (`{ url, label? }`, up to
+  10). Use full URLs with the path and record id.
 - Each row gets Pass / Fail / Skip / Blocked and a note. Up to 300 rows.
 - Give rows stable ids. To change the sheet, publish again with `"id": "<id>"` added: results for
   rows you keep stay, removed rows drop out, and open copies reload.

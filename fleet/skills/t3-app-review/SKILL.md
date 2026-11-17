@@ -7,7 +7,7 @@ description: Hand the user an app or UI change to review in T3 Code's Review win
 
 The user always reviews apps and UI changes in T3's Review window:
 
-- **Top left:** the test sheet, a fleet hub artifact (the `t3-artifacts` skill). It always starts with the app's Tailscale URL and the command to start it again.
+- **Top left:** the test sheet, a fleet hub artifact (the `t3-artifacts` skill). Its `app` block always shows the app's Tailscale URL and the command to start it again, with a Copy button.
 - **Bottom left:** this chat.
 - **Right:** T3's built-in browser showing the app at its **Tailscale address**. The window opens the newest Tailscale link you post there by itself.
 
@@ -20,11 +20,9 @@ Set it up so the user only has to open the Review window (the two-panel icon in 
    - Write down the exact **start command**: one line the user can paste into a terminal on this machine, with the folder, the secret provider and the port, for example `cd ~/code/app/.t3/worktrees/fix-42 && doppler run -- npm run dev -- --host 0.0.0.0 --port 5190`. Background dev servers often stop before the user gets back to them, so they need it.
 2. **Publish the test sheet** with the `t3-artifacts` script (see that skill for the spec):
    - `title`: what is under review, e.g. `Review — PR cfe-drawings #94 sheet compare`.
-   - `intro`, always in this order:
-     - `App: <the Tailscale URL of the screen to review>`
-     - `If the app doesn't load, start it on <machine>: <start command>` and `(or tell me "restart the app")`
-     - what changed, in a sentence or two; any login or seed data needed.
-   - One row per thing to check, only what this change touched: `title` as the user would say it, and `detail` with the exact URL to open, the steps and what to expect.
+   - `app`, always: `url` (the Tailscale URL of the screen to review), `start` (the start command) and `machine`.
+   - `intro`: what changed, in a sentence or two; any login or seed data needed; "If the app is down, tell me 'restart the app'."
+   - One row per thing to check, only what this change touched: `title` as the user would say it, `url` with the exact page to open (path and record id included), `links` for anything else to look at (the issue, the PR, a second page), and `detail` with the steps and what to expect.
 3. **Post in your reply**, each on its own line:
    - the app link, `http://<name>.<tailnet>.ts.net:<port>/path` (this opens it on the right),
    - the sheet's markdown link from the script (this shows the sheet),

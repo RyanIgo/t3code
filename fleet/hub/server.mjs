@@ -257,6 +257,46 @@ const CORS = {
   "access-control-max-age": "600",
 };
 
+const isWebUrl = (value) => {
+  if (typeof value !== "string" || value.length > 2000) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+/** Links for review: `url` and/or `links: [{ url, label? }]`, web URLs only, at most 10. */
+function cleanLinks(source) {
+  const links = [];
+  if (isWebUrl(source?.url)) links.push({ url: source.url });
+  for (const link of Array.isArray(source?.links) ? source.links : []) {
+    if (!isWebUrl(link?.url)) continue;
+    links.push({
+      url: link.url,
+      ...(typeof link.label === "string" && link.label.trim()
+        ? { label: link.label.trim().slice(0, 120) }
+        : {}),
+    });
+  }
+  return links.slice(0, 10);
+}
+
+/** The app under review: its URL and the one-line command that starts it again. */
+function cleanApp(app) {
+  if (!isWebUrl(app?.url)) return null;
+  return {
+    url: app.url,
+    ...(typeof app.start === "string" && app.start.trim()
+      ? { start: app.start.trim().slice(0, 1000) }
+      : {}),
+    ...(typeof app.machine === "string" && app.machine.trim()
+      ? { machine: app.machine.trim().slice(0, 120) }
+      : {}),
+  };
+}
+
 function cleanRows(rows) {
   if (!Array.isArray(rows)) return null;
   const seen = new Set();
@@ -266,9 +306,11 @@ function cleanRows(rows) {
       return null;
     }
     seen.add(row.id);
+    const links = cleanLinks(row);
     out.push({
       id: row.id.slice(0, 80),
       title: row.title.slice(0, 500),
+      ...(links.length > 0 ? { links } : {}),
       ...(typeof row.detail === "string" ? { detail: row.detail.slice(0, 4000) } : {}),
       ...(typeof row.group === "string" ? { group: row.group.slice(0, 120) } : {}),
     });
@@ -305,6 +347,7 @@ function artifactPage(artifact) {
     title: artifact.title,
     version: artifact.version,
     intro: artifact.intro ?? null,
+    app: artifact.app ?? null,
     rows: artifact.rows ?? null,
     state: artifact.state ?? null,
     submittedAt: artifact.submissions?.at(-1)?.at ?? null,
@@ -337,7 +380,7 @@ function call(path,method,body){return fetch(base+path,{method:method,headers:{"
 function toChat(text,data){if(window.parent===window)return Promise.resolve(false);return new Promise(function(done){var id="t3a-"+(++n);function on(e){var m=e.data;if(m&&m.type==="t3-page:result"&&m.id===id){removeEventListener("message",on);done(m.ok===true);}}addEventListener("message",on);parent.postMessage({type:"t3-page:send",id:id,text:text,data:data},"*");setTimeout(function(){removeEventListener("message",on);done(false);},8000);});}
 function refresh(){return call("","GET").then(function(a){if(a.version!==A.version){location.reload();return;}if(JSON.stringify(a.state)!==JSON.stringify(A.state)){A.state=a.state;fns.forEach(function(f){f(A.state);});}}).catch(function(){});}
 setInterval(function(){if(document.visibilityState==="visible")refresh();},15000);document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refresh();});
-window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,
+window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,
 save:function(value){return call("/state","POST",A.kind==="sheet"?value:{data:value}).then(function(a){A.state=a.state;return a.state;});},
 submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
 onChange:function(f){fns.push(f);}};})();`;
@@ -512,6 +555,7 @@ async function publishArtifact(id, create, req, reply, login) {
       title,
       thread: thread ?? existing?.thread ?? null,
       ...(kind === "html" ? { html: body.html } : {}),
+      ...(cleanApp(body.app) ? { app: cleanApp(body.app) } : {}),
       ...(typeof body.intro === "string" && body.intro.trim()
         ? { intro: body.intro.trim().slice(0, 2000) }
         : {}),
