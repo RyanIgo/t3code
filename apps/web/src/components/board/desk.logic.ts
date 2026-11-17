@@ -42,7 +42,15 @@ export interface DeskItem {
     readonly number: number;
     readonly url: string;
     readonly state: string;
+    readonly title?: string;
+    readonly review?: string | null;
+    readonly mergeable?: string | null;
   }>;
+  /** For a PR item: its review decision and merge state, from the hub's sync. */
+  readonly review?: string | null;
+  readonly mergeable?: string | null;
+  /** For a PR item: its checks, when the hub's token may read them. */
+  readonly checks?: "passing" | "failing" | "pending" | "none" | null;
   readonly plain: DeskPlainWords | null;
 }
 

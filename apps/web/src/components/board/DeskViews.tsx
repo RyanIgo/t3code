@@ -581,10 +581,11 @@ function WorkList(props: {
 export function AppView(props: {
   readonly app: string;
   readonly feature: string | null;
-  readonly subview: "overview" | "board" | "sprint";
+  readonly subview: "overview" | "board" | "sprint" | "prs";
   readonly board: ReactNode;
   readonly sprintPanel: ReactNode;
-  readonly onSubview: (view: "overview" | "board" | "sprint") => void;
+  readonly prsPanel: ReactNode;
+  readonly onSubview: (view: "overview" | "board" | "sprint" | "prs") => void;
   readonly onChat: () => void;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sprint: DeskSprint | null;
@@ -628,7 +629,9 @@ export function AppView(props: {
           value={[props.subview]}
           onValueChange={(value) => {
             const next = value[0];
-            if (next === "overview" || next === "board" || next === "sprint") props.onSubview(next);
+            if (next === "overview" || next === "board" || next === "sprint" || next === "prs") {
+              props.onSubview(next);
+            }
           }}
         >
           <Toggle value="overview">Overview</Toggle>
@@ -646,7 +649,13 @@ export function AppView(props: {
           {tabs}
           <h2 className="text-lg font-semibold">{app}</h2>
         </div>
-        {props.subview === "board" ? props.board : props.sprintPanel}
+        {props.subview === "board" ? (
+          props.board
+        ) : props.subview === "prs" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{props.prsPanel}</div>
+        ) : (
+          props.sprintPanel
+        )}
       </div>
     );
   }
@@ -765,6 +774,7 @@ export function SprintView(props: {
   readonly onSprint: (title: string) => void;
   readonly onChat: () => void;
   readonly linkedChats: ReadonlyArray<CardChatState>;
+  readonly prsPanel: ReactNode;
   readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const { sprint, view } = props;
@@ -827,6 +837,10 @@ export function SprintView(props: {
         maintenance · {percent(overview.mix.other)}% fixes, research & support (budget 60 / 20 /
         20). Add work to a sprint from any item's Sprint menu.
       </p>
+      <section className="flex flex-col gap-1.5">
+        <DeskHeading>Pull requests in this sprint</DeskHeading>
+        {props.prsPanel}
+      </section>
       <section className="flex flex-col gap-1.5">
         <DeskHeading>Threads on this sprint · {props.linkedChats.length}</DeskHeading>
         <ThreadList

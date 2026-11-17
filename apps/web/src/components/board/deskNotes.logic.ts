@@ -14,7 +14,7 @@ export interface DeskNote {
 export interface DeskChatLink {
   /** Where on the Desk the chat came from, so its header can link back there. */
   readonly kind: "app" | "sprint" | "item";
-  readonly view: "overview" | "board" | "sprint" | null;
+  readonly view: "overview" | "board" | "sprint" | "prs" | null;
   readonly feature: string | null;
   readonly app: string | null;
   readonly sprint: string | null;
@@ -85,7 +85,10 @@ function readLinks(value: unknown): Record<string, DeskChatLink> {
           {
             kind: link.kind === "sprint" || link.kind === "item" ? link.kind : ("app" as const),
             view:
-              link.view === "overview" || link.view === "board" || link.view === "sprint"
+              link.view === "overview" ||
+              link.view === "board" ||
+              link.view === "sprint" ||
+              link.view === "prs"
                 ? link.view
                 : null,
             feature: text(link.feature),

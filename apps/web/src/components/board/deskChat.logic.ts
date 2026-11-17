@@ -18,7 +18,7 @@ export type DeskChatContext =
   | {
       readonly kind: "app";
       readonly app: string;
-      readonly view: "overview" | "board" | "sprint";
+      readonly view: "overview" | "board" | "sprint" | "prs";
       readonly feature: string | null;
     }
   | { readonly kind: "sprint"; readonly sprint: DeskSprint; readonly app: string | null }
@@ -33,7 +33,7 @@ export function contextLabel(context: DeskChatContext): string {
   if (context.kind === "sprint") {
     return context.app ? `${context.sprint.title} · ${context.app}` : context.sprint.title;
   }
-  const view = { overview: "Overview", board: "Board", sprint: "Sprint" }[context.view];
+  const view = { overview: "Overview", board: "Board", sprint: "Sprint", prs: "PRs" }[context.view];
   return context.feature
     ? `${context.app} · ${featureName(context.feature)}`
     : `${context.app} · ${view}`;
@@ -89,7 +89,7 @@ export type DeskTarget =
   | {
       readonly kind: "app";
       readonly app: string;
-      readonly view: "overview" | "board" | "sprint";
+      readonly view: "overview" | "board" | "sprint" | "prs";
       readonly feature: string | null;
     }
   | { readonly kind: "sprint"; readonly sprint: string; readonly app: string | null }
@@ -113,7 +113,7 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
     return {
       kind,
       app,
-      view: view === "board" || view === "sprint" ? view : "overview",
+      view: view === "board" || view === "sprint" || view === "prs" ? view : "overview",
       feature: params.get("feature"),
     };
   }
@@ -208,7 +208,7 @@ export function buildChatPrompt(input: {
   return lines.join("\n");
 }
 
-const VIEW_LABEL = { overview: "Overview", board: "Board", sprint: "Sprint" } as const;
+const VIEW_LABEL = { overview: "Overview", board: "Board", sprint: "Sprint", prs: "PRs" } as const;
 
 export interface DeskPlace {
   /** The sprint step ("Sprint 1"), when the chat belongs to one. */

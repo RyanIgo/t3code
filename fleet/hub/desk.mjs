@@ -59,8 +59,9 @@ const PROJECT_QUERY = `query($owner: String!, $number: Int!, $cursor: String) {
           ... on Issue { number title url state body updatedAt closedAt
             repository { nameWithOwner }
             assignees(first: 5) { nodes { login } }
-            closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number url state isDraft } } }
-          ... on PullRequest { number title url state body updatedAt closedAt isDraft
+            closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number title url state isDraft reviewDecision mergeable } } }
+          ... on PullRequest { number title url state body updatedAt closedAt isDraft reviewDecision mergeable
+            commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
             repository { nameWithOwner } assignees(first: 5) { nodes { login } } }
           ... on DraftIssue { title body updatedAt }
         }
@@ -79,6 +80,13 @@ export function readPlainWords(body) {
     null;
   const plain = { what: line("What"), why: line("Why it matters"), where: line("Where it stands") };
   return plain.what || plain.why || plain.where ? plain : null;
+}
+
+function checksOf(state) {
+  if (state === "SUCCESS") return "passing";
+  if (state === "FAILURE" || state === "ERROR") return "failing";
+  if (state === "PENDING" || state === "EXPECTED") return "pending";
+  return null;
 }
 
 function normalizeItem(node) {
@@ -124,9 +132,20 @@ function normalizeItem(node) {
     assignees: (content.assignees?.nodes ?? []).map((user) => user.login),
     pullRequests: (content.closedByPullRequestsReferences?.nodes ?? []).map((pr) => ({
       number: pr.number,
+      title: pr.title,
       url: pr.url,
       state: pr.isDraft && pr.state === "OPEN" ? "draft" : pr.state.toLowerCase(),
+      review: pr.reviewDecision ?? null,
+      mergeable: pr.mergeable?.toLowerCase() ?? null,
     })),
+    // A PR item's own review decision and merge state.
+    review: kind === "pr" ? (content.reviewDecision ?? null) : null,
+    // Only when the token may read commit statuses; GitHub refuses it per field otherwise.
+    checks:
+      kind === "pr"
+        ? checksOf(content.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state)
+        : null,
+    mergeable: kind === "pr" ? (content.mergeable?.toLowerCase() ?? null) : null,
     plain: readPlainWords(content.body),
   };
 }
@@ -174,12 +193,27 @@ export function createDesk({ dataRoot, project, token, log }) {
     let cursor = null;
     let meta = null;
     for (let page = 0; page < 30; page += 1) {
-      const data = await graphql(PROJECT_QUERY, { owner, number: Number(number), cursor });
+      // Partial: a field the token can't read (commit statuses) must not stop the whole sync.
+      const { data, errors } = await graphql(
+        PROJECT_QUERY,
+        { owner, number: Number(number), cursor },
+        true,
+      );
+      // Items whose checks the token was refused, by position on this page.
+      const unreadable = new Set(
+        errors
+          .filter((error) => (error.path ?? []).includes("commits"))
+          .map((error) => error.path[(error.path.indexOf("nodes") ?? -1) + 1]),
+      );
       const projectV2 = data?.organization?.projectV2;
       if (!projectV2) throw new Error(`No project ${project} for this token.`);
       meta ??= projectV2;
-      for (const node of projectV2.items.nodes) {
+      for (const [index, node] of projectV2.items.nodes.entries()) {
         const item = normalizeItem(node);
+        // Readable but no rollup: the repo runs no checks on it.
+        if (item?.kind === "pr" && item.checks === null && !unreadable.has(index)) {
+          item.checks = "none";
+        }
         if (item && recentlyClosed(item, now)) items.push(item);
       }
       if (!projectV2.items.pageInfo.hasNextPage) break;

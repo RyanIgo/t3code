@@ -48,8 +48,17 @@ import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskLink, saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import { DeskCard, formatDay, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
+import {
+  DeskCard,
+  formatDay,
+  NoteEditor,
+  openExternal,
+  STAGE_VARIANT,
+  ThreadList,
+} from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
+import { PrLens } from "./DeskPrs";
+import { collectPrs, type DeskPr, type PrGrouping } from "./deskPrs.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -64,12 +73,12 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
-const DeskMode = Schema.Literals(["lanes", "apps", "sprint"]);
+const DeskMode = Schema.Literals(["lanes", "apps", "sprint", "prs"]);
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
     feature: Schema.NullOr(Schema.String),
-    view: Schema.Literals(["overview", "board", "sprint"]),
+    view: Schema.Literals(["overview", "board", "sprint", "prs"]),
   }),
 );
 type DeskFocus = NonNullable<typeof DeskFocusSchema.Type>;
@@ -360,6 +369,28 @@ export function DeskPage(props: {
     />
   );
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
+  const prs = collectPrs(items, props.chats);
+  const openPr = (pr: DeskPr) => {
+    if (pr.item) {
+      setModal({
+        itemId: pr.item.itemId,
+        chat: pr.chats[0] ?? null,
+        sequence: prs.flatMap((entry) => (entry.item ? [entry.item.itemId] : [])),
+      });
+    } else if (pr.chats[0]) {
+      openChat(pr.chats[0]);
+    } else {
+      openExternal(pr.url);
+    }
+  };
+  const prLens = (keep: (pr: DeskPr) => boolean, grouping?: PrGrouping) => (
+    <PrLens
+      prs={prs.filter(keep)}
+      {...(grouping ? { grouping } : {})}
+      onOpenPr={openPr}
+      onOpenChat={openChat}
+    />
+  );
   const modalItem = modal?.itemId
     ? (items.find((entry) => entry.itemId === modal.itemId) ?? null)
     : modal?.itemUrl
@@ -425,6 +456,11 @@ export function DeskPage(props: {
         card={(entry) => card(entry, false, sequence)}
         onSprint={setChosenSprint}
         onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp ?? app })}
+        prsPanel={prLens(
+          (pr) =>
+            pr.sprint?.title === sprintShown.title && (onlyApp === null || pr.app === onlyApp),
+          "app",
+        )}
         linkedChats={withLinked(
           linkedChats((link) => link.sprint === sprintShown.title && link.kind === "sprint"),
           items
@@ -464,13 +500,19 @@ export function DeskPage(props: {
           aria-label="Desk view"
           value={[mode]}
           onValueChange={(next) => {
-            if (next[0] === "lanes" || next[0] === "apps" || next[0] === "sprint") {
+            if (
+              next[0] === "lanes" ||
+              next[0] === "apps" ||
+              next[0] === "sprint" ||
+              next[0] === "prs"
+            ) {
               setMode(next[0]);
             }
           }}
         >
           <Toggle value="apps">Apps</Toggle>
           <Toggle value="sprint">Sprint</Toggle>
+          <Toggle value="prs">PRs</Toggle>
           <Toggle value="lanes">Lanes</Toggle>
         </ToggleGroup>
         {mode !== "apps" ? (
@@ -606,6 +648,7 @@ export function DeskPage(props: {
           }
           board={lanes(focusApp.app)}
           sprintPanel={sprintPanel(focusApp.app)}
+          prsPanel={prLens((pr) => pr.app === focusApp.app, "sprint")}
           onOpenItem={openItemIn(appSequence)}
           onOpenChat={openChat}
           onFeature={(feature) => setFocus({ ...focusApp, feature, view: "overview" })}
@@ -614,6 +657,10 @@ export function DeskPage(props: {
         />
       ) : mode === "sprint" ? (
         sprintPanel(null)
+      ) : mode === "prs" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-6">
+          {prLens((pr) => app === null || pr.app === app)}
+        </div>
       ) : mode === "lanes" ? (
         lanes(null)
       ) : (
