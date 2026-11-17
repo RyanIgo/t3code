@@ -8,6 +8,8 @@ import {
   chatWaitsOnYou,
   type DeskItem,
   currentSprint,
+  groupWork,
+  sprintOverview,
   summarizeApps,
   waitingOnYou,
 } from "./desk.logic";
@@ -202,4 +204,34 @@ it("lists an app's chats by repo, waiting ones first", () => {
     (key) => names[key] ?? null,
   );
   expect(found.map((entry) => entry.threadId)).toEqual(["waiting", "working"]);
+});
+
+it("groups an app's work by sprint, blocked, open and recently done, and sums a sprint", () => {
+  const sprint = { title: "Sprint 1", startDate: "2026-11-16", duration: 14 };
+  const items = [
+    item({ itemId: "s", sprint }),
+    item({ itemId: "s-done", sprint, state: "closed", closedAt: "2026-11-17T00:00:00Z" }),
+    item({ itemId: "b", lane: "Blocked" }),
+    item({ itemId: "o" }),
+    item({ itemId: "d", state: "closed", closedAt: "2026-11-15T00:00:00Z" }),
+    item({ itemId: "m", sprint, workType: "Maintenance", app: "Materials" }),
+    item({ itemId: "t", sprint, workType: "Tracking" }),
+  ];
+  const work = groupWork(items, (entry) => entry.app === "Precon", sprint);
+  expect({
+    sprint: work.sprint.map((entry) => entry.itemId),
+    blocked: work.blocked.map((entry) => entry.itemId),
+    open: work.open.map((entry) => entry.itemId),
+    done: work.done.map((entry) => entry.itemId),
+  }).toEqual({ sprint: ["s"], blocked: ["b"], open: ["o"], done: ["s-done", "d"] });
+  const overview = sprintOverview(items, sprint, ["Precon", "Materials"]);
+  expect(overview).toMatchObject({
+    total: 3,
+    done: 1,
+    mix: { feature: 1, maintenance: 1, other: 0 },
+  });
+  expect(overview.apps.map((entry) => [entry.app, entry.items.length, entry.done])).toEqual([
+    ["Precon", 2, 1],
+    ["Materials", 1, 0],
+  ]);
 });

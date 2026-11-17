@@ -62,6 +62,8 @@ export interface DeskView {
   readonly initiatives: ReadonlyArray<string>;
   readonly apps?: ReadonlyArray<string>;
   readonly sprints?: ReadonlyArray<DeskSprint>;
+  /** Option names of the fields the Desk can change. */
+  readonly options?: Readonly<Record<string, ReadonlyArray<string>>>;
   readonly items: ReadonlyArray<DeskItem>;
 }
 
@@ -291,4 +293,134 @@ export function chatsForApp(
       return name !== null && repos.has(name.split("/").pop() ?? name);
     })
     .sort((a, b) => rank(a) - rank(b) || time(b.since) - time(a.since));
+}
+
+/** An item's full content, fetched from the hub when it's opened. */
+export interface DeskDetail {
+  readonly kind: string;
+  readonly title: string;
+  readonly url: string | null;
+  readonly state: string;
+  readonly body: string;
+  readonly createdAt: string | null;
+  readonly author: string | null;
+  readonly labels: ReadonlyArray<string>;
+  readonly comments: {
+    readonly total: number;
+    readonly recent: ReadonlyArray<{
+      readonly author: string | null;
+      readonly body: string;
+      readonly createdAt: string;
+      readonly url: string;
+    }>;
+  };
+  readonly parent: DeskIssueRef | null;
+  readonly subIssues: ReadonlyArray<DeskIssueRef>;
+  readonly pullRequests: ReadonlyArray<{
+    readonly number: number;
+    readonly title: string;
+    readonly url: string;
+    readonly state: string;
+    readonly review: string | null;
+    readonly mergeable: string | null;
+    readonly checks: string | null;
+  }>;
+}
+
+export interface DeskIssueRef {
+  readonly title: string;
+  readonly number: number;
+  readonly url: string;
+  readonly state: string;
+  readonly repo: string;
+}
+
+/** The feature's own record: its "Feature: …" issue with goal and stage. */
+export function featureRecord(items: ReadonlyArray<DeskItem>, feature: string): DeskItem | null {
+  return (
+    items.find(
+      (item) =>
+        item.workType === "Tracking" &&
+        item.feature === feature &&
+        item.title.startsWith("Feature:"),
+    ) ?? null
+  );
+}
+
+export interface WorkGroups {
+  readonly sprint: DeskItem[];
+  readonly blocked: DeskItem[];
+  readonly open: DeskItem[];
+  readonly done: DeskItem[];
+}
+
+/**
+ * Work matching `keep`, split for reading: in the given sprint, blocked, other open work, and
+ * finished in the last two weeks.
+ */
+export function groupWork(
+  items: ReadonlyArray<DeskItem>,
+  keep: (item: DeskItem) => boolean,
+  sprint: DeskSprint | null,
+): WorkGroups {
+  const groups: WorkGroups = { sprint: [], blocked: [], open: [], done: [] };
+  for (const item of visibleItems(items)) {
+    if (!keep(item)) continue;
+    if (!isOpen(item)) groups.done.push(item);
+    else if (sprint && item.sprint?.title === sprint.title) groups.sprint.push(item);
+    else if (item.lane === "Blocked") groups.blocked.push(item);
+    else groups.open.push(item);
+  }
+  groups.sprint.sort(byPriority);
+  groups.blocked.sort(byPriority);
+  groups.open.sort(byPriority);
+  groups.done.sort((a, b) => time(b.closedAt) - time(a.closedAt));
+  return groups;
+}
+
+export interface SprintAppWork {
+  readonly app: string;
+  readonly items: DeskItem[];
+  readonly done: number;
+}
+
+export interface SprintOverview {
+  readonly total: number;
+  readonly done: number;
+  readonly mix: SprintMix;
+  readonly apps: SprintAppWork[];
+}
+
+/** Everything in a sprint, finished or not, by application, with progress and budget split. */
+export function sprintOverview(
+  items: ReadonlyArray<DeskItem>,
+  sprint: DeskSprint,
+  apps: ReadonlyArray<string>,
+): SprintOverview {
+  const mine = visibleItems(items).filter((item) => item.sprint?.title === sprint.title);
+  const finished = (item: DeskItem) => !isOpen(item) || item.status === "Done";
+  const byApp = [...apps, null].flatMap((app) => {
+    const of = mine.filter((item) => item.app === app);
+    if (of.length === 0) return [];
+    return [
+      {
+        app: app ?? "No application",
+        items: of.sort((a, b) => Number(finished(a)) - Number(finished(b)) || byPriority(a, b)),
+        done: of.filter(finished).length,
+      },
+    ];
+  });
+  const open = mine.filter((item) => !finished(item));
+  return {
+    total: mine.length,
+    done: mine.filter(finished).length,
+    mix: {
+      feature: open.filter((item) => item.workType === "Feature work").length,
+      maintenance: open.filter((item) => item.workType === "Maintenance").length,
+      other: open.filter(
+        (item) => item.workType !== "Feature work" && item.workType !== "Maintenance",
+      ).length,
+    },
+    apps: byApp,
+  };
 }

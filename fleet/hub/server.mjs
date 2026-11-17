@@ -615,6 +615,27 @@ async function handleDesk(pathname, req, res) {
     send(res, 200, desk.view());
     return true;
   }
+  const detail = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)\/detail$/);
+  if (detail && req.method === "GET") {
+    try {
+      send(res, 200, await desk.detail(detail[1]));
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
+  const fieldEdit = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)\/fields$/);
+  if (fieldEdit && req.method === "POST") {
+    const body = JSON.parse(await readBody(req));
+    try {
+      send(res, 200, {
+        item: await desk.setField(fieldEdit[1], String(body?.field), body?.value ?? null),
+      });
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
   const item = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)$/);
   if (item && req.method === "POST") {
     const body = JSON.parse(await readBody(req));

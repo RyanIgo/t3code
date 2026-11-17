@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { isHostedStaticApp } from "../../hostedPairing";
 import { toastManager } from "../ui/toast";
-import type { DeskLane, DeskView } from "./desk.logic";
+import type { DeskDetail, DeskLane, DeskView } from "./desk.logic";
 
 /**
  * Fleet fork: the Dev Desk's data, from the fleet hub (`/fleet/desk`), which keeps a synced copy
@@ -78,28 +78,63 @@ export function refreshDesk() {
   return load("/fleet/desk/refresh", { method: "POST" });
 }
 
-/** Moves an item to a lane (null: no lane) on GitHub, showing it at once. */
-export async function setDeskLane(itemId: string, lane: DeskLane | null) {
+export type DeskField = "Lane" | "Priority" | "Stage" | "Sprint" | "Work type" | "Feature";
+
+const FIELD_KEY = {
+  Lane: "lane",
+  Priority: "priority",
+  Stage: "stage",
+  "Work type": "workType",
+  Feature: "feature",
+} as const;
+
+/** Changes one field on GitHub (null clears it), showing the change at once. */
+export async function setDeskField(itemId: string, field: DeskField, value: string | null) {
   const before = snapshot.view;
   if (before === null) return;
+  const sprint =
+    field === "Sprint" ? (before.sprints?.find((entry) => entry.title === value) ?? null) : null;
   publish({
     view: {
       ...before,
-      items: before.items.map((item) => (item.itemId === itemId ? { ...item, lane } : item)),
+      items: before.items.map((item) =>
+        item.itemId !== itemId
+          ? item
+          : field === "Sprint"
+            ? { ...item, sprint }
+            : { ...item, [FIELD_KEY[field]]: value },
+      ),
     },
   });
   try {
-    await call(`/fleet/desk/items/${encodeURIComponent(itemId)}`, {
+    await call(`/fleet/desk/items/${encodeURIComponent(itemId)}/fields`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ lane }),
+      body: JSON.stringify({ field, value }),
     });
   } catch (error) {
     publish({ view: before });
     toastManager.add({
       type: "error",
-      title: "Couldn't move it",
+      title: `Couldn't change ${field.toLowerCase()}`,
       description: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/** Moves an item to a lane (null: no lane) on GitHub, showing it at once. */
+export function setDeskLane(itemId: string, lane: DeskLane | null) {
+  return setDeskField(itemId, "Lane", lane);
+}
+
+/** An item's description, comments, PRs and family, from the hub. */
+export async function fetchDeskDetail(itemId: string): Promise<DeskDetail> {
+  const response = await fetch(`/fleet/desk/items/${encodeURIComponent(itemId)}/detail`, {
+    signal: AbortSignal.timeout(30_000),
+  });
+  const body = (await response.json().catch(() => null)) as
+    | (DeskDetail & { error?: string })
+    | null;
+  if (!response.ok || !body) throw new Error(body?.error ?? `The hub answered ${response.status}.`);
+  return body;
 }

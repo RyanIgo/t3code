@@ -8,6 +8,36 @@ const SYNC_EVERY_MS = 5 * 60_000;
 const MIN_REFRESH_MS = 30_000;
 const KEEP_CLOSED_DAYS = 14;
 export const LANES = ["Now", "Next", "Later", "Blocked"];
+const DETAIL_TTL_MS = 60_000;
+/** Fields the Desk may change: single selects by option name, Sprint by iteration title. */
+const EDITABLE_FIELDS = new Set(["Lane", "Priority", "Stage", "Sprint", "Work type", "Feature"]);
+
+const DETAIL_QUERY = `query($id: ID!) { node(id: $id) { ... on ProjectV2Item { content {
+  __typename
+  ... on Issue { number title url state body createdAt author { login }
+    labels(first: 10) { nodes { name } }
+    comments(last: 15) { totalCount nodes { author { login } body createdAt url } }
+    parent { number title url state repository { nameWithOwner } }
+    subIssues(first: 50) { nodes { number title url state repository { nameWithOwner } } }
+    closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes {
+      number title url state isDraft reviewDecision mergeable
+      commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } } } }
+  ... on PullRequest { number title url state body createdAt isDraft reviewDecision mergeable
+    author { login } labels(first: 10) { nodes { name } }
+    comments(last: 15) { totalCount nodes { author { login } body createdAt url } }
+    commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }
+  ... on DraftIssue { title body createdAt }
+} } } }`;
+
+const prSummary = (pr) => ({
+  number: pr.number,
+  title: pr.title,
+  url: pr.url,
+  state: pr.isDraft && pr.state === "OPEN" ? "draft" : pr.state.toLowerCase(),
+  review: pr.reviewDecision ?? null,
+  mergeable: pr.mergeable ?? null,
+  checks: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
+});
 
 const PROJECT_QUERY = `query($owner: String!, $number: Int!, $cursor: String) {
   organization(login: $owner) { projectV2(number: $number) {
@@ -152,8 +182,12 @@ export function createDesk({ dataRoot, project, token, log }) {
     }
     const fields = {};
     let sprints = [];
+    let sprintFieldId = null;
     for (const field of meta.fields.nodes) {
-      if (field?.name === "Sprint" && field.configuration) sprints = field.configuration.iterations;
+      if (field?.name === "Sprint" && field.configuration) {
+        sprints = field.configuration.iterations;
+        sprintFieldId = field.id;
+      }
       if (field?.name && Array.isArray(field.options)) {
         fields[field.name] = {
           id: field.id,
@@ -167,6 +201,7 @@ export function createDesk({ dataRoot, project, token, log }) {
       project: { id: meta.id, title: meta.title, owner, number: Number(number) },
       fields,
       sprints,
+      sprintFieldId,
       items,
     };
     await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
@@ -187,8 +222,58 @@ export function createDesk({ dataRoot, project, token, log }) {
     return syncing;
   }
 
+  const details = new Map();
+
   return {
     configured: Boolean(token && owner && number),
+    /** An item's full text, comments, PRs and family, fetched on demand and kept a minute. */
+    async detail(itemId) {
+      const cached = details.get(itemId);
+      if (cached && Date.now() - cached.at < DETAIL_TTL_MS) return cached.value;
+      const content = (await graphql(DETAIL_QUERY, { id: itemId }))?.node?.content;
+      if (!content) throw new Error("No such item.");
+      const value = {
+        kind: content.__typename,
+        title: content.title,
+        url: content.url ?? null,
+        state: (content.state ?? "OPEN").toLowerCase(),
+        body: content.body ?? "",
+        createdAt: content.createdAt ?? null,
+        author: content.author?.login ?? null,
+        labels: (content.labels?.nodes ?? []).map((label) => label.name),
+        comments: {
+          total: content.comments?.totalCount ?? 0,
+          recent: (content.comments?.nodes ?? []).map((comment) => ({
+            author: comment.author?.login ?? null,
+            body: comment.body,
+            createdAt: comment.createdAt,
+            url: comment.url,
+          })),
+        },
+        parent: content.parent
+          ? {
+              title: content.parent.title,
+              number: content.parent.number,
+              url: content.parent.url,
+              state: content.parent.state.toLowerCase(),
+              repo: content.parent.repository.nameWithOwner,
+            }
+          : null,
+        subIssues: (content.subIssues?.nodes ?? []).map((issue) => ({
+          title: issue.title,
+          number: issue.number,
+          url: issue.url,
+          state: issue.state.toLowerCase(),
+          repo: issue.repository.nameWithOwner,
+        })),
+        pullRequests:
+          content.__typename === "PullRequest"
+            ? [prSummary(content)]
+            : (content.closedByPullRequestsReferences?.nodes ?? []).map(prSummary),
+      };
+      details.set(itemId, { at: Date.now(), value });
+      return value;
+    },
     async start() {
       try {
         snapshot = JSON.parse(await NodeFSP.readFile(file, "utf8"));
@@ -207,6 +292,12 @@ export function createDesk({ dataRoot, project, token, log }) {
         project: snapshot.project,
         lanes: LANES,
         initiatives: Object.keys(snapshot.fields?.Initiative?.options ?? {}),
+        options: Object.fromEntries(
+          ["Lane", "Priority", "Stage", "Work type", "Feature"].map((name) => [
+            name,
+            Object.keys(snapshot.fields?.[name]?.options ?? {}),
+          ]),
+        ),
         apps: Object.keys(snapshot.fields?.App?.options ?? {}),
         sprints: (snapshot.sprints ?? []).map(({ title, startDate, duration }) => ({
           title,
@@ -222,11 +313,64 @@ export function createDesk({ dataRoot, project, token, log }) {
     },
     /** Sets (or clears, with null) an item's Lane on GitHub, then in the cache. */
     async setLane(itemId, lane) {
-      const field = snapshot.fields?.Lane;
-      if (!field) throw new Error('The project has no "Lane" field.');
-      if (lane !== null && !field.options[lane]) throw new Error(`No lane "${lane}".`);
+      return this.setField(itemId, "Lane", lane);
+    },
+    /** Sets (or clears) one editable field: a single select by option name, Sprint by title. */
+    async setField(itemId, name, value) {
+      if (!EDITABLE_FIELDS.has(name)) throw new Error(`"${name}" can't be changed here.`);
       const item = snapshot.items.find((entry) => entry.itemId === itemId);
       if (!item) throw new Error("No such item.");
+      if (name === "Sprint") {
+        const sprint = (snapshot.sprints ?? []).find((entry) => entry.title === value);
+        if (value !== null && !sprint) throw new Error(`No sprint "${value}".`);
+        const fieldId = snapshot.sprintFieldId;
+        if (!fieldId) throw new Error('The project has no "Sprint" field.');
+        const vars = { project: snapshot.project.id, item: itemId, field: fieldId };
+        if (value === null) {
+          await graphql(
+            `
+              mutation ($project: ID!, $item: ID!, $field: ID!) {
+                clearProjectV2ItemFieldValue(
+                  input: { projectId: $project, itemId: $item, fieldId: $field }
+                ) {
+                  clientMutationId
+                }
+              }
+            `,
+            vars,
+          );
+          item.sprint = null;
+        } else {
+          await graphql(
+            `
+              mutation ($project: ID!, $item: ID!, $field: ID!, $iteration: String!) {
+                updateProjectV2ItemFieldValue(
+                  input: {
+                    projectId: $project
+                    itemId: $item
+                    fieldId: $field
+                    value: { iterationId: $iteration }
+                  }
+                ) {
+                  clientMutationId
+                }
+              }
+            `,
+            { ...vars, iteration: sprint.id },
+          );
+          item.sprint = {
+            title: sprint.title,
+            startDate: sprint.startDate,
+            duration: sprint.duration,
+          };
+        }
+        await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
+        return item;
+      }
+      const field = snapshot.fields?.[name];
+      if (!field) throw new Error(`The project has no "${name}" field.`);
+      if (value !== null && !field.options[value]) throw new Error(`No ${name} "${value}".`);
+      const lane = value;
       const variables = { project: snapshot.project.id, item: itemId, field: field.id };
       if (lane === null) {
         await graphql(
@@ -260,7 +404,14 @@ export function createDesk({ dataRoot, project, token, log }) {
           { ...variables, option: field.options[lane] },
         );
       }
-      item.lane = lane;
+      const key = {
+        Lane: "lane",
+        Priority: "priority",
+        Stage: "stage",
+        "Work type": "workType",
+        Feature: "feature",
+      }[name];
+      item[key] = name === "Lane" && !LANES.includes(value) ? null : value;
       await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
       return item;
     },
