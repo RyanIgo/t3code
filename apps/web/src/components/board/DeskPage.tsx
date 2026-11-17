@@ -306,8 +306,12 @@ export function DeskPage(props: {
     );
   }
 
-  const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
-  const chatsNeedingYou = props.chats.filter(chatWaitsOnYou);
+  // The app filter only applies where it's shown (not on Apps, which has its own app pages).
+  const needsApp = mode === "apps" ? null : app;
+  const chatsNeedingYou = (needsApp === null ? props.chats : appThreads(needsApp)).filter(
+    chatWaitsOnYou,
+  );
+  const waiting = waitingOnYou(items).filter((item) => !needsApp || item.app === needsApp);
 
   const onDragEnd = (event: DragEndEvent) => {
     const lane = event.over?.data.current?.lane as DeskLane | "Unsorted" | undefined;
@@ -439,7 +443,9 @@ export function DeskPage(props: {
     );
   };
 
-  const sprintPanel = (onlyApp: string | null) => {
+  const sprintPanel = (pageApp: string | null) => {
+    // An app page, else the app chosen in the filter: every part of the sprint follows it.
+    const onlyApp = pageApp ?? app;
     if (!sprintShown) {
       return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
     }
@@ -452,17 +458,22 @@ export function DeskPage(props: {
         sprint={sprintShown}
         nowMs={nowMs}
         notes={notes.notes}
-        app={onlyApp ?? app}
+        app={onlyApp}
         card={(entry) => card(entry, false, sequence)}
         onSprint={setChosenSprint}
-        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp ?? app })}
+        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp })}
         prsPanel={prLens(
           (pr) =>
             pr.sprint?.title === sprintShown.title && (onlyApp === null || pr.app === onlyApp),
           "app",
         )}
         linkedChats={withLinked(
-          linkedChats((link) => link.sprint === sprintShown.title && link.kind === "sprint"),
+          linkedChats(
+            (link) =>
+              link.sprint === sprintShown.title &&
+              link.kind === "sprint" &&
+              (onlyApp === null || link.app === onlyApp),
+          ),
           items
             .filter(
               (entry) =>
