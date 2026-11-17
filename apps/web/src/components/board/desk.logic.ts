@@ -265,3 +265,30 @@ export function waitingOnYou(items: ReadonlyArray<DeskItem>): DeskItem[] {
     )
     .sort(byPriority);
 }
+
+/** The repos an application's work lives in, by name without the owner. */
+export function appRepos(items: ReadonlyArray<DeskItem>, app: string): Set<string> {
+  return new Set(
+    items.flatMap((item) =>
+      item.app === app && item.repo ? [item.repo.split("/").pop() ?? ""] : [],
+    ),
+  );
+}
+
+/**
+ * The T3 chats working on an application: chats in a project named after one of its repos
+ * (with or without the owner). Waiting on you first, then working, then most recent.
+ */
+export function chatsForApp(
+  chats: ReadonlyArray<CardChatState>,
+  repos: ReadonlySet<string>,
+  projectName: (projectKey: string) => string | null,
+): CardChatState[] {
+  const rank = (chat: CardChatState) => (chatWaitsOnYou(chat) ? 0 : chat.working ? 1 : 2);
+  return chats
+    .filter((chat) => {
+      const name = chat.projectKey ? projectName(chat.projectKey) : null;
+      return name !== null && repos.has(name.split("/").pop() ?? name);
+    })
+    .sort((a, b) => rank(a) - rank(b) || time(b.since) - time(a.since));
+}

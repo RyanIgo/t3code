@@ -34,6 +34,8 @@ const ARTIFACT_HISTORY_KEEP = 200;
 const DOCUMENTS = {
   catalog: (parsed) => Array.isArray(parsed?.targets),
   board: (parsed) => Array.isArray(parsed?.cards),
+  // Dev Desk notes: per-app agent notes, sprint goals and notes (see apps/web …/deskNotes.logic.ts).
+  desknotes: (parsed) => typeof parsed?.apps === "object" && parsed.apps !== null,
 };
 const HISTORY_KEEP = 20;
 const MAX_CATALOG_BYTES = 2 * 1024 * 1024;

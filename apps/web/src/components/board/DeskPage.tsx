@@ -23,6 +23,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
@@ -40,12 +41,16 @@ import {
   deskTitle,
   NOW_LIMIT,
   summarizeApps,
+  appRepos,
+  chatsForApp,
   type AppSummary,
   currentSprint,
   featureName,
   waitingOnYou,
 } from "./desk.logic";
 import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
+import { type DeskNote, type DeskNotes, noteAt } from "./deskNotes.logic";
+import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
 
 const DeskMode = Schema.Literals(["lanes", "apps"]);
@@ -77,8 +82,10 @@ const STAGE_VARIANT = { Experiment: "outline", Testing: "warning", Production: "
 export function DeskPage(props: {
   readonly switcher: ReactNode;
   readonly chats: ReadonlyArray<CardChatState>;
+  readonly projectName: (projectKey: string) => string | null;
 }) {
   const desk = useDesk();
+  const notes = useDeskNotes();
   const board = useBoard();
   const navigate = useNavigate();
   const [mode, setMode] = useLocalStorage("t3-fleet:desk-mode", "lanes" as DeskMode, DeskMode);
@@ -282,12 +289,30 @@ export function DeskPage(props: {
         </DndContext>
       ) : (
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 xl:grid-cols-2">
+          {sprint ? (
+            <section
+              aria-label={`${sprint.title} notes`}
+              className="rounded-lg border border-border bg-muted/40 p-3 xl:col-span-2"
+            >
+              <NoteEditor
+                label={`${sprint.title} notes`}
+                hint="What this sprint is for and what feedback said. Agents read it."
+                placeholder="e.g. Goal: get bid review and access control in front of users by Nov 22; feedback from the test sheets goes here."
+                note={noteAt(notes.notes, { kind: "sprintNotes", sprint: sprint.title })}
+                rows={3}
+                onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
+              />
+            </section>
+          ) : null}
           {summarizeApps(items, app ? [app] : apps, sprint).map((summary) => (
             <AppScorecard
               key={summary.app}
               summary={summary}
               sprintTitle={sprint?.title ?? null}
               card={(item) => card(item, false)}
+              notes={notes.notes}
+              threads={chatsForApp(props.chats, appRepos(items, summary.app), props.projectName)}
+              onOpenChat={openChat}
             />
           ))}
         </div>
@@ -303,12 +328,65 @@ function formatDay(date: string, plusDays = 0): string {
 }
 
 /** One application for a leader: its features by stage, this sprint's work and split, blockers. */
+const THREADS_SHOWN = 5;
+
+/** A note that edits in place and saves when you leave the box. */
+function NoteEditor(props: {
+  readonly label: string;
+  readonly hint: string;
+  readonly placeholder: string;
+  readonly note: DeskNote | null;
+  readonly rows: number;
+  readonly onSave: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = props.note?.text ?? "";
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="flex flex-wrap items-baseline gap-2">
+        <span className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          {props.label}
+        </span>
+        <span className="text-2xs text-muted-foreground">
+          {props.note
+            ? `Updated ${new Date(props.note.updatedAt).toLocaleString([], {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              })} by ${props.note.by ?? "you"}`
+            : props.hint}
+        </span>
+      </span>
+      <Textarea
+        rows={props.rows}
+        placeholder={props.placeholder}
+        value={draft ?? saved}
+        onFocus={() => setDraft(saved)}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (draft !== null && draft !== saved) props.onSave(draft);
+          setDraft(null);
+        }}
+      />
+    </label>
+  );
+}
+
 function AppScorecard(props: {
   readonly summary: AppSummary;
   readonly sprintTitle: string | null;
   readonly card: (item: DeskItem) => ReactNode;
+  readonly notes: DeskNotes;
+  readonly threads: ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const { summary } = props;
+  const [allThreads, setAllThreads] = useState(false);
+  const goalTarget = props.sprintTitle
+    ? ({ kind: "sprintGoal", sprint: props.sprintTitle, app: summary.app } as const)
+    : null;
+  const shownThreads = allThreads ? props.threads : props.threads.slice(0, THREADS_SHOWN);
   const { mix } = summary;
   const total = mix.feature + mix.maintenance + mix.other;
   const percent = (value: number) => (total === 0 ? 0 : Math.round((value / total) * 100));
@@ -323,6 +401,16 @@ function AppScorecard(props: {
           {summary.open} open · {summary.maintenance} maintenance · {summary.blocked.length} blocked
         </span>
       </header>
+      {goalTarget ? (
+        <NoteEditor
+          label={`${props.sprintTitle} goal`}
+          hint="One line: what this app should reach this sprint."
+          placeholder="e.g. Estimators level bids on one screen, in Testing with two of them."
+          note={noteAt(props.notes, goalTarget)}
+          rows={1}
+          onSave={(text) => saveDeskNote(goalTarget, text)}
+        />
+      ) : null}
       {summary.features.length > 0 ? (
         <div className="flex flex-col gap-1.5">
           <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
@@ -381,6 +469,68 @@ function AppScorecard(props: {
           <ol className="flex flex-col gap-2">{summary.blocked.map(props.card)}</ol>
         </div>
       ) : null}
+      <div className="flex flex-col gap-1.5">
+        <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Threads · {props.threads.length}
+        </h3>
+        {props.threads.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No open T3 chats in this app's repos.</p>
+        ) : (
+          <ul className="flex flex-col gap-1 text-sm">
+            {shownThreads.map((chat) => (
+              <li
+                key={`${chat.environmentId}:${chat.threadId}`}
+                className="flex items-center gap-2"
+              >
+                {chatWaitsOnYou(chat) ? (
+                  <Badge variant="warning" size="sm">
+                    Needs you
+                  </Badge>
+                ) : chat.working ? (
+                  <Badge variant="info" size="sm">
+                    Working
+                  </Badge>
+                ) : null}
+                <button
+                  type="button"
+                  className="min-w-0 cursor-pointer truncate text-left hover:underline"
+                  onClick={() => props.onOpenChat(chat)}
+                >
+                  {chat.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {props.threads.length > THREADS_SHOWN ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="self-start"
+            onClick={() => setAllThreads((value) => !value)}
+          >
+            {allThreads ? "Show fewer" : `Show ${props.threads.length - THREADS_SHOWN} more`}
+          </Button>
+        ) : null}
+      </div>
+      <details className="group/notes">
+        <summary className="cursor-pointer text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Notes for agents
+          {props.notes.apps[summary.app] ? "" : " · none yet"}
+        </summary>
+        <div className="mt-1.5">
+          <NoteEditor
+            label="Notes for agents"
+            hint="Goals, decisions, conventions, what not to touch. Agents read this before working here."
+            placeholder={
+              "e.g.\n- Estimators are the users; keep screens plain.\n- Decided 2026-11-17: leveling is the heart of Bids.\n- Don't change the AI read switches without asking."
+            }
+            note={props.notes.apps[summary.app] ?? null}
+            rows={8}
+            onSave={(text) => saveDeskNote({ kind: "app", app: summary.app }, text)}
+          />
+        </div>
+      </details>
     </section>
   );
 }

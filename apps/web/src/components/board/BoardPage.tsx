@@ -140,7 +140,15 @@ export function BoardPage() {
 }
 
 function DeskView(props: { readonly switcher: React.ReactNode }) {
-  return <DeskPage switcher={props.switcher} chats={useCardChats(false)} />;
+  const groups = useSidebarProjectGroups();
+  const projectNames = new Map(groups.map((group) => [group.projectKey, group.displayName]));
+  return (
+    <DeskPage
+      switcher={props.switcher}
+      chats={useCardChats(false)}
+      projectName={(key) => projectNames.get(key) ?? null}
+    />
+  );
 }
 
 function CardsPage(props: {

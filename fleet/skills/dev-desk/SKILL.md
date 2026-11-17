@@ -29,6 +29,25 @@ Every issue's body carries this section (add it if missing, keep the rest of the
 
 Edit it with `gh issue view <n> --repo <owner/repo> --json body` and `gh issue edit <n> --repo <owner/repo> --body-file <file>`, changing only that section.
 
+## Keep the conversation on track
+
+Each application has **notes for agents** (goals, decisions, conventions, what not to touch) and
+a **goal for the current sprint**; each sprint has notes (what it's for, what testers said).
+They live on the Desk, so every chat about an app starts from the same place.
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs context            # this repo's app
+node ~/.claude/skills/dev-desk/desk.mjs context Precon     # or name the app (or a repo)
+node ~/.claude/skills/dev-desk/desk.mjs note Precon "Decided: leveling stays the default Bids view"
+```
+
+- **At the start of work in a repo**, run `context` and follow it: stay inside the sprint goal,
+  respect the notes. If the request conflicts with them, say so in one line and ask.
+- **When something is decided or learned** that the next chat should know (a decision, a
+  convention, a trap, a user's feedback), add one line with `note`. Keep it to one sentence, in
+  plain words; never secrets or personal data.
+- Rigo edits the notes and goals on the Desk (Apps view); don't rewrite them, only add lines.
+
 ## How the work is organized
 
 **Application → Feature → Work item.** Every item on the project carries:

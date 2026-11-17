@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  appRepos,
   buildDeskColumns,
+  chatsForApp,
   chatsForItem,
   chatWaitsOnYou,
   type DeskItem,
@@ -170,4 +172,34 @@ it("scores an app: features by stage, this sprint's split, blockers; and what wa
   expect(summary?.mix).toEqual({ feature: 1, maintenance: 1, other: 0 });
   expect(summary?.maintenance).toBe(1);
   expect(waitingOnYou(items).map((entry) => entry.itemId)).toEqual(["b", "r"]);
+});
+
+it("lists an app's chats by repo, waiting ones first", () => {
+  const chat = (threadId: string, projectKey: string, needsYou: boolean): CardChatState => ({
+    environmentId: "env",
+    threadId,
+    title: threadId,
+    projectKey,
+    column: needsYou ? "needs" : "running",
+    needsYou,
+    working: !needsYou,
+    hasPullRequest: false,
+    pullRequestNumber: null,
+    pullRequests: [],
+    since: null,
+    worktree: null,
+    branch: null,
+  });
+  const names: Record<string, string> = { a: "cfevans/app", b: "app", c: "other" };
+  const repos = appRepos(
+    [item({ repo: "cfevans/app" }), item({ app: "Materials", repo: "cfevans/x" })],
+    "Precon",
+  );
+  expect([...repos]).toEqual(["app"]);
+  const found = chatsForApp(
+    [chat("working", "a", false), chat("waiting", "b", true), chat("elsewhere", "c", true)],
+    repos,
+    (key) => names[key] ?? null,
+  );
+  expect(found.map((entry) => entry.threadId)).toEqual(["waiting", "working"]);
 });
