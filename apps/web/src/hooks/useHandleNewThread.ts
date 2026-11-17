@@ -85,6 +85,8 @@ export function createNewThreadHandler(router: AnyRouter) {
       replace?: boolean;
       /** Composer text for the draft, set before it shows. A draft with user text keeps it. */
       prompt?: string;
+      /** Fleet fork: false sets up the draft without opening its page (the Desk shows it inline). */
+      navigate?: boolean;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
     const projects = readProjects();
@@ -324,11 +326,13 @@ export function createNewThreadHandler(router: AnyRouter) {
         ) {
           return opened;
         }
-        await router.navigate({
-          to: "/draft/$draftId",
-          params: { draftId: emptyStoredDraftThread.draftId },
-          replace: options?.replace ?? false,
-        });
+        if (options?.navigate !== false) {
+          await router.navigate({
+            to: "/draft/$draftId",
+            params: { draftId: emptyStoredDraftThread.draftId },
+            replace: options?.replace ?? false,
+          });
+        }
         return opened;
       })();
     }
@@ -385,11 +389,13 @@ export function createNewThreadHandler(router: AnyRouter) {
           ...pickExplicitWorkspaceOptions(options),
         });
         seedPrompt(racedDraft.draftId);
-        await router.navigate({
-          to: "/draft/$draftId",
-          params: { draftId: racedDraft.draftId },
-          replace: options?.replace ?? false,
-        });
+        if (options?.navigate !== false) {
+          await router.navigate({
+            to: "/draft/$draftId",
+            params: { draftId: racedDraft.draftId },
+            replace: options?.replace ?? false,
+          });
+        }
         return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
       }
       setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
@@ -413,11 +419,13 @@ export function createNewThreadHandler(router: AnyRouter) {
         setModelSelection(draftId, modelSelectionOverride, { replaceOptions: true });
       }
       seedPrompt(draftId);
-      await router.navigate({
-        to: "/draft/$draftId",
-        params: { draftId },
-        replace: options?.replace ?? false,
-      });
+      if (options?.navigate !== false) {
+        await router.navigate({
+          to: "/draft/$draftId",
+          params: { draftId },
+          replace: options?.replace ?? false,
+        });
+      }
       return { draftId, threadId };
     })();
   };

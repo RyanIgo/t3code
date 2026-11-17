@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildChatPrompt, contextLabel, contextLink } from "./deskChat.logic";
+import {
+  buildChatPrompt,
+  contextLabel,
+  contextLink,
+  deskFragment,
+  readDeskFragment,
+} from "./deskChat.logic";
 import type { DeskItem } from "./desk.logic";
 import {
   EMPTY_DESK_NOTES,
@@ -93,5 +99,48 @@ describe("chat context", () => {
         JSON.stringify({ apps: {}, links: { "env:t2": { ...link, itemUrl: "javascript:x" } } }),
       ).links["env:t2"]?.itemUrl,
     ).toBeNull();
+  });
+});
+
+describe("desk links back", () => {
+  it("round-trips each place on the Desk through its fragment", () => {
+    const item = {
+      kind: "item",
+      view: null,
+      feature: null,
+      app: "Precon",
+      sprint: null,
+      itemUrl: "https://github.com/cfevans/cfe-drawings/issues/183",
+    } as const;
+    expect(readDeskFragment(deskFragment(item))).toEqual({ kind: "item", url: item.itemUrl });
+    const app = {
+      kind: "app",
+      view: "board",
+      feature: "Precon · Bid intake",
+      app: "Precon",
+      sprint: "Sprint 1",
+      itemUrl: null,
+    } as const;
+    expect(readDeskFragment(deskFragment(app))).toEqual({
+      kind: "app",
+      app: "Precon",
+      view: "board",
+      feature: "Precon · Bid intake",
+    });
+    const sprintLink = {
+      kind: "sprint",
+      view: null,
+      feature: null,
+      app: null,
+      sprint: "Sprint 2",
+      itemUrl: null,
+    } as const;
+    expect(readDeskFragment(deskFragment(sprintLink))).toEqual({
+      kind: "sprint",
+      sprint: "Sprint 2",
+      app: null,
+    });
+    expect(readDeskFragment("#desk=item&url=javascript:alert(1)")).toBeNull();
+    expect(readDeskFragment("#something-else")).toBeNull();
   });
 });

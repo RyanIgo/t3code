@@ -50,6 +50,9 @@ export function contextLink(
   sprint: DeskSprint | null,
 ): Omit<DeskChatLink, "updatedAt"> {
   return {
+    kind: context.kind,
+    view: context.kind === "app" ? context.view : null,
+    feature: context.kind === "app" ? context.feature : null,
     app: contextApp(context),
     sprint: context.kind === "sprint" ? context.sprint.title : (sprint?.title ?? null),
     itemUrl: context.kind === "item" ? context.item.url : null,
@@ -69,12 +72,62 @@ function snapshot(title: string, list: ReadonlyArray<DeskItem>): string[] {
   return [`${title}:`, ...shown];
 }
 
+/** Where a Desk link points, as the `#desk=…` fragment the Desk opens on. */
+export function deskFragment(
+  link: Pick<DeskChatLink, "kind" | "view" | "feature" | "app" | "sprint" | "itemUrl">,
+): string {
+  const params = new URLSearchParams({ desk: link.kind });
+  if (link.kind === "item" && link.itemUrl) params.set("url", link.itemUrl);
+  if (link.app) params.set("app", link.app);
+  if (link.kind === "app" && link.view) params.set("view", link.view);
+  if (link.kind === "app" && link.feature) params.set("feature", link.feature);
+  if (link.kind === "sprint" && link.sprint) params.set("sprint", link.sprint);
+  return params.toString();
+}
+
+export type DeskTarget =
+  | {
+      readonly kind: "app";
+      readonly app: string;
+      readonly view: "overview" | "board" | "sprint";
+      readonly feature: string | null;
+    }
+  | { readonly kind: "sprint"; readonly sprint: string; readonly app: string | null }
+  | { readonly kind: "item"; readonly url: string };
+
+/** Reads a `#desk=…` fragment back into the place on the Desk it names. */
+export function readDeskFragment(fragment: string): DeskTarget | null {
+  const params = new URLSearchParams(fragment.replace(/^#/, ""));
+  const kind = params.get("desk");
+  const app = params.get("app");
+  if (kind === "item") {
+    const url = params.get("url");
+    return url && url.startsWith("https://github.com/") ? { kind, url } : null;
+  }
+  if (kind === "sprint") {
+    const sprint = params.get("sprint");
+    return sprint ? { kind, sprint, app } : null;
+  }
+  if (kind === "app" && app) {
+    const view = params.get("view");
+    return {
+      kind,
+      app,
+      view: view === "board" || view === "sprint" ? view : "overview",
+      feature: params.get("feature"),
+    };
+  }
+  return null;
+}
+
 /** The chat's opening message: what Rigo is on, a snapshot, and how to build context. */
 export function buildChatPrompt(input: {
   readonly context: DeskChatContext;
   readonly items: ReadonlyArray<DeskItem>;
   readonly notes: DeskNotes;
   readonly sprint: DeskSprint | null;
+  /** The Desk's address, to link back to where the chat came from. */
+  readonly deskUrl?: string;
 }): string {
   const { context, items, notes, sprint } = input;
   const app = contextApp(context);
@@ -146,5 +199,11 @@ export function buildChatPrompt(input: {
     "",
     "Then tell me in three short lines where this stands, and ask what I want to do first. Record decisions with `desk.mjs note`.",
   );
+  if (input.deskUrl) {
+    lines.push(
+      "",
+      `From the Dev Desk: [${contextLabel(context)}](${input.deskUrl}#${deskFragment(contextLink(context, sprint))})`,
+    );
+  }
   return lines.join("\n");
 }

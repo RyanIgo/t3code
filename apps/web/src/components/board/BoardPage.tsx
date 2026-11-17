@@ -13,7 +13,7 @@ import * as Schema from "effect/Schema";
 import { useState } from "react";
 
 import { isElectron } from "../../env";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useLocalStorage, writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { cn } from "../../lib/utils";
 import { environmentSummaries } from "../../state/presentation";
@@ -114,6 +114,13 @@ function useCardChats(includeSettled: boolean): CardChatState[] {
 }
 
 export function BoardPage() {
+  // A `#desk=…` link opens the Desk, whichever view was last used.
+  useState(() => {
+    if (typeof window !== "undefined" && window.location.hash.includes("desk=")) {
+      writeLocalStorageValue("t3-fleet:board-view", "desk", "board" as BoardView, BoardView);
+    }
+    return null;
+  });
   const [view, setView] = useLocalStorage("t3-fleet:board-view", "board" as BoardView, BoardView);
   const switcher = (
     <ToggleGroup

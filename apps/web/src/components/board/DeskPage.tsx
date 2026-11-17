@@ -9,10 +9,10 @@ import {
 } from "@dnd-kit/core";
 import * as Schema from "effect/Schema";
 import { RefreshCwIcon } from "lucide-react";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { isElectron } from "../../env";
-import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useLocalStorage, writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -51,7 +51,13 @@ import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, formatDay, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
-import { buildChatPrompt, contextLink, type DeskChatContext } from "./deskChat.logic";
+import {
+  buildChatPrompt,
+  contextLink,
+  type DeskChatContext,
+  readDeskFragment,
+} from "./deskChat.logic";
+import type { DraftId } from "../../composerDraftStore";
 import type { DeskChatLink } from "./deskNotes.logic";
 import { useHandleNewThread } from "../../hooks/useHandleNewThread";
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -84,12 +90,39 @@ const LANE_HINT: Record<DeskLane | "Unsorted", string> = {
  * for doing it, Apps for leading it (each application's features by stage, this sprint and its
  * 60 / 20 / 20 split), with what needs you on top. Lives on the fleet hub.
  */
+const deskUrl = () => `${window.location.origin}/board`;
+
 export function DeskPage(props: {
   readonly switcher: ReactNode;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly projectName: (projectKey: string) => string | null;
   readonly projects: ReadonlyArray<DeskProjectChoice>;
 }) {
+  // A `#desk=…` link (a chat's Desk chip or its opening message) opens that place. It is read
+  // once, before the remembered view loads, and cleared from the address.
+  const [deepLink] = useState(() => {
+    if (typeof window === "undefined") return null;
+    const target = readDeskFragment(window.location.hash);
+    if (target === null) return null;
+    if (target.kind === "app") {
+      writeLocalStorageValue("t3-fleet:desk-mode", "apps", "apps" as DeskMode, DeskMode);
+      writeLocalStorageValue(
+        "t3-fleet:desk-focus",
+        { app: target.app, feature: target.feature, view: target.view },
+        null as DeskFocus | null,
+        DeskFocusSchema,
+      );
+    } else if (target.kind === "sprint") {
+      writeLocalStorageValue("t3-fleet:desk-mode", "sprint", "apps" as DeskMode, DeskMode);
+      writeLocalStorageValue("t3-fleet:desk-app", target.app ?? ALL, ALL, Schema.String);
+    }
+    window.history.replaceState(
+      window.history.state,
+      "",
+      window.location.pathname + window.location.search,
+    );
+    return target;
+  });
   const { handleNewThread } = useHandleNewThread();
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
@@ -104,9 +137,22 @@ export function DeskPage(props: {
   const [modal, setModal] = useState<{
     readonly itemId: string | null;
     readonly chat: CardChatState | null;
+    readonly draft?: {
+      readonly draftId: DraftId;
+      readonly threadId: ThreadId;
+      readonly environmentId: EnvironmentId;
+    };
     readonly sequence: ReadonlyArray<string>;
-  } | null>(null);
-  const [chosenSprint, setChosenSprint] = useState<string | null>(null);
+    /** Set by a deep link before the Desk's data loads; resolved to the item once it has. */
+    readonly itemUrl?: string;
+  } | null>(
+    deepLink?.kind === "item"
+      ? { itemId: null, chat: null, sequence: [], itemUrl: deepLink.url }
+      : null,
+  );
+  const [chosenSprint, setChosenSprint] = useState<string | null>(
+    deepLink?.kind === "sprint" ? deepLink.sprint : null,
+  );
   const [storedApp, setStoredApp] = useLocalStorage("t3-fleet:desk-app", ALL, Schema.String);
   const [query, setQuery] = useState("");
   const [showAllUnsorted, setShowAllUnsorted] = useState(false);
@@ -121,6 +167,32 @@ export function DeskPage(props: {
   const items = view?.items ?? [];
   const nowMs = minuteTickToMs(useNowMinute());
   const sprint = currentSprint(view?.sprints ?? [], nowMs);
+  // A Desk link followed while already here (e.g. from a chat in the work window) only changes
+  // the fragment; apply it the same way and clear it.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for `#desk=…` fragment changes in the browser's address
+  useEffect(() => {
+    const onHashChange = () => {
+      const target = readDeskFragment(window.location.hash);
+      if (target === null) return;
+      if (target.kind === "item") {
+        setModal({ itemId: null, chat: null, sequence: [], itemUrl: target.url });
+      } else if (target.kind === "sprint") {
+        setMode("sprint");
+        setChosenSprint(target.sprint);
+        setStoredApp(target.app ?? ALL);
+      } else {
+        setMode("apps");
+        setFocus({ app: target.app, feature: target.feature, view: target.view });
+      }
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + window.location.search,
+      );
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [setMode, setFocus, setStoredApp]);
   const linksByChat = new Map<string, string[]>();
   for (const card of board.document.cards) {
     for (const ref of card.chats) {
@@ -236,21 +308,39 @@ export function DeskPage(props: {
   };
 
   const startChat = async (context: DeskChatContext, project: DeskProjectChoice) => {
-    const prompt = buildChatPrompt({ context, items, notes: notes.notes, sprint });
+    const prompt = buildChatPrompt({
+      context,
+      items,
+      notes: notes.notes,
+      sprint,
+      deskUrl: deskUrl(),
+    });
     setLauncher(null);
-    const created = await handleNewThread(project.ref, { prompt });
+    const created = await handleNewThread(project.ref, { prompt, navigate: false });
     if (created) {
       saveDeskLink(
         `${project.ref.environmentId}:${created.threadId}`,
         contextLink(context, sprint),
       );
+      setModal({
+        itemId: context.kind === "item" ? context.item.itemId : null,
+        chat: null,
+        draft: { ...created, environmentId: project.ref.environmentId },
+        sequence: [],
+      });
     }
   };
   const linkChat = (context: DeskChatContext, chat: CardChatState) => {
     const ref = scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId);
     const store = useComposerDraftStore.getState();
     const existing = store.getComposerDraft(ref)?.prompt ?? "";
-    const prompt = buildChatPrompt({ context, items, notes: notes.notes, sprint });
+    const prompt = buildChatPrompt({
+      context,
+      items,
+      notes: notes.notes,
+      sprint,
+      deskUrl: deskUrl(),
+    });
     store.setPrompt(ref, existing.trim() ? `${existing}\n\n${prompt}` : prompt);
     saveDeskLink(`${chat.environmentId}:${chat.threadId}`, contextLink(context, sprint));
     setLauncher(null);
@@ -272,7 +362,9 @@ export function DeskPage(props: {
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
   const modalItem = modal?.itemId
     ? (items.find((entry) => entry.itemId === modal.itemId) ?? null)
-    : null;
+    : modal?.itemUrl
+      ? (items.find((entry) => entry.url === modal.itemUrl) ?? null)
+      : null;
   const sprintShown = view.sprints?.find((entry) => entry.title === chosenSprint) ?? sprint;
   const focusApp = focus && apps.includes(focus.app) ? focus : null;
 
@@ -442,12 +534,13 @@ export function DeskPage(props: {
           onOpenItem={openItemIn(ids(waiting))}
         />
       ) : null}
-      {modal ? (
+      {modal && (modal.itemUrl === undefined || modalItem) ? (
         <DeskModal
           key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}`}
           item={modalItem}
           chat={modal.chat}
           chats={modalItem ? chatsFor(modalItem) : modal.chat ? [modal.chat] : []}
+          draft={modal.draft ?? null}
           view={view}
           sequence={modal.sequence}
           onNavigate={(itemId) => setModal({ itemId, chat: null, sequence: modal.sequence })}

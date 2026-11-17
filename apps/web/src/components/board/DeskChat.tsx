@@ -1,5 +1,6 @@
-import type { ScopedProjectRef } from "@t3tools/contracts";
-import { MessageSquarePlusIcon } from "lucide-react";
+import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { LayoutDashboardIcon, MessageSquarePlusIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "../ui/button";
@@ -7,7 +8,8 @@ import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
-import { type DeskChatContext, contextLabel } from "./deskChat.logic";
+import { type DeskChatContext, contextLabel, deskFragment } from "./deskChat.logic";
+import { useDeskNotes } from "./deskNotesStore";
 
 /** A project a new chat can start in: a machine's copy of a repo. */
 export interface DeskProjectChoice {
@@ -156,5 +158,28 @@ export function ChatLauncher(props: {
         </div>
       </DialogPopup>
     </Dialog>
+  );
+}
+
+/**
+ * In a chat's header: where on the Desk the chat came from ("Desk: Precon · Board"). Opens the
+ * Desk there. Shown only for chats started or linked from the Desk, and not on the Desk itself.
+ */
+export function DeskLinkChip(props: { readonly threadRef: ScopedThreadRef }) {
+  const notes = useDeskNotes();
+  const navigate = useNavigate();
+  const onBoard = useRouterState({ select: (state) => state.location.pathname === "/board" });
+  const link = notes.notes.links[`${props.threadRef.environmentId}:${props.threadRef.threadId}`];
+  if (!link || onBoard) return null;
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      className="max-w-64 shrink-0"
+      onClick={() => void navigate({ to: "/board", hash: deskFragment(link) })}
+    >
+      <LayoutDashboardIcon />
+      <span className="truncate">Desk: {link.about}</span>
+    </Button>
   );
 }

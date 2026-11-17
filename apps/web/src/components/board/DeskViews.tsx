@@ -1,4 +1,5 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { DraftId } from "../../composerDraftStore";
 import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
@@ -322,6 +323,12 @@ export function DeskModal(props: {
   readonly item: DeskItem | null;
   readonly chat: CardChatState | null;
   readonly chats: ReadonlyArray<CardChatState>;
+  /** A new chat started from the Desk, not sent yet: shown as a draft until it is. */
+  readonly draft: {
+    readonly draftId: DraftId;
+    readonly threadId: ThreadId;
+    readonly environmentId: EnvironmentId;
+  } | null;
   readonly view: DeskView;
   readonly sequence: ReadonlyArray<string>;
   readonly onNavigate: (itemId: string) => void;
@@ -331,6 +338,7 @@ export function DeskModal(props: {
 }) {
   const { item } = props;
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
+  const [showDraft, setShowDraft] = useState(props.draft !== null);
   const shown =
     (chosen && props.chats.find((chat) => chatKeyOf(chat) === chatKeyOf(chosen))) ??
     chosen ??
@@ -340,7 +348,8 @@ export function DeskModal(props: {
   const index = item ? props.sequence.indexOf(item.itemId) : -1;
   const previous = index > 0 ? props.sequence[index - 1] : undefined;
   const next = index !== -1 ? props.sequence[index + 1] : undefined;
-  const title = item ? deskTitle(item) : (shown?.title ?? "Chat");
+  const draft = showDraft ? props.draft : null;
+  const title = item ? deskTitle(item) : draft ? "New chat" : (shown?.title ?? "Chat");
   return (
     <Dialog
       open
@@ -438,24 +447,49 @@ export function DeskModal(props: {
                 : "relative hidden min-h-0 min-w-0 flex-1 flex-col sm:flex"
             }
           >
-            {props.chats.length > 1 ? (
+            {props.chats.length + (props.draft ? 1 : 0) > 1 ? (
               <nav
                 aria-label="Chats"
                 className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
               >
+                {props.draft ? (
+                  <Button
+                    variant={draft ? "secondary" : "ghost"}
+                    size="xs"
+                    onClick={() => setShowDraft(true)}
+                  >
+                    New chat
+                  </Button>
+                ) : null}
                 {props.chats.map((chat) => (
                   <Button
                     key={chatKeyOf(chat)}
-                    variant={shown && chatKeyOf(shown) === chatKeyOf(chat) ? "secondary" : "ghost"}
+                    variant={
+                      !draft && shown && chatKeyOf(shown) === chatKeyOf(chat)
+                        ? "secondary"
+                        : "ghost"
+                    }
                     size="xs"
-                    onClick={() => setChosen(chat)}
+                    onClick={() => {
+                      setShowDraft(false);
+                      setChosen(chat);
+                    }}
                   >
                     <span className="max-w-56 truncate">{chat.title}</span>
                   </Button>
                 ))}
               </nav>
             ) : null}
-            {shown ? (
+            {draft ? (
+              <ChatView
+                key={draft.draftId}
+                environmentId={draft.environmentId}
+                threadId={draft.threadId}
+                routeKind="draft"
+                draftId={draft.draftId}
+                reserveTitleBarControlInset={false}
+              />
+            ) : shown ? (
               <ChatView
                 key={chatKeyOf(shown)}
                 environmentId={shown.environmentId as EnvironmentId}
