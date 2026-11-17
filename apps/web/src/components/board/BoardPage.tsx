@@ -141,12 +141,25 @@ export function BoardPage() {
 
 function DeskView(props: { readonly switcher: React.ReactNode }) {
   const groups = useSidebarProjectGroups();
+  const environments = useAtomValue(environmentSummaries.environmentsAtom);
+  const machine = new Map(
+    environments.map((environment) => [environment.environmentId, environment.environmentLabel]),
+  );
   const projectNames = new Map(groups.map((group) => [group.projectKey, group.displayName]));
+  const projects = groups.flatMap((group) =>
+    group.memberProjectRefs.map((ref) => ({
+      key: `${ref.environmentId}:${ref.projectId}`,
+      label: `${machine.get(ref.environmentId) ?? "Machine"} · ${group.displayName}`,
+      ref,
+      repo: group.displayName.split("/").pop() ?? group.displayName,
+    })),
+  );
   return (
     <DeskPage
       switcher={props.switcher}
       chats={useCardChats(false)}
       projectName={(key) => projectNames.get(key) ?? null}
+      projects={projects}
     />
   );
 }

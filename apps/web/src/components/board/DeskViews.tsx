@@ -33,6 +33,7 @@ import {
   ThreadList,
 } from "./DeskParts";
 import { type DeskField, fetchDeskDetail, setDeskField } from "./deskStore";
+import { ChatAboutButton } from "./DeskChat";
 
 const NONE = "__none__";
 const STAGE_RANK: Record<string, number> = { Production: 3, Testing: 2, Experiment: 1, "": 0 };
@@ -326,6 +327,7 @@ export function DeskModal(props: {
   readonly onNavigate: (itemId: string) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onClose: () => void;
+  readonly onChat: (item: DeskItem) => void;
 }) {
   const { item } = props;
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
@@ -407,6 +409,7 @@ export function DeskModal(props: {
               <Toggle value="chat">Chat</Toggle>
             </ToggleGroup>
           ) : null}
+          {item ? <ChatAboutButton onClick={() => props.onChat(item)} /> : null}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
@@ -461,9 +464,14 @@ export function DeskModal(props: {
                 reserveTitleBarControlInset={false}
               />
             ) : (
-              <div className="m-auto max-w-sm p-6 text-center text-sm text-muted-foreground">
-                No T3 chat is working on this yet. Start one from its repo, or ask an agent about
-                it.
+              <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                No T3 chat is working on this yet.
+                {item ? (
+                  <ChatAboutButton
+                    onClick={() => props.onChat(item)}
+                    label="Start or link a chat"
+                  />
+                ) : null}
               </div>
             )}
           </section>
@@ -518,6 +526,7 @@ export function AppView(props: {
   readonly board: ReactNode;
   readonly sprintPanel: ReactNode;
   readonly onSubview: (view: "overview" | "board" | "sprint") => void;
+  readonly onChat: () => void;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sprint: DeskSprint | null;
   readonly notes: DeskNotes;
@@ -568,6 +577,7 @@ export function AppView(props: {
           <Toggle value="sprint">Sprint</Toggle>
         </ToggleGroup>
       )}
+      <ChatAboutButton onClick={props.onChat} />
     </nav>
   );
   if (!feature && props.subview !== "overview") {
@@ -694,6 +704,9 @@ export function SprintView(props: {
   readonly app: string | null;
   readonly card: (item: DeskItem) => ReactNode;
   readonly onSprint: (title: string) => void;
+  readonly onChat: () => void;
+  readonly linkedChats: ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const { sprint, view } = props;
   const apps = props.app ? [props.app] : (view.apps ?? []);
@@ -735,6 +748,7 @@ export function SprintView(props: {
         <span className="text-sm text-muted-foreground">
           {overview.done} of {overview.total} done
         </span>
+        <ChatAboutButton onClick={props.onChat} label="Chat about this sprint" />
       </header>
       <div
         className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
@@ -754,6 +768,12 @@ export function SprintView(props: {
         maintenance · {percent(overview.mix.other)}% fixes, research & support (budget 60 / 20 /
         20). Add work to a sprint from any item's Sprint menu.
       </p>
+      {props.linkedChats.length > 0 ? (
+        <section className="flex flex-col gap-1.5">
+          <DeskHeading>Chats on this sprint · {props.linkedChats.length}</DeskHeading>
+          <ThreadList threads={props.linkedChats} onOpenChat={props.onOpenChat} empty="" />
+        </section>
+      ) : null}
       <NoteEditor
         label={`${sprint.title} notes`}
         hint="What this sprint is for and what feedback said. Agents read it."

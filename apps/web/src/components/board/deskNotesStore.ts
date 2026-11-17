@@ -8,6 +8,8 @@ import {
   EMPTY_DESK_NOTES,
   mergeDeskNotes,
   parseDeskNotes,
+  type DeskChatLink,
+  withLink,
   withNote,
 } from "./deskNotes.logic";
 
@@ -111,6 +113,21 @@ export function saveDeskNote(target: DeskNoteTarget, text: string) {
       toastManager.add({
         type: "error",
         title: "Couldn't save the note",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+/** Links a chat ("<environmentId>:<threadId>") to part of the Desk and saves it to the hub. */
+export function saveDeskLink(chatKey: string, link: Omit<DeskChatLink, "updatedAt">) {
+  const next = withLink(snapshot.notes, chatKey, { ...link, updatedAt: new Date().toISOString() });
+  publish({ ...snapshot, notes: next });
+  saving = saving
+    .then(() => push(next))
+    .catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: "Couldn't link the chat",
         description: error instanceof Error ? error.message : String(error),
       });
     });

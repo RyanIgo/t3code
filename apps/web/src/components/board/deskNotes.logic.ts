@@ -10,6 +10,16 @@ export interface DeskNote {
   readonly by: string | null;
 }
 
+/** A T3 chat linked to part of the Desk: an app (and view), a sprint, or one item. */
+export interface DeskChatLink {
+  readonly app: string | null;
+  readonly sprint: string | null;
+  readonly itemUrl: string | null;
+  /** What the chat was started or linked about, in plain words. */
+  readonly about: string;
+  readonly updatedAt: string;
+}
+
 export interface DeskNotes {
   readonly schemaVersion: 1;
   /** Notes for agents, by application name. */
@@ -18,6 +28,8 @@ export interface DeskNotes {
   readonly sprintGoals: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
   /** Sprint title → notes for the whole sprint. */
   readonly sprintNotes: Readonly<Record<string, DeskNote>>;
+  /** "<environmentId>:<threadId>" → what that chat is linked to. */
+  readonly links: Readonly<Record<string, DeskChatLink>>;
 }
 
 export const EMPTY_DESK_NOTES: DeskNotes = {
@@ -25,10 +37,12 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   apps: {},
   sprintGoals: {},
   sprintNotes: {},
+  links: {},
 };
 
 const MAX_NOTE = 20_000;
-const time = (note: DeskNote | undefined) => (note ? Date.parse(note.updatedAt) || 0 : 0);
+const time = (note: { readonly updatedAt: string } | undefined) =>
+  note ? Date.parse(note.updatedAt) || 0 : 0;
 
 function readNote(value: unknown): DeskNote | null {
   if (typeof value !== "object" || value === null) return null;
@@ -47,6 +61,32 @@ function readNotes(value: unknown): Record<string, DeskNote> {
     Object.entries(value).flatMap(([key, note]) => {
       const parsed = readNote(note);
       return parsed ? [[key, parsed]] : [];
+    }),
+  );
+}
+
+const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
+
+function readLinks(value: unknown): Record<string, DeskChatLink> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) => {
+      if (typeof raw !== "object" || raw === null || !key.includes(":")) return [];
+      const link = raw as Record<string, unknown>;
+      if (typeof link.updatedAt !== "string") return [];
+      const itemUrl = text(link.itemUrl);
+      return [
+        [
+          key,
+          {
+            app: text(link.app),
+            sprint: text(link.sprint),
+            itemUrl: itemUrl && /^https:\/\/github\.com\//.test(itemUrl) ? itemUrl : null,
+            about: (text(link.about) ?? "").slice(0, 300),
+            updatedAt: link.updatedAt,
+          },
+        ],
+      ];
     }),
   );
 }
@@ -73,14 +113,15 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
       Object.entries(goals).map(([sprint, byApp]) => [sprint, readNotes(byApp)]),
     ),
     sprintNotes: readNotes(record.sprintNotes),
+    links: readLinks(record.links),
   };
 }
 
-function mergeNotes(
-  a: Readonly<Record<string, DeskNote>>,
-  b: Readonly<Record<string, DeskNote>>,
-): Record<string, DeskNote> {
-  const merged: Record<string, DeskNote> = { ...a };
+function mergeNotes<T extends { readonly updatedAt: string }>(
+  a: Readonly<Record<string, T>>,
+  b: Readonly<Record<string, T>>,
+): Record<string, T> {
+  const merged: Record<string, T> = { ...a };
   for (const [key, note] of Object.entries(b)) {
     if (time(note) >= time(merged[key])) merged[key] = note;
   }
@@ -100,7 +141,13 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
       ]),
     ),
     sprintNotes: mergeNotes(remote.sprintNotes, local.sprintNotes),
+    links: mergeNotes(remote.links, local.links),
   };
+}
+
+/** Links (or relinks) a chat to part of the Desk. */
+export function withLink(notes: DeskNotes, chatKey: string, link: DeskChatLink): DeskNotes {
+  return { ...notes, links: { ...notes.links, [chatKey]: link } };
 }
 
 export type DeskNoteTarget =

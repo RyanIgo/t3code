@@ -46,10 +46,17 @@ import {
 } from "./desk.logic";
 import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
-import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
+import { saveDeskLink, saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, formatDay, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
+import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
+import { buildChatPrompt, contextLink, type DeskChatContext } from "./deskChat.logic";
+import type { DeskChatLink } from "./deskNotes.logic";
+import { useHandleNewThread } from "../../hooks/useHandleNewThread";
+import { useComposerDraftStore } from "../../composerDraftStore";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 const DeskMode = Schema.Literals(["lanes", "apps", "sprint"]);
 const DeskFocusSchema = Schema.NullOr(
@@ -81,7 +88,10 @@ export function DeskPage(props: {
   readonly switcher: ReactNode;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly projectName: (projectKey: string) => string | null;
+  readonly projects: ReadonlyArray<DeskProjectChoice>;
 }) {
+  const { handleNewThread } = useHandleNewThread();
+  const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
   const notes = useDeskNotes();
   const board = useBoard();
@@ -120,7 +130,29 @@ export function DeskPage(props: {
       );
     }
   }
-  const chatsFor = (item: DeskItem) => chatsForItem(item, props.chats, linksByChat);
+  const chatLinks = notes.notes.links;
+  const linkedChats = (keep: (link: DeskChatLink) => boolean) =>
+    props.chats.filter((chat) => {
+      const link = chatLinks[`${chat.environmentId}:${chat.threadId}`];
+      return link !== undefined && keep(link);
+    });
+  const withLinked = (base: ReadonlyArray<CardChatState>, linked: ReadonlyArray<CardChatState>) => {
+    const seen = new Set(base.map((chat) => `${chat.environmentId}:${chat.threadId}`));
+    return [
+      ...base,
+      ...linked.filter((chat) => !seen.has(`${chat.environmentId}:${chat.threadId}`)),
+    ];
+  };
+  const chatsFor = (item: DeskItem) =>
+    withLinked(
+      chatsForItem(item, props.chats, linksByChat),
+      linkedChats((link) => link.itemUrl !== null && link.itemUrl === item.url),
+    );
+  const appThreads = (name: string) =>
+    withLinked(
+      chatsForApp(props.chats, appRepos(items, name), props.projectName),
+      linkedChats((link) => link.app === name),
+    );
   // Chats open in the Desk's work window (with their item, when one matches) so the Desk stays put.
   const openChat = (chat: CardChatState) => {
     const key = `${chat.environmentId}:${chat.threadId}`;
@@ -203,6 +235,28 @@ export function DeskPage(props: {
     void setDeskLane(item.itemId, lane === "Unsorted" ? null : lane);
   };
 
+  const startChat = async (context: DeskChatContext, project: DeskProjectChoice) => {
+    const prompt = buildChatPrompt({ context, items, notes: notes.notes, sprint });
+    setLauncher(null);
+    const created = await handleNewThread(project.ref, { prompt });
+    if (created) {
+      saveDeskLink(
+        `${project.ref.environmentId}:${created.threadId}`,
+        contextLink(context, sprint),
+      );
+    }
+  };
+  const linkChat = (context: DeskChatContext, chat: CardChatState) => {
+    const ref = scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId);
+    const store = useComposerDraftStore.getState();
+    const existing = store.getComposerDraft(ref)?.prompt ?? "";
+    const prompt = buildChatPrompt({ context, items, notes: notes.notes, sprint });
+    store.setPrompt(ref, existing.trim() ? `${existing}\n\n${prompt}` : prompt);
+    saveDeskLink(`${chat.environmentId}:${chat.threadId}`, contextLink(context, sprint));
+    setLauncher(null);
+    setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
+  };
+
   const card = (item: DeskItem, draggable: boolean, sequence: ReadonlyArray<string> = []) => (
     <DeskCard
       key={item.itemId}
@@ -278,6 +332,9 @@ export function DeskPage(props: {
         app={onlyApp ?? app}
         card={(entry) => card(entry, false, sequence)}
         onSprint={setChosenSprint}
+        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp ?? app })}
+        linkedChats={linkedChats((link) => link.sprint === sprintShown.title)}
+        onOpenChat={openChat}
       />
     );
   };
@@ -398,6 +455,33 @@ export function DeskPage(props: {
             setModal({ itemId: entry.itemId, chat: null, sequence: modal.sequence })
           }
           onClose={() => setModal(null)}
+          onChat={(entry) => setLauncher({ kind: "item", item: entry })}
+        />
+      ) : null}
+      {launcher ? (
+        <ChatLauncher
+          context={launcher}
+          projects={props.projects}
+          appRepos={appRepos(
+            items,
+            launcher.kind === "item" ? (launcher.item.app ?? "") : (launcher.app ?? ""),
+          )}
+          chats={props.chats}
+          appChats={
+            new Set(
+              (launcher.kind === "item"
+                ? launcher.item.app
+                  ? appThreads(launcher.item.app)
+                  : []
+                : launcher.app
+                  ? appThreads(launcher.app)
+                  : []
+              ).map((chat) => `${chat.environmentId}:${chat.threadId}`),
+            )
+          }
+          onStart={(project) => void startChat(launcher, project)}
+          onLink={(chat) => linkChat(launcher, chat)}
+          onClose={() => setLauncher(null)}
         />
       ) : null}
       {mode === "apps" && focusApp ? (
@@ -408,8 +492,16 @@ export function DeskPage(props: {
           items={items}
           sprint={sprint}
           notes={notes.notes}
-          threads={chatsForApp(props.chats, appRepos(items, focusApp.app), props.projectName)}
+          threads={appThreads(focusApp.app)}
           card={(entry) => card(entry, false, appSequence)}
+          onChat={() =>
+            setLauncher({
+              kind: "app",
+              app: focusApp.app,
+              view: focusApp.view,
+              feature: focusApp.feature,
+            })
+          }
           board={lanes(focusApp.app)}
           sprintPanel={sprintPanel(focusApp.app)}
           onOpenItem={openItemIn(appSequence)}
@@ -446,7 +538,7 @@ export function DeskPage(props: {
               sprintTitle={sprint?.title ?? null}
               card={(item) => card(item, false, overviewSequence)}
               notes={notes.notes}
-              threads={chatsForApp(props.chats, appRepos(items, summary.app), props.projectName)}
+              threads={appThreads(summary.app)}
               onOpenChat={openChat}
               onOpenApp={() => setFocus({ app: summary.app, feature: null, view: "overview" })}
               onOpenFeature={(feature) => setFocus({ app: summary.app, feature, view: "overview" })}
