@@ -1,6 +1,6 @@
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import { htmlRenderFileName } from "@t3tools/shared/htmlRender";
+import { htmlRenderFileName, type HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import * as Schema from "effect/Schema";
 import {
   ChevronDownIcon,
@@ -32,6 +32,7 @@ import { previewEnvironment } from "../../state/preview";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { makePageFeedbackHandler } from "../chat/pageFeedbackHandler";
+import { ArtifactFrame } from "../chat/ArtifactFrame";
 import { HtmlRenderDocument } from "../files/BrowserDocumentFrame";
 import { Button } from "../ui/button";
 import { toastManager } from "../ui/toast";
@@ -259,7 +260,7 @@ export function ReviewGuidePane(props: { readonly threadRef: ScopedThreadRef }) 
                     active={selection?.kind === "page" && selection.id === p.id}
                     onClick={() => setChosen({ kind: "page", id: p.id })}
                   >
-                    {p.htmlRender.title}
+                    {p.title}
                     {index === 0 ? (
                       <span className="text-2xs text-muted-foreground">latest</span>
                     ) : null}
@@ -405,8 +406,37 @@ function ReviewPageView(props: {
   readonly threadRef: ScopedThreadRef;
   readonly page: ReviewPage;
 }) {
-  const { attachmentId, title } = props.page.htmlRender;
   const send = useAppMessageSender(scopedThreadKey(props.threadRef));
+  if (props.page.artifact) {
+    return (
+      <div className="flex size-full flex-col">
+        <ArtifactFrame
+          artifact={props.page.artifact}
+          threadRef={props.threadRef}
+          onSendMessage={send}
+          fill
+        />
+      </div>
+    );
+  }
+  return (
+    <ReviewRenderView
+      environmentId={props.environmentId}
+      threadRef={props.threadRef}
+      htmlRender={props.page.htmlRender}
+      send={send}
+    />
+  );
+}
+
+function ReviewRenderView(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadRef: ScopedThreadRef;
+  readonly htmlRender: HtmlRenderReference;
+  readonly send: ((text: string) => Promise<void>) | undefined;
+}) {
+  const { attachmentId, title } = props.htmlRender;
+  const send = props.send;
   const onPageFeedback = makePageFeedbackHandler({
     threadRef: props.threadRef,
     pageTitle: title,

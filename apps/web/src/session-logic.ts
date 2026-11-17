@@ -26,7 +26,12 @@ import {
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
 import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import type { McpAppReference } from "@t3tools/shared/mcpApp";
-import { htmlRenderFromToolItem, mcpAppFromToolItem } from "@t3tools/shared/toolOutput";
+import {
+  artifactFromToolItem,
+  htmlRenderFromToolItem,
+  mcpAppFromToolItem,
+} from "@t3tools/shared/toolOutput";
+import type { ArtifactReference } from "@t3tools/shared/artifacts";
 import {
   contextCompactionLabel,
   workEntryIndicatesToolFailure,
@@ -132,6 +137,13 @@ export type TimelineEntry = (
       readonly createdAt: string;
       readonly runId: RunId | null;
       readonly htmlRender: HtmlRenderReference;
+    }
+  | {
+      readonly id: string;
+      readonly kind: "artifact";
+      readonly createdAt: string;
+      readonly runId: RunId | null;
+      readonly artifact: ArtifactReference;
     }
   | {
       readonly id: string;
@@ -706,6 +718,22 @@ export function deriveTimelineEntriesFromVisibleTurnItems(
         createdAt,
         runId: item.runId,
         htmlRender,
+        ...attemptMetadata,
+      });
+      continue;
+    }
+
+    const artifact =
+      item.type === "dynamic_tool" && item.status === "completed"
+        ? artifactFromToolItem(item)
+        : undefined;
+    if (artifact !== undefined) {
+      entries.push({
+        id: item.id,
+        kind: "artifact",
+        createdAt,
+        runId: item.runId,
+        artifact,
         ...attemptMetadata,
       });
       continue;

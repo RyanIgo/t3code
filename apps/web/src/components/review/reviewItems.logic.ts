@@ -1,15 +1,19 @@
 import type { OrchestrationV2ProjectedTurnItem, ThreadPullRequestLink } from "@t3tools/contracts";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
-import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
+import type { ArtifactReference } from "@t3tools/shared/artifacts";
+import { artifactFromToolItem, htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 
 import { extractQuestionSheets, type QuestionSheet } from "./questionSheet.logic";
 
 /** Fleet fork: what the Review window can show on its left: the chat's pages, PRs and links. */
-export interface ReviewPage {
+export type ReviewPage = {
   readonly id: string;
   readonly position: number;
-  readonly htmlRender: HtmlRenderReference;
-}
+  readonly title: string;
+} & (
+  | { readonly htmlRender: HtmlRenderReference; readonly artifact?: undefined }
+  | { readonly artifact: ArtifactReference; readonly htmlRender?: undefined }
+);
 
 export interface ReviewSheet {
   readonly position: number;
@@ -33,13 +37,22 @@ export interface ReviewPullRequest {
 
 type TurnItem = Pick<OrchestrationV2ProjectedTurnItem, "position" | "item">;
 
-/** The chat's interactive pages, newest first. */
+/** The chat's interactive pages and artifacts, newest first; an artifact once, at its latest. */
 export function collectReviewPages(turnItems: ReadonlyArray<TurnItem>): ReviewPage[] {
   const pages: ReviewPage[] = [];
+  const artifacts = new Set<string>();
   for (const { item, position } of turnItems.toSorted((a, b) => b.position - a.position)) {
     if (item.type !== "dynamic_tool" || item.status !== "completed") continue;
     const htmlRender = htmlRenderFromToolItem(item);
-    if (htmlRender !== undefined) pages.push({ id: item.id, position, htmlRender });
+    if (htmlRender !== undefined) {
+      pages.push({ id: item.id, position, title: htmlRender.title, htmlRender });
+      continue;
+    }
+    const artifact = artifactFromToolItem(item);
+    if (artifact !== undefined && !artifacts.has(artifact.id)) {
+      artifacts.add(artifact.id);
+      pages.push({ id: item.id, position, title: artifact.title, artifact });
+    }
   }
   return pages;
 }

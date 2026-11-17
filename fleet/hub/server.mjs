@@ -1,8 +1,10 @@
 #!/usr/bin/env node
-// Fleet hub: serves the hosted fleet UI and the shared documents (connection catalog, board). Listens on loopback
-// behind `tailscale serve`, which adds the caller's `Tailscale-User-Login`; only HUB_OWNERS
-// may use it. Node 20+, no dependencies. See fleet/README.md.
+// Fleet hub: serves the hosted fleet UI, the shared documents (connection catalog, board) and
+// artifacts (test sheets and pages agents publish, at /a/<id>). Listens on loopback behind
+// `tailscale serve`, which adds the caller's `Tailscale-User-Login`. HUB_OWNERS may use all of it;
+// HUB_GUESTS may only open and fill in artifacts. Node 20+, no dependencies. See fleet/README.md.
 
+import * as NodeCrypto from "node:crypto";
 import * as NodeFS from "node:fs";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeHttp from "node:http";
@@ -17,7 +19,15 @@ const OWNERS = new Set(
     .map((login) => login.trim().toLowerCase())
     .filter(Boolean),
 );
+const GUESTS = new Set(
+  (process.env.HUB_GUESTS ?? "")
+    .split(",")
+    .map((login) => login.trim().toLowerCase())
+    .filter(Boolean),
+);
 const HISTORY_DIR = NodePath.join(DATA_ROOT, "history");
+const ARTIFACT_DIR = NodePath.join(DATA_ROOT, "artifacts");
+const ARTIFACT_HISTORY_KEEP = 200;
 // Each shared document: its file, and the check a saved document must pass.
 const DOCUMENTS = {
   catalog: (parsed) => Array.isArray(parsed?.targets),
@@ -196,15 +206,323 @@ async function serveStatic(req, res) {
   NodeFS.createReadStream(file).pipe(res);
 }
 
+// An artifact is a page an agent publishes (a test sheet or its own HTML) plus what people did on
+// it: row results or saved page state, submissions, and who changed what. Agents publish through
+// their T3 server; people open /a/<id> inline in a chat, in the Review window, or on their own.
+
+const ARTIFACT_ID = /^[a-z0-9]{12}$/;
+const MAX_ARTIFACT_BYTES = 1024 * 1024;
+const MAX_NOTE = 4000;
+
+const isGuestPath = (pathname) =>
+  /^\/a\/[a-z0-9]{12}$/.test(pathname) ||
+  /^\/fleet\/artifacts\/[a-z0-9]{12}(?:\/(?:state|submit))?$/.test(pathname) ||
+  pathname === "/fleet/whoami";
+
+const artifactFile = (id) => NodePath.join(ARTIFACT_DIR, `${id}.json`);
+
+async function readArtifact(id) {
+  try {
+    return JSON.parse(await NodeFSP.readFile(artifactFile(id), "utf8"));
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function writeArtifact(artifact) {
+  await NodeFSP.mkdir(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
+  const file = artifactFile(artifact.id);
+  const tmp = `${file}.${process.pid}.tmp`;
+  await NodeFSP.writeFile(tmp, JSON.stringify(artifact), { mode: 0o600 });
+  await NodeFSP.rename(tmp, file);
+}
+
+// Pages may be opened from a chat on another origin, so the artifact API answers any origin.
+// It carries no credentials: tailscale serve identifies the caller by machine.
+const CORS = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+  "access-control-allow-headers": "content-type",
+  "access-control-max-age": "600",
+};
+
+function cleanRows(rows) {
+  if (!Array.isArray(rows)) return null;
+  const seen = new Set();
+  const out = [];
+  for (const row of rows) {
+    if (typeof row?.id !== "string" || typeof row?.title !== "string" || seen.has(row.id)) {
+      return null;
+    }
+    seen.add(row.id);
+    out.push({
+      id: row.id.slice(0, 80),
+      title: row.title.slice(0, 500),
+      ...(typeof row.detail === "string" ? { detail: row.detail.slice(0, 4000) } : {}),
+      ...(typeof row.group === "string" ? { group: row.group.slice(0, 120) } : {}),
+    });
+  }
+  return out;
+}
+
+const SHEET_STATUSES = new Set(["pass", "fail", "skip", "blocked"]);
+
+/** What an artifact looks like to a reader: no page HTML, state and history included. */
+function artifactSummary(artifact) {
+  const { html: _html, ...rest } = artifact;
+  return rest;
+}
+
+function sheetCounts(artifact) {
+  const counts = { total: artifact.rows?.length ?? 0, pass: 0, fail: 0, skip: 0, blocked: 0 };
+  for (const row of artifact.rows ?? []) {
+    const status = artifact.state?.rows?.[row.id]?.status;
+    if (status && counts[status] !== undefined) counts[status] += 1;
+  }
+  return counts;
+}
+
+function pushHistory(artifact, entry) {
+  artifact.history = [...(artifact.history ?? []), entry].slice(-ARTIFACT_HISTORY_KEEP);
+}
+
+/** The artifact's page with what it needs to talk back to the hub. Served sandboxed (see below). */
+function artifactPage(artifact) {
+  const boot = JSON.stringify({
+    id: artifact.id,
+    kind: artifact.kind,
+    title: artifact.title,
+    version: artifact.version,
+    rows: artifact.rows ?? null,
+    state: artifact.state ?? null,
+    submittedAt: artifact.submissions?.at(-1)?.at ?? null,
+  }).replace(/</g, "\\u003c");
+  const script = `<script>window.__T3_ARTIFACT__=${boot};</script><script>${ARTIFACT_BRIDGE}</script>`;
+  const html = artifact.html;
+  const head = /<head(?:\s[^>]*)?>/i.exec(html);
+  if (head) {
+    const at = head.index + head[0].length;
+    return html.slice(0, at) + script + html.slice(at);
+  }
+  return script + html;
+}
+
+// `t3.state`, `t3.save(state)`, `t3.submit(text, data)` and `t3.onChange(fn)` for artifact pages.
+// Saves go to the hub; a submit also reaches the chat the page is shown in, as a page message.
+const ARTIFACT_BRIDGE = `(function(){var A=window.__T3_ARTIFACT__,base=new URL(location.href).origin+"/fleet/artifacts/"+A.id,fns=[],n=0;
+function call(path,method,body){return fetch(base+path,{method:method,headers:{"content-type":"text/plain"},body:body===undefined?undefined:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error("hub "+r.status);return r.json();});}
+function toChat(text,data){if(window.parent===window)return Promise.resolve(false);return new Promise(function(done){var id="t3a-"+(++n);function on(e){var m=e.data;if(m&&m.type==="t3-page:result"&&m.id===id){removeEventListener("message",on);done(m.ok===true);}}addEventListener("message",on);parent.postMessage({type:"t3-page:send",id:id,text:text,data:data},"*");setTimeout(function(){removeEventListener("message",on);done(false);},8000);});}
+function refresh(){return call("","GET").then(function(a){if(a.version!==A.version){location.reload();return;}if(JSON.stringify(a.state)!==JSON.stringify(A.state)){A.state=a.state;fns.forEach(function(f){f(A.state);});}}).catch(function(){});}
+setInterval(function(){if(document.visibilityState==="visible")refresh();},15000);document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refresh();});
+window.t3artifact={get state(){return A.state;},rows:A.rows,title:A.title,
+save:function(patch){return call("/state","POST",patch).then(function(a){A.state=a.state;return a.state;});},
+submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
+onChange:function(f){fns.push(f);}};})();`;
+
+async function readJsonBody(req) {
+  const raw = await readBody(req);
+  if (Buffer.byteLength(raw) > MAX_ARTIFACT_BYTES) {
+    throw Object.assign(new Error("too large"), { status: 413 });
+  }
+  return JSON.parse(raw);
+}
+
+let artifactQueue = Promise.resolve();
+const serialized = (task) => (artifactQueue = artifactQueue.then(task, task));
+
+async function handleArtifacts(pathname, req, res, login, owner) {
+  const page = pathname.match(/^\/a\/([a-z0-9]{12})$/);
+  if (page) {
+    const artifact = await readArtifact(page[1]);
+    if (!artifact) {
+      send(res, 404, "No artifact here. It may have been removed.");
+      return true;
+    }
+    const body = artifactPage(artifact);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "cache-control": "no-store",
+      // Agent-written HTML on the hub's origin: the sandbox gives it an opaque origin, so it can
+      // never read the catalog (machine sign-ins) or anything else owners can reach.
+      "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    });
+    res.end(body);
+    return true;
+  }
+  if (!pathname.startsWith("/fleet/artifacts")) return false;
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS);
+    res.end();
+    return true;
+  }
+  const reply = (status, body) => send(res, status, body, CORS);
+  if (pathname === "/fleet/artifacts") {
+    if (!owner) return (reply(403, { error: "owners only" }), true);
+    if (req.method === "GET") {
+      await NodeFSP.mkdir(ARTIFACT_DIR, { recursive: true, mode: 0o700 });
+      const files = (await NodeFSP.readdir(ARTIFACT_DIR)).filter((f) => f.endsWith(".json"));
+      const list = [];
+      for (const file of files) {
+        const artifact = await readArtifact(file.slice(0, -5));
+        if (!artifact) continue;
+        list.push({
+          id: artifact.id,
+          title: artifact.title,
+          kind: artifact.kind,
+          thread: artifact.thread,
+          version: artifact.version,
+          updatedAt: artifact.updatedAt,
+          ...(artifact.kind === "sheet" ? { counts: sheetCounts(artifact) } : {}),
+        });
+      }
+      reply(200, {
+        artifacts: list.sort((a, b) => String(b.updatedAt).localeCompare(a.updatedAt)),
+      });
+      return true;
+    }
+    if (req.method !== "POST") return (reply(405, { error: "method-not-allowed" }), true);
+    const id = NodeCrypto.randomBytes(6).toString("hex");
+    return publishArtifact(id, true, req, reply, login);
+  }
+  const match = pathname.match(/^\/fleet\/artifacts\/([a-z0-9]{12})(?:\/(state|submit))?$/);
+  if (!match || !ARTIFACT_ID.test(match[1])) return (reply(404, { error: "not-found" }), true);
+  const [, id, action] = match;
+  if (!action) {
+    if (req.method === "GET") {
+      const artifact = await readArtifact(id);
+      if (!artifact) return (reply(404, { error: "not-found" }), true);
+      reply(200, {
+        ...artifactSummary(artifact),
+        ...(artifact.kind === "sheet" ? { counts: sheetCounts(artifact) } : {}),
+      });
+      return true;
+    }
+    if (req.method !== "PUT") return (reply(405, { error: "method-not-allowed" }), true);
+    if (!owner) return (reply(403, { error: "owners only" }), true);
+    return publishArtifact(id, false, req, reply, login);
+  }
+  if (req.method !== "POST") return (reply(405, { error: "method-not-allowed" }), true);
+  const body = await readJsonBody(req);
+  const outcome = await serialized(async () => {
+    const artifact = await readArtifact(id);
+    if (!artifact) return { status: 404, body: { error: "not-found" } };
+    const at = new Date().toISOString();
+    if (action === "submit") {
+      const text = typeof body?.text === "string" ? body.text.slice(0, MAX_NOTE) : "";
+      artifact.submissions = [...(artifact.submissions ?? []), { at, by: login, text }].slice(-50);
+      pushHistory(artifact, { at, by: login, change: "submitted" });
+    } else if (artifact.kind === "sheet") {
+      const rows = body?.rows;
+      if (typeof rows !== "object" || rows === null) {
+        return {
+          status: 400,
+          body: { error: "expected { rows: { <rowId>: { status?, note? } } }" },
+        };
+      }
+      const known = new Set((artifact.rows ?? []).map((row) => row.id));
+      const current = { ...artifact.state?.rows };
+      for (const [rowId, change] of Object.entries(rows)) {
+        if (!known.has(rowId) || typeof change !== "object" || change === null) continue;
+        const next = { ...current[rowId] };
+        if ("status" in change) {
+          if (change.status === null) delete next.status;
+          else if (SHEET_STATUSES.has(change.status)) next.status = change.status;
+        }
+        if (typeof change.note === "string") next.note = change.note.slice(0, MAX_NOTE);
+        current[rowId] = { ...next, by: login, at };
+        pushHistory(artifact, {
+          at,
+          by: login,
+          change: `${rowId}: ${[next.status, change.note !== undefined ? "note" : null].filter(Boolean).join(", ") || "cleared"}`,
+        });
+      }
+      artifact.state = { rows: current };
+    } else {
+      if (!("data" in (body ?? {}))) return { status: 400, body: { error: "expected { data }" } };
+      const data = JSON.stringify(body.data);
+      if (data.length > 256 * 1024) return { status: 413, body: { error: "state too large" } };
+      artifact.state = { data: body.data, by: login, at };
+      pushHistory(artifact, { at, by: login, change: "saved" });
+    }
+    artifact.stateUpdatedAt = at;
+    await writeArtifact(artifact);
+    return { status: 200, body: { state: artifact.state, version: artifact.version } };
+  });
+  reply(outcome.status, outcome.body);
+  return true;
+}
+
+async function publishArtifact(id, create, req, reply, login) {
+  const body = await readJsonBody(req);
+  const kind = body?.kind;
+  const title = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
+  if ((kind !== "sheet" && kind !== "html") || !title || typeof body?.html !== "string") {
+    reply(400, { error: "expected { kind: 'sheet'|'html', title, html, rows? }" });
+    return true;
+  }
+  const rows = kind === "sheet" ? cleanRows(body.rows) : null;
+  if (kind === "sheet" && rows === null) {
+    reply(400, { error: "a sheet needs rows: [{ id, title, detail?, group? }] with unique ids" });
+    return true;
+  }
+  const thread =
+    typeof body.thread?.environmentId === "string" && typeof body.thread?.threadId === "string"
+      ? { environmentId: body.thread.environmentId, threadId: body.thread.threadId }
+      : null;
+  const outcome = await serialized(async () => {
+    const existing = create ? null : await readArtifact(id);
+    if (!create && !existing) return { status: 404, body: { error: "not-found" } };
+    if (existing && existing.kind !== kind) {
+      return { status: 400, body: { error: `this artifact is a ${existing.kind}` } };
+    }
+    const at = new Date().toISOString();
+    const keep = new Set((rows ?? []).map((row) => row.id));
+    const artifact = {
+      id,
+      kind,
+      title,
+      thread: thread ?? existing?.thread ?? null,
+      html: body.html,
+      ...(rows ? { rows } : {}),
+      // Results for rows that are still there survive an update.
+      state:
+        kind === "sheet"
+          ? {
+              rows: Object.fromEntries(
+                Object.entries(existing?.state?.rows ?? {}).filter(([rowId]) => keep.has(rowId)),
+              ),
+            }
+          : (existing?.state ?? null),
+      submissions: existing?.submissions ?? [],
+      history: existing?.history ?? [],
+      version: (existing?.version ?? 0) + 1,
+      createdAt: existing?.createdAt ?? at,
+      createdBy: existing?.createdBy ?? login,
+      updatedAt: at,
+    };
+    pushHistory(artifact, { at, by: login, change: create ? "published" : "updated" });
+    await writeArtifact(artifact);
+    return { status: create ? 201 : 200, body: { id, version: artifact.version } };
+  });
+  reply(outcome.status, outcome.body);
+  return true;
+}
+
 const server = NodeHttp.createServer(async (req, res) => {
   try {
     const login = callerLogin(req);
-    if (login === null || !OWNERS.has(login)) {
+    const { pathname } = new URL(req.url, "http://hub");
+    const owner = login !== null && OWNERS.has(login);
+    const guest = login !== null && GUESTS.has(login);
+    if (!owner && !(guest && isGuestPath(pathname))) {
       log("refused", { login, path: req.url });
       send(res, 403, "This hub only answers its owner's Tailscale login.");
       return;
     }
-    const { pathname } = new URL(req.url, "http://hub");
+    if (await handleArtifacts(pathname, req, res, login, owner)) return;
     if (pathname === "/fleet/whoami") {
       send(res, 200, { login });
       return;

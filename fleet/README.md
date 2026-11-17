@@ -95,6 +95,23 @@ shares each machine's sign-in, so revoking it on a machine signs all devices out
 The Board's cards live on the hub too, so planning on one device shows on all of them. Opened
 anywhere else, the Board keeps its cards in that browser only.
 
+### Artifacts: test sheets and pages agents publish
+
+Agents call `artifact_publish` to put a test sheet (rows marked Pass / Fail / Skip / Blocked, with
+a note each) or their own HTML page on the hub, and `artifact_read` to see what people did. Each
+artifact shows inline in its chat and in the Review window, and has a stable link,
+`https://<hub>/a/<id>`, for a phone or a teammate. Results save as people go; Submit also sends
+the agent a message when the page is open in its chat.
+
+Opening the hub's UI tells each connected machine the hub's address. A machine the hub can't
+change settings on needs `T3_FLEET_HUB_URL=https://<hub>` in its T3 server's environment.
+
+To let teammates open and fill in artifacts (and nothing else on the hub), add their Tailscale
+logins to the service: `Environment=HUB_GUESTS=a@example.com,b@example.com` in
+`~/.config/systemd/user/t3-fleet-hub.service` on the hub, then
+`systemctl --user daemon-reload && systemctl --user restart t3-fleet-hub`. Artifact pages run
+sandboxed, so a page can't read the machines' sign-ins the hub keeps.
+
 A machine whose T3 server runs inside WSL has its Tailscale on Windows, where `t3 pair --tailscale`
 can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pair` and use the
 `https://<machine>.<tailnet>.ts.net/pair#token=…` form of the link:

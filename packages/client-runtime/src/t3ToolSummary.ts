@@ -453,6 +453,12 @@ export function summarizeT3ToolCalls(
     case "html-render":
       label = phrase("Rendered", "render", quantity(selected.length, "HTML page"));
       break;
+    case "artifact-publish":
+      label = phrase("Published", "publish", quantity(selected.length, "artifact"));
+      break;
+    case "artifact-read":
+      label = phrase("Read", "read", quantity(selected.length, "artifact"));
+      break;
     case "capabilities":
       label = phrase("Checked", "check", `orchestration capabilities ${times}`);
       break;

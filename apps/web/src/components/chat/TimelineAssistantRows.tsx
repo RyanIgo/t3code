@@ -7,6 +7,7 @@ import ChatMarkdown from "../ChatMarkdown";
 import { GitForkIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { ArtifactFrame } from "./ArtifactFrame";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -258,6 +259,21 @@ export function HtmlRenderTimelineRow({
         htmlRender={row.htmlRender}
         threadRef={ctx.threadRef ?? undefined}
         onFullscreenChange={onFullscreenChange}
+        onSendMessage={ctx.onSendAppMessage}
+      />
+    </div>
+  );
+}
+
+/** Fleet fork: a test sheet or page published to the fleet hub, live from the hub. */
+export function ArtifactTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "artifact" }> }) {
+  const ctx = use(TimelineRowCtx);
+  return (
+    <div className="min-w-0 px-1">
+      <ArtifactFrame
+        key={row.artifact.id}
+        artifact={row.artifact}
+        threadRef={ctx.threadRef ?? undefined}
         onSendMessage={ctx.onSendAppMessage}
       />
     </div>
