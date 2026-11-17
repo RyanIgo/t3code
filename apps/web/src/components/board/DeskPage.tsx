@@ -16,6 +16,7 @@ import { type ReactNode, useState } from "react";
 
 import { isElectron } from "../../env";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { cn } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { Badge } from "../ui/badge";
@@ -38,12 +39,16 @@ import {
   deskRef,
   deskTitle,
   NOW_LIMIT,
-  summarizeInitiatives,
+  summarizeApps,
+  type AppSummary,
+  currentSprint,
+  featureName,
   waitingOnYou,
 } from "./desk.logic";
 import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
+import { minuteTickToMs } from "./fleetBoard.logic";
 
-const DeskMode = Schema.Literals(["lanes", "initiatives"]);
+const DeskMode = Schema.Literals(["lanes", "apps"]);
 type DeskMode = typeof DeskMode.Type;
 const ALL = "*";
 const UNSORTED_SHOWN = 25;
@@ -62,11 +67,12 @@ function openExternal(url: string) {
   else window.open(url, "_blank", "noopener,noreferrer");
 }
 
-const initiativeLetter = (name: string | null) => name?.match(/^[A-Z]/)?.[0] ?? null;
+const STAGE_VARIANT = { Experiment: "outline", Testing: "warning", Production: "success" } as const;
 
 /**
- * Fleet fork: the Dev Desk. All development work from the GitHub project, by lane and in plain
- * words, with what needs you on top and the T3 chats doing each item. Lives on the fleet hub.
+ * Fleet fork: the Dev Desk. All development work from the GitHub project in plain words: Lanes
+ * for doing it, Apps for leading it (each application's features by stage, this sprint and its
+ * 60 / 20 / 20 split), with what needs you on top. Lives on the fleet hub.
  */
 export function DeskPage(props: {
   readonly switcher: ReactNode;
@@ -76,11 +82,7 @@ export function DeskPage(props: {
   const board = useBoard();
   const navigate = useNavigate();
   const [mode, setMode] = useLocalStorage("t3-fleet:desk-mode", "lanes" as DeskMode, DeskMode);
-  const [storedInitiative, setStoredInitiative] = useLocalStorage(
-    "t3-fleet:desk-initiative",
-    ALL,
-    Schema.String,
-  );
+  const [storedApp, setStoredApp] = useLocalStorage("t3-fleet:desk-app", ALL, Schema.String);
   const [query, setQuery] = useState("");
   const [showAllUnsorted, setShowAllUnsorted] = useState(false);
   const sensors = useSensors(
@@ -89,9 +91,11 @@ export function DeskPage(props: {
   );
 
   const view = desk.view;
-  const initiatives = view?.initiatives ?? [];
-  const initiative = initiatives.includes(storedInitiative) ? storedInitiative : null;
+  const apps = view?.apps ?? [];
+  const app = apps.includes(storedApp) ? storedApp : null;
   const items = view?.items ?? [];
+  const nowMs = minuteTickToMs(useNowMinute());
+  const sprint = currentSprint(view?.sprints ?? [], nowMs);
   const linksByChat = new Map<string, string[]>();
   for (const card of board.document.cards) {
     for (const ref of card.chats) {
@@ -169,10 +173,8 @@ export function DeskPage(props: {
     );
   }
 
-  const columns = buildDeskColumns(items, { initiative, query });
-  const waiting = waitingOnYou(items).filter(
-    (item) => !initiative || item.initiative === initiative,
-  );
+  const columns = buildDeskColumns(items, { app, query });
+  const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
   const chatsNeedingYou = props.chats.filter(chatWaitsOnYou);
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -188,7 +190,8 @@ export function DeskPage(props: {
       item={item}
       chats={chatsFor(item)}
       draggable={draggable}
-      showInitiative={initiative === null}
+      showApp={app === null}
+      currentSprint={sprint?.title ?? null}
       onOpenChat={openChat}
     />
   );
@@ -200,25 +203,25 @@ export function DeskPage(props: {
           aria-label="Desk view"
           value={[mode]}
           onValueChange={(next) => {
-            if (next[0] === "lanes" || next[0] === "initiatives") setMode(next[0]);
+            if (next[0] === "lanes" || next[0] === "apps") setMode(next[0]);
           }}
         >
+          <Toggle value="apps">Apps</Toggle>
           <Toggle value="lanes">Lanes</Toggle>
-          <Toggle value="initiatives">Initiatives</Toggle>
         </ToggleGroup>
         <div className="w-64 max-w-full">
           <Select
-            value={initiative ?? ALL}
+            value={app ?? ALL}
             onValueChange={(value) => {
-              if (typeof value === "string") setStoredInitiative(value);
+              if (typeof value === "string") setStoredApp(value);
             }}
           >
-            <SelectTrigger aria-label="Initiative" size="sm">
-              <SelectValue>{initiative ?? "All initiatives"}</SelectValue>
+            <SelectTrigger aria-label="Application" size="sm">
+              <SelectValue>{app ?? "All applications"}</SelectValue>
             </SelectTrigger>
             <SelectPopup>
-              <SelectItem value={ALL}>All initiatives</SelectItem>
-              {initiatives.map((name) => (
+              <SelectItem value={ALL}>All applications</SelectItem>
+              {apps.map((name) => (
                 <SelectItem key={name} value={name}>
                   {name}
                 </SelectItem>
@@ -236,6 +239,12 @@ export function DeskPage(props: {
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+        {sprint ? (
+          <span className="text-xs text-muted-foreground">
+            {sprint.title}: {formatDay(sprint.startDate)} –{" "}
+            {formatDay(sprint.startDate, sprint.duration - 1)}
+          </span>
+        ) : null}
       </div>
       <NeedsYou chats={chatsNeedingYou} items={waiting} onOpenChat={openChat} />
       {mode === "lanes" ? (
@@ -272,37 +281,107 @@ export function DeskPage(props: {
           </div>
         </DndContext>
       ) : (
-        <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pb-4 lg:grid-cols-2">
-          {summarizeInitiatives(items, initiatives)
-            .filter((summary) => initiative === null || summary.name === initiative)
-            .map((summary) => (
-              <section
-                key={summary.name}
-                aria-label={summary.name}
-                className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3"
-              >
-                <header className="flex flex-wrap items-baseline gap-2">
-                  <h2 className="text-sm font-semibold">{summary.name}</h2>
-                  <span className="text-xs text-muted-foreground">
-                    {summary.counts.Now} now · {summary.counts.Next} next · {summary.counts.Blocked}{" "}
-                    blocked · {summary.counts.Later + summary.counts.Unsorted} later or unsorted ·{" "}
-                    {summary.doneRecently} done in 2 weeks
-                  </span>
-                </header>
-                {summary.focus.length > 0 ? (
-                  <ol className="flex flex-col gap-2">
-                    {summary.focus.slice(0, 6).map((item) => card(item, false))}
-                  </ol>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    Nothing in Now, Next or Blocked. Pick something from Lanes.
-                  </p>
-                )}
-              </section>
-            ))}
+        <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 xl:grid-cols-2">
+          {summarizeApps(items, app ? [app] : apps, sprint).map((summary) => (
+            <AppScorecard
+              key={summary.app}
+              summary={summary}
+              sprintTitle={sprint?.title ?? null}
+              card={(item) => card(item, false)}
+            />
+          ))}
         </div>
       )}
     </>,
+  );
+}
+
+function formatDay(date: string, plusDays = 0): string {
+  const day = new Date(`${date}T12:00:00`);
+  day.setDate(day.getDate() + plusDays);
+  return day.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+/** One application for a leader: its features by stage, this sprint's work and split, blockers. */
+function AppScorecard(props: {
+  readonly summary: AppSummary;
+  readonly sprintTitle: string | null;
+  readonly card: (item: DeskItem) => ReactNode;
+}) {
+  const { summary } = props;
+  const { mix } = summary;
+  const total = mix.feature + mix.maintenance + mix.other;
+  const percent = (value: number) => (total === 0 ? 0 : Math.round((value / total) * 100));
+  return (
+    <section
+      aria-label={summary.app}
+      className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3"
+    >
+      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <h2 className="text-sm font-semibold">{summary.app}</h2>
+        <span className="text-xs text-muted-foreground">
+          {summary.open} open · {summary.maintenance} maintenance · {summary.blocked.length} blocked
+        </span>
+      </header>
+      {summary.features.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Features
+          </h3>
+          <ul className="flex flex-col gap-1 text-sm">
+            {summary.features.map((feature) => (
+              <li key={feature.feature} className="flex items-center gap-2">
+                <span className="w-24 shrink-0">
+                  {feature.stage ? (
+                    <Badge variant={STAGE_VARIANT[feature.stage]} size="sm">
+                      {feature.stage}
+                    </Badge>
+                  ) : (
+                    <span className="text-2xs text-muted-foreground">No stage</span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 cursor-pointer truncate text-left hover:underline disabled:cursor-default disabled:no-underline"
+                  disabled={!feature.url}
+                  onClick={() => feature.url && openExternal(feature.url)}
+                >
+                  {feature.name}
+                </button>
+                <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
+                  {feature.inSprint > 0 ? `${feature.inSprint} in sprint · ` : ""}
+                  {feature.open} open{feature.blocked > 0 ? ` · ${feature.blocked} blocked` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <div className="flex flex-col gap-1.5">
+        <h3 className="flex flex-wrap items-baseline gap-2 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          {props.sprintTitle ?? "This sprint"}
+          {total > 0 ? (
+            <span className="font-normal tracking-normal normal-case">
+              {percent(mix.feature)}% features · {percent(mix.maintenance)}% maintenance ·{" "}
+              {percent(mix.other)}% fixes, research & support (budget 60 / 20 / 20)
+            </span>
+          ) : null}
+        </h3>
+        {summary.sprintItems.length > 0 ? (
+          <ol className="flex flex-col gap-2">{summary.sprintItems.map(props.card)}</ol>
+        ) : (
+          <p className="text-xs text-muted-foreground">Nothing planned for this sprint.</p>
+        )}
+      </div>
+      {summary.blocked.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Blocked
+          </h3>
+          <ol className="flex flex-col gap-2">{summary.blocked.map(props.card)}</ol>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -409,7 +488,8 @@ function DeskCard(props: {
   readonly item: DeskItem;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly draggable: boolean;
-  readonly showInitiative: boolean;
+  readonly showApp: boolean;
+  readonly currentSprint: string | null;
   readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const { item } = props;
@@ -418,7 +498,6 @@ function DeskCard(props: {
     disabled: !props.draggable,
   });
   const ref = deskRef(item);
-  const letter = initiativeLetter(item.initiative);
   const needsYou = props.chats.some(chatWaitsOnYou);
   const working = props.chats.some((chat) => chat.working);
   return (
@@ -436,11 +515,15 @@ function DeskCard(props: {
           className="flex cursor-pointer flex-col gap-1 text-left outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         >
           <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
-            {props.showInitiative && letter ? (
-              <span className="rounded border border-border px-1 font-medium">{letter}</span>
-            ) : null}
             <span className="truncate">
-              {[ref, item.priority, item.size].filter(Boolean).join(" · ")}
+              {[
+                props.showApp ? item.app : null,
+                item.feature ? featureName(item.feature) : null,
+                ref,
+                item.priority,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </span>
             {item.kind === "pr" ? <span>· PR</span> : null}
           </span>
@@ -450,6 +533,20 @@ function DeskCard(props: {
           ) : null}
         </button>
         <span className="flex flex-wrap items-center gap-1">
+          {item.sprint && item.sprint.title === props.currentSprint ? (
+            <Badge variant="info" size="sm">
+              This sprint
+            </Badge>
+          ) : item.sprint ? (
+            <Badge variant="outline" size="sm">
+              {item.sprint.title}
+            </Badge>
+          ) : null}
+          {item.workType && item.workType !== "Feature work" ? (
+            <Badge variant="secondary" size="sm">
+              {item.workType}
+            </Badge>
+          ) : null}
           {item.status && item.status !== "Todo" ? (
             <Badge variant="outline" size="sm">
               {item.status}

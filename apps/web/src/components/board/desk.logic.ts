@@ -1,7 +1,8 @@
 /**
- * Fleet fork: the Dev Desk. Development work from the GitHub project the hub syncs, sorted into
- * lanes (Now / Next / Later / Blocked) and shown in plain words, beside the T3 chats doing it.
- * Pure logic only.
+ * Fleet fork: the Dev Desk. Development work from the GitHub project the hub syncs: by
+ * application and feature, in lanes and sprints, in plain words, beside the T3 chats doing it.
+ * Features are issues titled "Feature: …" with Work type "Tracking"; their Stage is the
+ * feature's (Experiment → Testing → Production). Pure logic only.
  */
 import type { CardChatState } from "./boardCards.logic";
 
@@ -30,6 +31,12 @@ export interface DeskItem {
   readonly priority: string | null;
   readonly size: string | null;
   readonly initiative: string | null;
+  readonly app: string | null;
+  /** "<App> · <feature>", the project's Feature option. */
+  readonly feature: string | null;
+  readonly stage: DeskStage | null;
+  readonly workType: string | null;
+  readonly sprint: DeskSprint | null;
   readonly lane: DeskLane | null;
   readonly pullRequests: ReadonlyArray<{
     readonly number: number;
@@ -39,18 +46,33 @@ export interface DeskItem {
   readonly plain: DeskPlainWords | null;
 }
 
+export type DeskStage = "Experiment" | "Testing" | "Production";
+const DESK_STAGES: ReadonlyArray<DeskStage> = ["Experiment", "Testing", "Production"];
+
+export interface DeskSprint {
+  readonly title: string;
+  readonly startDate: string;
+  readonly duration: number;
+}
+
 export interface DeskView {
   readonly configured: boolean;
   readonly syncedAt: string | null;
   readonly error: string | null;
   readonly initiatives: ReadonlyArray<string>;
+  readonly apps?: ReadonlyArray<string>;
+  readonly sprints?: ReadonlyArray<DeskSprint>;
   readonly items: ReadonlyArray<DeskItem>;
 }
 
 export interface DeskFilter {
-  readonly initiative: string | null;
+  readonly app: string | null;
   readonly query: string;
 }
+
+/** The feature's own name, without its app: "Precon · Bid intake" → "Bid intake". */
+export const featureName = (feature: string) =>
+  feature.split(" · ").slice(1).join(" · ") || feature;
 
 const isOpen = (item: DeskItem) => item.state === "open" || item.state === "draft";
 
@@ -73,16 +95,20 @@ function byPriority(a: DeskItem, b: DeskItem): number {
 }
 
 /** PRs that close an issue on the board show on that issue, not as their own card. */
+/** Work to schedule: no feature records, initiative headers or reports (Work type Tracking). */
 function visibleItems(items: ReadonlyArray<DeskItem>): DeskItem[] {
   const closing = new Set(items.flatMap((item) => item.pullRequests.map((pr) => pr.url)));
-  return items.filter((item) => !(item.kind === "pr" && item.url && closing.has(item.url)));
+  return items.filter(
+    (item) =>
+      item.workType !== "Tracking" && !(item.kind === "pr" && item.url && closing.has(item.url)),
+  );
 }
 
 function matches(item: DeskItem, filter: DeskFilter): boolean {
-  if (filter.initiative !== null && item.initiative !== filter.initiative) return false;
+  if (filter.app !== null && item.app !== filter.app) return false;
   const query = filter.query.trim().toLowerCase();
   if (!query) return true;
-  return [item.title, item.plain?.what, item.plain?.where, deskRef(item), item.initiative]
+  return [item.title, item.plain?.what, item.plain?.where, deskRef(item), item.feature, item.app]
     .filter(Boolean)
     .some((text) => String(text).toLowerCase().includes(query));
 }
@@ -116,35 +142,100 @@ export function chatsForItem(
   );
 }
 
-export interface InitiativeSummary {
-  readonly name: string;
-  readonly counts: Record<DeskLane | "Unsorted", number>;
-  readonly doneRecently: number;
-  readonly focus: DeskItem[];
+/** The sprint running on `now`, else the next one to start. */
+export function currentSprint(sprints: ReadonlyArray<DeskSprint>, now: number): DeskSprint | null {
+  const day = 86_400_000;
+  const sorted = [...sprints].sort((a, b) => Date.parse(a.startDate) - Date.parse(b.startDate));
+  return (
+    sorted.find(
+      (sprint) =>
+        Date.parse(sprint.startDate) <= now &&
+        now < Date.parse(sprint.startDate) + sprint.duration * day,
+    ) ??
+    sorted.find((sprint) => Date.parse(sprint.startDate) > now) ??
+    null
+  );
 }
 
-/** Each initiative's open work by lane, what closed in the last two weeks, and its Now/Next items. */
-export function summarizeInitiatives(
+export interface FeatureSummary {
+  readonly feature: string;
+  readonly name: string;
+  readonly stage: DeskStage | null;
+  readonly url: string | null;
+  readonly open: number;
+  readonly inSprint: number;
+  readonly blocked: number;
+}
+
+/** How a sprint's open work splits against the 60 / 20 / 20 budget. */
+export interface SprintMix {
+  readonly feature: number;
+  readonly maintenance: number;
+  readonly other: number;
+}
+
+export interface AppSummary {
+  readonly app: string;
+  readonly features: FeatureSummary[];
+  readonly open: number;
+  readonly maintenance: number;
+  readonly blocked: DeskItem[];
+  readonly sprintItems: DeskItem[];
+  readonly mix: SprintMix;
+}
+
+/** Each application's features by stage, this sprint's work and its budget split, and blockers. */
+export function summarizeApps(
   items: ReadonlyArray<DeskItem>,
-  initiatives: ReadonlyArray<string>,
-): InitiativeSummary[] {
-  const visible = visibleItems(items);
-  return [...initiatives, null].flatMap((name) => {
-    const mine = visible.filter((item) => item.initiative === name);
-    if (mine.length === 0) return [];
-    const columns = buildDeskColumns(mine, { initiative: null, query: "" });
+  apps: ReadonlyArray<string>,
+  sprint: DeskSprint | null,
+): AppSummary[] {
+  const work = visibleItems(items).filter(isOpen);
+  const records = items.filter(
+    (item) => item.workType === "Tracking" && item.feature && item.title.startsWith("Feature:"),
+  );
+  const inSprint = (item: DeskItem) => sprint !== null && item.sprint?.title === sprint.title;
+  return apps.flatMap((app) => {
+    const mine = work.filter((item) => item.app === app);
+    const featureKeys = [
+      ...new Set([
+        ...records.filter((record) => record.app === app).map((record) => record.feature as string),
+        ...mine.flatMap((item) => (item.feature ? [item.feature] : [])),
+      ]),
+    ];
+    if (mine.length === 0 && featureKeys.length === 0) return [];
+    const stageRank = (stage: DeskStage | null) => (stage ? DESK_STAGES.indexOf(stage) : -1);
+    const features = featureKeys
+      .map((feature) => {
+        const record = records.find((entry) => entry.feature === feature);
+        const of = mine.filter((item) => item.feature === feature);
+        return {
+          feature,
+          name: featureName(feature),
+          stage: record?.stage ?? null,
+          url: record?.url ?? null,
+          open: of.length,
+          inSprint: of.filter(inSprint).length,
+          blocked: of.filter((item) => item.lane === "Blocked").length,
+        };
+      })
+      .sort((a, b) => stageRank(b.stage) - stageRank(a.stage) || b.inSprint - a.inSprint);
+    const sprintItems = mine.filter(inSprint).sort(byPriority);
     return [
       {
-        name: name ?? "No initiative",
-        counts: {
-          Now: columns.Now.length,
-          Next: columns.Next.length,
-          Later: columns.Later.length,
-          Blocked: columns.Blocked.length,
-          Unsorted: columns.Unsorted.length,
+        app,
+        features,
+        open: mine.length,
+        maintenance: mine.filter((item) => item.workType === "Maintenance").length,
+        blocked: mine.filter((item) => item.lane === "Blocked").sort(byPriority),
+        sprintItems,
+        mix: {
+          feature: sprintItems.filter((item) => item.workType === "Feature work").length,
+          maintenance: sprintItems.filter((item) => item.workType === "Maintenance").length,
+          other: sprintItems.filter(
+            (item) => item.workType !== "Feature work" && item.workType !== "Maintenance",
+          ).length,
         },
-        doneRecently: mine.filter((item) => !isOpen(item) && item.kind === "issue").length,
-        focus: [...columns.Now, ...columns.Blocked, ...columns.Next],
       },
     ];
   });

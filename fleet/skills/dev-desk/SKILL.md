@@ -29,18 +29,49 @@ Every issue's body carries this section (add it if missing, keep the rest of the
 
 Edit it with `gh issue view <n> --repo <owner/repo> --json body` and `gh issue edit <n> --repo <owner/repo> --body-file <file>`, changing only that section.
 
+## How the work is organized
+
+**Application → Feature → Work item.** Every item on the project carries:
+
+- **App**: the product the change lands in (Precon, Data warehouse & company connectors,
+  Materials, SharePoint connector, BizDev Leads, Custom portal, Claude usage tracking, Dev
+  platform (T3 + agents), Legacy apps).
+- **Feature**: `<App> · <feature>` (e.g. `Precon · Bid intake`). Each feature has an issue titled
+  `Feature: <name>` with its goal and **Stage** (Experiment → Testing → Production). Moving a
+  feature's stage is Rigo's call; propose it, don't set it.
+- **Work type**: Feature work · Fix · Maintenance (security, upgrades, standards) · Research ·
+  Support · Tracking (feature records, initiative headers, recurring reports; hidden on the Desk).
+- **Sprint**: two weeks. Early in a sprint the work is built; the back half is user feedback from
+  the test sheet and changes from it. Sprint budget: about 60% feature work, 20% maintenance,
+  20% fixes, research and support.
+- **Lane** (Now / Next / Later / Blocked) and **Priority** (P0–P3) as before.
+
+Existing parent / sub-issue links are kept; features are a field, not a parent.
+
+When you **file an issue**, add it to the project and set App, Feature (or none for maintenance)
+and Work type. Ask Rigo when the feature isn't obvious rather than guessing.
+
+```sh
+gh project item-add 1 --owner cfevans --url <issue url>   # then set fields on the Desk or with gh project item-edit
+```
+
+**What goes up to the enterprise level** (the Technology Portfolio, through Rigo): only changes for
+production users, anything affecting a commitment or date, risks (security, outage, data) and
+decisions or resources needed from others. Side tasks, refactors and experiments stay here.
+
 ## Lanes and priority
 
 The project has **Lane** (Now / Next / Later / Blocked) beside **Priority** (P0–P3), Status,
-Size and **Initiative**. Rigo sets lanes on the Desk; agents don't move items into or out of
-Now. Before starting work on an issue, read its lane and initiative:
+Size, App, Feature and Work type. Rigo sets lanes and sprints on the Desk; agents don't move
+items into or out of Now or a sprint. Before starting work on an issue, read its fields:
 
 ```sh
 gh project item-list 1 --owner cfevans --format json --limit 1000 \
-  --jq '.items[] | select(.content.url == "<issue url>") | {lane, priority, status, initiative}'
+  --jq '.items[] | select(.content.url == "<issue url>") | {lane, priority, status, app, feature, "work type", sprint}'
 ```
 
-- Lane **Later** or none: say so in one line and ask whether to go ahead before a large change.
+- Not in the current sprint and not in Now: say so in one line and ask whether to go ahead
+  before a large change.
 - If you hit a blocker you can't clear, set the lane to **Blocked** and say on what in
   "Where it stands": `gh project item-edit` with the Lane field, or tell Rigo to move it on the Desk.
 

@@ -12,13 +12,18 @@ export const LANES = ["Now", "Next", "Later", "Blocked"];
 const PROJECT_QUERY = `query($owner: String!, $number: Int!, $cursor: String) {
   organization(login: $owner) { projectV2(number: $number) {
     id title
-    fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } }
+    fields(first: 60) { nodes {
+      ... on ProjectV2SingleSelectField { id name options { id name } }
+      ... on ProjectV2IterationField { id name configuration { iterations { id title startDate duration } } }
+    } }
     items(first: 100, after: $cursor) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id isArchived
-        fieldValues(first: 30) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
-          name field { ... on ProjectV2SingleSelectField { name } } } } }
+        fieldValues(first: 30) { nodes {
+          ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2SingleSelectField { name } } }
+          ... on ProjectV2ItemFieldIterationValue { title startDate duration field { ... on ProjectV2IterationField { name } } }
+        } }
         content {
           __typename
           ... on Issue { number title url state body updatedAt closedAt
@@ -50,8 +55,14 @@ function normalizeItem(node) {
   const content = node.content;
   if (!content || node.isArchived) return null;
   const fields = {};
+  let sprint = null;
   for (const value of node.fieldValues?.nodes ?? []) {
-    if (value?.field?.name) fields[value.field.name] = value.name;
+    if (!value?.field?.name) continue;
+    if (value.field.name === "Sprint" && value.title) {
+      sprint = { title: value.title, startDate: value.startDate, duration: value.duration };
+    } else {
+      fields[value.field.name] = value.name;
+    }
   }
   const kind =
     content.__typename === "Issue"
@@ -74,6 +85,11 @@ function normalizeItem(node) {
     priority: fields.Priority ?? null,
     size: fields.Size ?? null,
     initiative: fields.Initiative ?? null,
+    app: fields.App ?? null,
+    feature: fields.Feature ?? null,
+    stage: fields.Stage ?? null,
+    workType: fields["Work type"] ?? null,
+    sprint,
     lane: LANES.includes(fields.Lane) ? fields.Lane : null,
     assignees: (content.assignees?.nodes ?? []).map((user) => user.login),
     pullRequests: (content.closedByPullRequestsReferences?.nodes ?? []).map((pr) => ({
@@ -135,7 +151,9 @@ export function createDesk({ dataRoot, project, token, log }) {
       cursor = projectV2.items.pageInfo.endCursor;
     }
     const fields = {};
+    let sprints = [];
     for (const field of meta.fields.nodes) {
+      if (field?.name === "Sprint" && field.configuration) sprints = field.configuration.iterations;
       if (field?.name && Array.isArray(field.options)) {
         fields[field.name] = {
           id: field.id,
@@ -148,6 +166,7 @@ export function createDesk({ dataRoot, project, token, log }) {
       error: null,
       project: { id: meta.id, title: meta.title, owner, number: Number(number) },
       fields,
+      sprints,
       items,
     };
     await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
@@ -188,6 +207,12 @@ export function createDesk({ dataRoot, project, token, log }) {
         project: snapshot.project,
         lanes: LANES,
         initiatives: Object.keys(snapshot.fields?.Initiative?.options ?? {}),
+        apps: Object.keys(snapshot.fields?.App?.options ?? {}),
+        sprints: (snapshot.sprints ?? []).map(({ title, startDate, duration }) => ({
+          title,
+          startDate,
+          duration,
+        })),
         items: snapshot.items,
       };
     },

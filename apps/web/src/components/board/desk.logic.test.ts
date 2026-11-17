@@ -5,7 +5,8 @@ import {
   chatsForItem,
   chatWaitsOnYou,
   type DeskItem,
-  summarizeInitiatives,
+  currentSprint,
+  summarizeApps,
   waitingOnYou,
 } from "./desk.logic";
 import type { CardChatState } from "./boardCards.logic";
@@ -24,6 +25,11 @@ const item = (overrides: Partial<DeskItem> = {}): DeskItem => ({
   priority: "P2",
   size: null,
   initiative: "A",
+  app: "Precon",
+  feature: "Precon · Bid intake",
+  stage: null,
+  workType: "Feature work",
+  sprint: null,
   lane: null,
   pullRequests: [],
   plain: null,
@@ -47,21 +53,22 @@ describe("buildDeskColumns", () => {
         item({ itemId: "lone-pr", kind: "pr", url: pr(6).url }),
         item({ itemId: "closed", state: "closed", lane: "Now" }),
       ],
-      { initiative: null, query: "" },
+      { app: null, query: "" },
     );
     const ids = (lane: keyof typeof columns) => columns[lane].map((entry) => entry.itemId);
     expect(ids("Now")).toEqual(["now"]);
     expect(ids("Unsorted")).toEqual(["high", "lone-pr", "low"]);
   });
 
-  it("filters by initiative and by words in the plain summary", () => {
+  it("filters by application and by words in the plain summary, and hides tracking items", () => {
     const items = [
       item({ itemId: "a", plain: { what: "Match Procore logins", why: null, where: null } }),
-      item({ itemId: "b", initiative: "B" }),
+      item({ itemId: "b", app: "Materials" }),
+      item({ itemId: "header", workType: "Tracking" }),
     ];
-    expect(buildDeskColumns(items, { initiative: "B", query: "" }).Unsorted).toHaveLength(1);
+    expect(buildDeskColumns(items, { app: "Materials", query: "" }).Unsorted).toHaveLength(1);
     expect(
-      buildDeskColumns(items, { initiative: null, query: "procore" }).Unsorted.map((i) => i.itemId),
+      buildDeskColumns(items, { app: null, query: "procore" }).Unsorted.map((i) => i.itemId),
     ).toEqual(["a"]);
   });
 });
@@ -121,15 +128,46 @@ it("counts a chat as waiting like the sidebar: a question, an unread result, fai
   expect(chatWaitsOnYou({ ...base, column: "running", working: true })).toBe(false);
 });
 
-it("summarizes initiatives and lists what waits on the user", () => {
+it("finds the running sprint, else the next one", () => {
+  const sprints = [
+    { title: "Sprint 1", startDate: "2026-11-16", duration: 14 },
+    { title: "Sprint 2", startDate: "2026-11-30", duration: 14 },
+  ];
+  expect(currentSprint(sprints, Date.parse("2026-11-29T12:00:00Z"))?.title).toBe("Sprint 1");
+  expect(currentSprint(sprints, Date.parse("2026-11-30T12:00:00Z"))?.title).toBe("Sprint 2");
+  expect(currentSprint(sprints, Date.parse("2026-11-01T12:00:00Z"))?.title).toBe("Sprint 1");
+});
+
+it("scores an app: features by stage, this sprint's split, blockers; and what waits on the user", () => {
+  const sprint = { title: "Sprint 1", startDate: "2026-11-16", duration: 14 };
   const items = [
-    item({ itemId: "n", lane: "Now" }),
+    item({
+      itemId: "f",
+      title: "Feature: Bid intake",
+      workType: "Tracking",
+      stage: "Testing",
+      url: "https://github.com/cfevans/app/issues/9",
+    }),
+    item({ itemId: "s1", sprint, lane: "Now" }),
+    item({ itemId: "s2", sprint, workType: "Maintenance", feature: null }),
     item({ itemId: "b", lane: "Blocked", priority: "P1" }),
     item({ itemId: "r", status: "In Review", pullRequests: [pr(7)] }),
-    item({ itemId: "d", state: "closed" }),
+    item({ itemId: "other", app: "Materials" }),
   ];
-  const [summary] = summarizeInitiatives(items, ["A"]);
-  expect(summary?.counts).toMatchObject({ Now: 1, Blocked: 1, Unsorted: 1 });
-  expect(summary?.doneRecently).toBe(1);
+  const [summary] = summarizeApps(items, ["Precon"], sprint);
+  expect(summary?.features).toEqual([
+    {
+      feature: "Precon · Bid intake",
+      name: "Bid intake",
+      stage: "Testing",
+      url: "https://github.com/cfevans/app/issues/9",
+      open: 3,
+      inSprint: 1,
+      blocked: 1,
+    },
+  ]);
+  expect(summary?.sprintItems.map((entry) => entry.itemId)).toEqual(["s1", "s2"]);
+  expect(summary?.mix).toEqual({ feature: 1, maintenance: 1, other: 0 });
+  expect(summary?.maintenance).toBe(1);
   expect(waitingOnYou(items).map((entry) => entry.itemId)).toEqual(["b", "r"]);
 });
