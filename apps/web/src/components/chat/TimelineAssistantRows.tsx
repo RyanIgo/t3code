@@ -1,3 +1,5 @@
+import { extractArtifactLinks } from "@t3tools/shared/artifacts";
+import { ArtifactFrame } from "./ArtifactFrame";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -7,7 +9,6 @@ import ChatMarkdown from "../ChatMarkdown";
 import { GitForkIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { ProposedPlanCard } from "./ProposedPlanCard";
-import { ArtifactFrame } from "./ArtifactFrame";
 import { HtmlRenderFrame } from "./HtmlRenderFrame";
 import { McpAppFrame } from "./McpAppFrame";
 import { ChangedFilesCard } from "./ChangedFilesTree";
@@ -54,6 +55,17 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
             />
           </AssistantCitationSource>
         </div>
+        {!row.message.streaming && messageText.includes("/a/")
+          ? extractArtifactLinks(messageText).map((artifact) => (
+              <div key={artifact.id} className="mt-2">
+                <ArtifactFrame
+                  artifact={artifact}
+                  threadRef={ctx.threadRef ?? undefined}
+                  onSendMessage={ctx.onSendAppMessage}
+                />
+              </div>
+            ))
+          : null}
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection
             turnSummary={row.assistantTurnDiffSummary}
@@ -259,21 +271,6 @@ export function HtmlRenderTimelineRow({
         htmlRender={row.htmlRender}
         threadRef={ctx.threadRef ?? undefined}
         onFullscreenChange={onFullscreenChange}
-        onSendMessage={ctx.onSendAppMessage}
-      />
-    </div>
-  );
-}
-
-/** Fleet fork: a test sheet or page published to the fleet hub, live from the hub. */
-export function ArtifactTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "artifact" }> }) {
-  const ctx = use(TimelineRowCtx);
-  return (
-    <div className="min-w-0 px-1">
-      <ArtifactFrame
-        key={row.artifact.id}
-        artifact={row.artifact}
-        threadRef={ctx.threadRef ?? undefined}
         onSendMessage={ctx.onSendAppMessage}
       />
     </div>

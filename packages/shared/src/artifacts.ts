@@ -1,73 +1,56 @@
 /**
- * Fleet fork: artifacts are pages an agent publishes to the fleet hub (a test sheet, or its own
- * HTML) that people fill in from the chat, the Review window, a phone or a teammate's browser.
- * The hub stores them and what people did on them; agents read that back with `artifact_read`.
+ * Fleet fork: artifacts are pages agents publish to the fleet hub (a test sheet, or their own
+ * HTML) that people fill in from a chat, the Review window, a phone or a teammate's browser.
+ * Agents publish with fleet/skills/t3-artifacts/artifact.mjs; the hub stores the results. The
+ * deploy builds the hub's page shells from here, so they match T3's theme.
  */
 import { injectHtmlRenderBootstrap } from "./htmlRender.ts";
 
-export const ARTIFACT_PUBLISH_TOOL_NAME = "artifact_publish";
-export const ARTIFACT_READ_TOOL_NAME = "artifact_read";
-
-export type ArtifactKind = "sheet" | "html";
-
-export interface ArtifactReference {
+export interface ArtifactLink {
   readonly id: string;
   /** The page on the hub, e.g. https://hub.example.ts.net/a/0123456789ab. */
   readonly url: string;
   readonly title: string;
-  readonly kind: ArtifactKind;
-  readonly version: number;
 }
 
-export interface ArtifactSheetRow {
-  readonly id: string;
-  readonly title: string;
-  readonly detail?: string;
-  readonly group?: string;
-}
+const ARTIFACT_URL = /https:\/\/[a-z0-9.-]+\.ts\.net\/a\/[a-f0-9]{12}(?![\w/])/gi;
+const MARKDOWN_LINK = /\[([^\]\n]{1,200})\]\((https:\/\/[^)\s]+)\)/g;
 
-const ARTIFACT_ID = /^[a-z0-9]{12}$/;
-
-export function readArtifactReference(value: unknown): ArtifactReference | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const record = value as Record<string, unknown>;
-  const { id, url, title, kind, version } = record;
-  if (typeof id !== "string" || !ARTIFACT_ID.test(id)) return undefined;
-  if (typeof url !== "string" || typeof title !== "string") return undefined;
-  if (kind !== "sheet" && kind !== "html") return undefined;
-  if (typeof version !== "number" || !Number.isInteger(version)) return undefined;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return undefined;
+/**
+ * Hub artifact links in a message, each once, in order. Only https pages at /a/<id> on a
+ * tailnet (.ts.net) host count; the frame that shows them is sandboxed either way.
+ */
+export function extractArtifactLinks(text: string): ArtifactLink[] {
+  const titles = new Map<string, string>();
+  for (const [, label, url] of text.matchAll(MARKDOWN_LINK)) {
+    if (label && url) titles.set(url.toLowerCase(), label.trim());
   }
-  // Only the hub's own artifact page: a tool result can't point the chat's frame anywhere else.
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return undefined;
-  if (parsed.pathname !== `/a/${id}`) return undefined;
-  return { id, url: `${parsed.origin}/a/${id}`, title: title.slice(0, 200), kind, version };
+  const links: ArtifactLink[] = [];
+  const seen = new Set<string>();
+  for (const [match] of text.matchAll(ARTIFACT_URL)) {
+    const url = match.toLowerCase();
+    const id = url.slice(-12);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    links.push({ id, url, title: titles.get(url) ?? "Artifact" });
+  }
+  return links;
 }
 
-export const artifactReferencesEqual = (a: ArtifactReference, b: ArtifactReference) =>
-  a.id === b.id && a.url === b.url && a.title === b.title && a.version === b.version;
-
-const escapeHtml = (text: string) =>
-  text.replace(
-    /[&<>"']/g,
-    (char) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char] ?? char,
-  );
+/** The theme `<style>` and bootstrap `<script>` html_render pages get, for the hub to inject. */
+export function artifactThemeHead(): string {
+  const page = injectHtmlRenderBootstrap("<head></head>");
+  return page.slice(page.indexOf("<head>") + 6, page.lastIndexOf("</head>"));
+}
 
 /**
  * The test sheet page: one row per check with Pass / Fail / Skip / Blocked and a note, saved to
- * the hub as people go, and a Submit that tells the agent. Rows come from the hub at load, so a
- * republish only changes this markup when the layout itself changes.
+ * the hub as people go, and a Submit. Title, intro and rows come from the hub when it serves it.
  */
-export function artifactSheetHtml(input: { readonly title: string; readonly intro?: string }) {
-  const intro = input.intro ? `<p class="intro">${escapeHtml(input.intro)}</p>` : "";
-  return injectHtmlRenderBootstrap(`<!doctype html><html><head><title>${escapeHtml(input.title)}</title>
+export function artifactSheetHtml(): string {
+  return injectHtmlRenderBootstrap(`<!doctype html><html><head><title>Test sheet</title>
 <style>${SHEET_CSS}</style></head><body>
-<header><h1>${escapeHtml(input.title)}</h1>${intro}<p class="tally" id="tally"></p></header>
+<header><h1 id="title"></h1><p class="intro" id="intro"></p><p class="tally" id="tally"></p></header>
 <main id="rows"></main>
 <footer><button type="button" id="submit">Submit results</button><span id="sent" role="status"></span></footer>
 <script>${SHEET_SCRIPT}</script></body></html>`);
@@ -76,7 +59,8 @@ export function artifactSheetHtml(input: { readonly title: string; readonly intr
 const SHEET_CSS = `
 body{padding:14px 16px 18px;max-width:960px}
 h1{font-size:16px;margin:0 0 4px}
-.intro{margin:0 0 6px;color:var(--muted-foreground)}
+.intro{margin:0 0 6px;color:var(--muted-foreground);white-space:pre-wrap}
+.intro:empty{display:none}
 .tally{margin:0 0 12px;color:var(--muted-foreground);font-size:12px}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-foreground);margin:16px 0 6px}
 .row{border:1px solid var(--border);border-radius:var(--radius,8px);background:var(--card);padding:10px 12px;margin-bottom:8px}
@@ -103,6 +87,7 @@ footer button:disabled{opacity:.6;cursor:default}
 
 // Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`.
 const SHEET_SCRIPT = `(function(){var a=window.t3artifact,rows=a.rows||[],V=[["pass","Pass"],["fail","Fail"],["skip","Skip"],["blocked","Blocked"]],main=document.getElementById("rows");
+document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";
 function st(id){var s=a.state&&a.state.rows;return(s&&s[id])||{};}
 function tally(){var c={pass:0,fail:0,skip:0,blocked:0},d=0;rows.forEach(function(r){var s=st(r.id).status;if(s){c[s]++;d++;}});document.getElementById("tally").textContent=d+" of "+rows.length+" done · "+c.pass+" passed · "+c.fail+" failed"+(c.blocked?" · "+c.blocked+" blocked":"")+(c.skip?" · "+c.skip+" skipped":"");}
 function when(t){try{return new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return"";}}
@@ -115,6 +100,6 @@ if(focus){var f=main.querySelector('textarea[data-row="'+focus.replace(/"/g,"")+
 function save(p){a.save({rows:p}).then(render,function(){document.getElementById("sent").textContent="Couldn't save. Check your connection and try again.";});}
 a.onChange(function(){if(!(document.activeElement&&document.activeElement.tagName==="TEXTAREA"))render();});
 document.getElementById("submit").onclick=function(){var b=this,c={pass:[],fail:[],skip:[],blocked:[],open:[]};rows.forEach(function(r){var s=st(r.id);(c[s.status]||c.open).push(r.id);});b.disabled=true;
-var text="Results: "+c.pass.length+" passed, "+c.fail.length+" failed"+(c.blocked.length?", "+c.blocked.length+" blocked":"")+(c.open.length?", "+c.open.length+" not done":"")+". Read them with artifact_read.";
-a.submit(text,{artifact:location.pathname.split("/").pop(),failed:c.fail,blocked:c.blocked,notDone:c.open}).then(function(r){document.getElementById("sent").textContent=r.chat?"Sent to the agent.":"Saved. Tell the agent in its chat, or it will see this next time it checks.";b.disabled=false;},function(){document.getElementById("sent").textContent="Couldn't submit. Try again.";b.disabled=false;});};
+var text="Results for "+a.title+": "+c.pass.length+" passed, "+c.fail.length+" failed"+(c.blocked.length?", "+c.blocked.length+" blocked":"")+(c.open.length?", "+c.open.length+" not done":"")+".";
+a.submit(text,{artifact:a.id,failed:c.fail,blocked:c.blocked,notDone:c.open}).then(function(r){document.getElementById("sent").textContent=r.chat?"Sent to the agent.":"Saved. Tell the agent in its chat, or it will see this next time it checks.";b.disabled=false;},function(){document.getElementById("sent").textContent="Couldn't submit. Try again.";b.disabled=false;});};
 render();})();`;

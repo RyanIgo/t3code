@@ -97,14 +97,16 @@ anywhere else, the Board keeps its cards in that browser only.
 
 ### Artifacts: test sheets and pages agents publish
 
-Agents call `artifact_publish` to put a test sheet (rows marked Pass / Fail / Skip / Blocked, with
-a note each) or their own HTML page on the hub, and `artifact_read` to see what people did. Each
-artifact shows inline in its chat and in the Review window, and has a stable link,
-`https://<hub>/a/<id>`, for a phone or a teammate. Results save as people go; Submit also sends
-the agent a message when the page is open in its chat.
+Agents publish a test sheet (rows marked Pass / Fail / Skip / Blocked, with a note each) or their
+own HTML page to the hub with the `t3-artifacts` skill's script, and read results back with it.
+When an agent's reply links an artifact (`https://<hub>/a/<id>`), the chat shows it under the
+message and the Review window lists it; the link also works on a phone and for teammates.
+Results save as people go; Submit also sends the agent a message when the page is open in its chat.
+The T3 server stays stock: the script talks to the hub directly over Tailscale.
 
-Opening the hub's UI tells each connected machine the hub's address. A machine the hub can't
-change settings on needs `T3_FLEET_HUB_URL=https://<hub>` in its T3 server's environment.
+Tell each machine where the hub is when you install the client:
+`fleet/install-client.sh --hub https://<hub>.<tailnet>.ts.net` (it writes
+`~/.config/t3-fleet/hub-url`; `T3_FLEET_HUB_URL` overrides it).
 
 To let teammates open and fill in artifacts (and nothing else on the hub), add their Tailscale
 logins to the service: `Environment=HUB_GUESTS=a@example.com,b@example.com` in

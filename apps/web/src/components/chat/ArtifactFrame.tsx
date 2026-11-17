@@ -1,5 +1,5 @@
 import type { ScopedThreadRef } from "@t3tools/contracts";
-import type { ArtifactReference } from "@t3tools/shared/artifacts";
+import type { ArtifactLink } from "@t3tools/shared/artifacts";
 import { ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -13,10 +13,10 @@ const MAX_HEIGHT = 1200;
 
 /**
  * Fleet fork: an artifact shown live from the fleet hub. The hub page saves what the user does
- * itself; Submit comes back here as a page message, like an html_render page's send.
+ * itself and reloads when the agent republishes; Submit comes back here as a page message.
  */
 export function ArtifactFrame(props: {
-  readonly artifact: ArtifactReference;
+  readonly artifact: ArtifactLink;
   readonly threadRef: ScopedThreadRef | undefined;
   readonly onSendMessage?: ((text: string) => Promise<void>) | undefined;
   /** Fill the parent instead of fitting the page's height (the Review window). */
@@ -39,9 +39,7 @@ export function ArtifactFrame(props: {
       }
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs">
-        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-          {artifact.kind === "sheet" ? "Test sheet" : "Page"} · {artifact.title}
-        </span>
+        <span className="min-w-0 flex-1 truncate text-muted-foreground">{artifact.title}</span>
         <Button
           variant="ghost"
           size="xs"
@@ -60,8 +58,6 @@ export function ArtifactFrame(props: {
         style={props.fill ? undefined : { height }}
       >
         <HtmlRenderDocument
-          // A republish bumps the version; reload so the new rows or page show.
-          key={artifact.version}
           src={artifact.url}
           title={artifact.title}
           threadRef={props.threadRef}

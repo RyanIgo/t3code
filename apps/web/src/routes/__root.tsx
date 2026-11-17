@@ -1,4 +1,3 @@
-import { FleetHubAddressSync } from "../connection/FleetHubAddressSync";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -205,7 +204,6 @@ function RootRouteBranch() {
         {isElectron ? <RunningThreadKeepAlive /> : null}
         <RelayClientInstallDialog />
         <ConnectOnboardingDialog />
-        <FleetHubAddressSync />
         <SshPasswordPromptDialog />
         <SnapShotCoordinator />
         <ReopenClosedViewShortcut />

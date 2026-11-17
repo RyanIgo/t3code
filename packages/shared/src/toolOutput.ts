@@ -1,9 +1,4 @@
 import {
-  ARTIFACT_PUBLISH_TOOL_NAME,
-  type ArtifactReference,
-  readArtifactReference,
-} from "./artifacts.ts";
-import {
   isProviderSendTurnSupportedImageMimeType,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
 } from "@t3tools/contracts";
@@ -45,7 +40,6 @@ interface CompactToolOutput {
   scheduledTaskId?: string;
   status?: "rolled_back";
   htmlRender?: HtmlRenderReference;
-  artifact?: ArtifactReference;
   [MCP_APP_OUTPUT_KEY]?: McpAppReference;
   thread?: { threadId: string };
   threads?: Array<{ threadId?: string; status?: "rolled_back" }>;
@@ -131,8 +125,6 @@ export function compactDynamicToolOutput(value: unknown): CompactToolOutput | un
     if (data.status === "rolled_back") output.status = "rolled_back";
     const htmlRender = readHtmlRenderReference(data.htmlRender);
     if (htmlRender !== undefined) output.htmlRender = htmlRender;
-    const artifact = readArtifactReference(data.artifact);
-    if (artifact !== undefined) output.artifact = artifact;
     const mcpApp = readMcpAppReference(data[MCP_APP_OUTPUT_KEY]);
     if (mcpApp !== undefined) output[MCP_APP_OUTPUT_KEY] = mcpApp;
     const nestedThreadId = Predicate.isObject(data.thread)
@@ -191,16 +183,6 @@ export function htmlRenderFromToolItem(item: {
   if (resolveT3McpToolId(item.toolName) !== HTML_RENDER_TOOL_NAME) return undefined;
   const output = compactDynamicToolOutput(item.output);
   return output?.isError ? undefined : output?.htmlRender;
-}
-
-/** Fleet fork: the artifact an `artifact_publish` call published, to show inline. */
-export function artifactFromToolItem(item: {
-  readonly toolName: string | null | undefined;
-  readonly output?: unknown;
-}): ArtifactReference | undefined {
-  if (resolveT3McpToolId(item.toolName) !== ARTIFACT_PUBLISH_TOOL_NAME) return undefined;
-  const output = compactDynamicToolOutput(item.output);
-  return output?.isError ? undefined : output?.artifact;
 }
 
 /** Accept app references only when server and tool match the item, so tools cannot impersonate another app source. */

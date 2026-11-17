@@ -211,6 +211,16 @@ async function serveStatic(req, res) {
 // their T3 server; people open /a/<id> inline in a chat, in the Review window, or on their own.
 
 const ARTIFACT_ID = /^[a-z0-9]{12}$/;
+// The sheet page and T3's page theme, built from packages/shared by fleet/deploy-hub.sh.
+const ARTIFACT_ASSETS = (() => {
+  try {
+    return JSON.parse(
+      NodeFS.readFileSync(new URL("./artifact-assets.json", import.meta.url), "utf8"),
+    );
+  } catch {
+    return { sheetHtml: null, themeHead: "" };
+  }
+})();
 const MAX_ARTIFACT_BYTES = 1024 * 1024;
 const MAX_NOTE = 4000;
 
@@ -294,12 +304,24 @@ function artifactPage(artifact) {
     kind: artifact.kind,
     title: artifact.title,
     version: artifact.version,
+    intro: artifact.intro ?? null,
     rows: artifact.rows ?? null,
     state: artifact.state ?? null,
     submittedAt: artifact.submissions?.at(-1)?.at ?? null,
   }).replace(/</g, "\\u003c");
   const script = `<script>window.__T3_ARTIFACT__=${boot};</script><script>${ARTIFACT_BRIDGE}</script>`;
-  const html = artifact.html;
+  let html =
+    artifact.kind === "sheet"
+      ? (ARTIFACT_ASSETS.sheetHtml ?? "<!doctype html><p>Redeploy the hub to show test sheets.</p>")
+      : artifact.html;
+  if (artifact.kind === "html" && !html.includes('id="t3-theme"')) {
+    const at = /<head(?:\s[^>]*)?>/i.exec(html);
+    html = at
+      ? html.slice(0, at.index + at[0].length) +
+        ARTIFACT_ASSETS.themeHead +
+        html.slice(at.index + at[0].length)
+      : `<!doctype html><head>${ARTIFACT_ASSETS.themeHead}</head>${html}`;
+  }
   const head = /<head(?:\s[^>]*)?>/i.exec(html);
   if (head) {
     const at = head.index + head[0].length;
@@ -315,8 +337,8 @@ function call(path,method,body){return fetch(base+path,{method:method,headers:{"
 function toChat(text,data){if(window.parent===window)return Promise.resolve(false);return new Promise(function(done){var id="t3a-"+(++n);function on(e){var m=e.data;if(m&&m.type==="t3-page:result"&&m.id===id){removeEventListener("message",on);done(m.ok===true);}}addEventListener("message",on);parent.postMessage({type:"t3-page:send",id:id,text:text,data:data},"*");setTimeout(function(){removeEventListener("message",on);done(false);},8000);});}
 function refresh(){return call("","GET").then(function(a){if(a.version!==A.version){location.reload();return;}if(JSON.stringify(a.state)!==JSON.stringify(A.state)){A.state=a.state;fns.forEach(function(f){f(A.state);});}}).catch(function(){});}
 setInterval(function(){if(document.visibilityState==="visible")refresh();},15000);document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refresh();});
-window.t3artifact={get state(){return A.state;},rows:A.rows,title:A.title,
-save:function(patch){return call("/state","POST",patch).then(function(a){A.state=a.state;return a.state;});},
+window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,
+save:function(value){return call("/state","POST",A.kind==="sheet"?value:{data:value}).then(function(a){A.state=a.state;return a.state;});},
 submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
 onChange:function(f){fns.push(f);}};})();`;
 
@@ -459,8 +481,12 @@ async function publishArtifact(id, create, req, reply, login) {
   const body = await readJsonBody(req);
   const kind = body?.kind;
   const title = typeof body?.title === "string" ? body.title.trim().slice(0, 200) : "";
-  if ((kind !== "sheet" && kind !== "html") || !title || typeof body?.html !== "string") {
-    reply(400, { error: "expected { kind: 'sheet'|'html', title, html, rows? }" });
+  if ((kind !== "sheet" && kind !== "html") || !title) {
+    reply(400, { error: "expected { kind: 'sheet'|'html', title, rows? | html? }" });
+    return true;
+  }
+  if (kind === "html" && (typeof body.html !== "string" || body.html.trim() === "")) {
+    reply(400, { error: "an html artifact needs html" });
     return true;
   }
   const rows = kind === "sheet" ? cleanRows(body.rows) : null;
@@ -485,7 +511,10 @@ async function publishArtifact(id, create, req, reply, login) {
       kind,
       title,
       thread: thread ?? existing?.thread ?? null,
-      html: body.html,
+      ...(kind === "html" ? { html: body.html } : {}),
+      ...(typeof body.intro === "string" && body.intro.trim()
+        ? { intro: body.intro.trim().slice(0, 2000) }
+        : {}),
       ...(rows ? { rows } : {}),
       // Results for rows that are still there survive an update.
       state:

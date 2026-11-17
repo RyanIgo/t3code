@@ -1,49 +1,33 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { artifactSheetHtml, readArtifactReference } from "./artifacts.ts";
-import { artifactFromToolItem } from "./toolOutput.ts";
+import { artifactSheetHtml, artifactThemeHead, extractArtifactLinks } from "./artifacts.ts";
 
-const ref = {
-  id: "0123456789ab",
-  url: "https://hub.example.ts.net/a/0123456789ab",
-  title: "Login checks",
-  kind: "sheet",
-  version: 2,
-};
+const HUB = "https://t3-hub.tail0.ts.net";
 
-describe("readArtifactReference", () => {
+describe("extractArtifactLinks", () => {
+  it("finds hub artifact links once each, titled by their markdown label", () => {
+    const text = [
+      `Fill in [Login checks](${HUB}/a/0123456789ab).`,
+      `Same one: ${HUB}/a/0123456789ab, and ${HUB}/a/ffffffffffff`,
+    ].join("\n");
+    expect(extractArtifactLinks(text)).toEqual([
+      { id: "0123456789ab", url: `${HUB}/a/0123456789ab`, title: "Login checks" },
+      { id: "ffffffffffff", url: `${HUB}/a/ffffffffffff`, title: "Artifact" },
+    ]);
+  });
+
   it.each([
-    ["the hub's artifact page", ref, true],
-    ["another path on the hub", { ...ref, url: "https://hub.example.ts.net/fleet/catalog" }, false],
-    [
-      "another artifact's page",
-      { ...ref, url: "https://hub.example.ts.net/a/ffffffffffff" },
-      false,
-    ],
-    ["a script URL", { ...ref, url: "javascript:alert(1)//a/0123456789ab" }, false],
-    ["a malformed id", { ...ref, id: "../catalog" }, false],
-    ["an unknown kind", { ...ref, kind: "app" }, false],
-  ])("%s", (_name, value, accepted) => {
-    expect(readArtifactReference(value) !== undefined).toBe(accepted);
+    ["plain http", "http://t3-hub.tail0.ts.net/a/0123456789ab"],
+    ["a host off the tailnet", "https://example.com/a/0123456789ab"],
+    ["a longer path", `${HUB}/a/0123456789ab/extra`],
+    ["a short id", `${HUB}/a/0123`],
+    ["another hub path", `${HUB}/fleet/catalog`],
+  ])("ignores %s", (_name, url) => {
+    expect(extractArtifactLinks(`see ${url}`)).toEqual([]);
   });
 });
 
-describe("artifactFromToolItem", () => {
-  it("reads only artifact_publish results that succeeded", () => {
-    const output = { artifact: ref, message: "Shown" };
-    expect(artifactFromToolItem({ toolName: "mcp__t3-code__artifact_publish", output })).toEqual(
-      ref,
-    );
-    expect(artifactFromToolItem({ toolName: "mcp__t3-code__html_render", output })).toBe(undefined);
-    expect(
-      artifactFromToolItem({
-        toolName: "mcp__t3-code__artifact_publish",
-        output: { content: [{ type: "text", text: JSON.stringify(output) }], isError: true },
-      }),
-    ).toBe(undefined);
-  });
-});
-
-it("escapes the sheet title", () => {
-  expect(artifactSheetHtml({ title: "<img src=x onerror=1>" })).not.toContain("<img src=x");
+it("builds the hub's sheet page and theme from T3's page bootstrap", () => {
+  expect(artifactSheetHtml()).toContain('id="t3-theme"');
+  expect(artifactThemeHead()).toMatch(/^<meta[^]*<style id="t3-theme">[^]*<\/script>$/);
 });

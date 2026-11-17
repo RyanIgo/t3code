@@ -8,6 +8,7 @@
 #   fleet/install-client.sh --restore  put the upstream client back
 #   fleet/install-client.sh --no-build use the existing apps/web/dist
 #   fleet/install-client.sh --force    skip the version match check
+#   fleet/install-client.sh --hub URL  where agents here publish artifacts (the fleet hub)
 #
 # A `t3 update` installs a fresh upstream client; re-run this afterwards.
 # Run from a T3 chat, the update/swap/restart step is handed to a separate
@@ -26,15 +27,19 @@ if ! command -v vp >/dev/null && [[ -f "$HOME/.config/vite-plus/env" ]]; then
   . "$HOME/.config/vite-plus/env"
 fi
 
-build=1 force=0 restore=0 update=0 detached=0
-for arg in "$@"; do
+build=1 force=0 restore=0 update=0 detached=0 hub=""
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  arg="${args[$i]}"
   case "$arg" in
+    --hub) i=$((i + 1)); hub="${args[$i]:-}"; [[ -n "$hub" ]] || { echo "--hub needs the hub's URL" >&2; exit 2; } ;;
+    --hub=*) hub="${arg#--hub=}" ;;
     --no-build) build=0 ;;
     --force) force=1 ;;
     --restore) restore=1 ;;
     --update) update=1 ;;
     --detached) detached=1 ;; # internal: already running in its own systemd job
-    -h | --help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -135,6 +140,11 @@ if [[ ! -f "$dist_dir/index.html" ]]; then
 fi
 
 install_agent_skills
+if [[ -n "$hub" ]]; then
+  mkdir -p "$HOME/.config/t3-fleet"
+  printf '%s\n' "$hub" > "$HOME/.config/t3-fleet/hub-url"
+  echo "Agents here publish artifacts to $hub."
+fi
 
 detach_if_inside_t3
 

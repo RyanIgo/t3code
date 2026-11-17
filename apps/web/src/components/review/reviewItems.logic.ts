@@ -1,7 +1,7 @@
 import type { OrchestrationV2ProjectedTurnItem, ThreadPullRequestLink } from "@t3tools/contracts";
 import type { HtmlRenderReference } from "@t3tools/shared/htmlRender";
-import type { ArtifactReference } from "@t3tools/shared/artifacts";
-import { artifactFromToolItem, htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
+import { type ArtifactLink, extractArtifactLinks } from "@t3tools/shared/artifacts";
+import { htmlRenderFromToolItem } from "@t3tools/shared/toolOutput";
 
 import { extractQuestionSheets, type QuestionSheet } from "./questionSheet.logic";
 
@@ -12,7 +12,7 @@ export type ReviewPage = {
   readonly title: string;
 } & (
   | { readonly htmlRender: HtmlRenderReference; readonly artifact?: undefined }
-  | { readonly artifact: ArtifactReference; readonly htmlRender?: undefined }
+  | { readonly artifact: ArtifactLink; readonly htmlRender?: undefined }
 );
 
 export interface ReviewSheet {
@@ -42,16 +42,18 @@ export function collectReviewPages(turnItems: ReadonlyArray<TurnItem>): ReviewPa
   const pages: ReviewPage[] = [];
   const artifacts = new Set<string>();
   for (const { item, position } of turnItems.toSorted((a, b) => b.position - a.position)) {
+    if (item.type === "assistant_message" && !item.streaming) {
+      for (const artifact of extractArtifactLinks(item.text)) {
+        if (artifacts.has(artifact.id)) continue;
+        artifacts.add(artifact.id);
+        pages.push({ id: `artifact:${artifact.id}`, position, title: artifact.title, artifact });
+      }
+      continue;
+    }
     if (item.type !== "dynamic_tool" || item.status !== "completed") continue;
     const htmlRender = htmlRenderFromToolItem(item);
     if (htmlRender !== undefined) {
       pages.push({ id: item.id, position, title: htmlRender.title, htmlRender });
-      continue;
-    }
-    const artifact = artifactFromToolItem(item);
-    if (artifact !== undefined && !artifacts.has(artifact.id)) {
-      artifacts.add(artifact.id);
-      pages.push({ id: item.id, position, title: artifact.title, artifact });
     }
   }
   return pages;

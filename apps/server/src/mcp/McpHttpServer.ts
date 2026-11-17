@@ -77,8 +77,6 @@ import {
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
-import * as ArtifactHandlers from "./toolkits/artifacts/handlers.ts";
-import { ArtifactToolkit } from "./toolkits/artifacts/tools.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
   HttpServerRequest.toURL(request).pipe(
@@ -1074,11 +1072,6 @@ export const layerHtmlToolkit = Layer.mergeAll(
   imageToolRegistration(registerHtmlPreview(), HtmlHandlers.layerPreview),
 ).pipe(Layer.provide(HtmlRender.layer));
 
-/** Fleet fork: test sheets and pages published to the fleet hub. */
-const layerArtifactToolkit = toolkitRegistration(ArtifactToolkit, ArtifactHandlers.layer).pipe(
-  Layer.provide(HtmlRender.layer),
-);
-
 const layerPreviewStandardToolkitRegistration = toolkitRegistration(
   PreviewStandardToolkit,
   PreviewHandlers.layerStandard,
@@ -1164,7 +1157,6 @@ export const layerTools = Layer.mergeAll(
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,
-  layerArtifactToolkit,
 );
 
 export const layer = layerTools.pipe(Layer.provideMerge(layerMcpTransport));

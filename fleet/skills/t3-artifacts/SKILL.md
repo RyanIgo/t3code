@@ -1,12 +1,25 @@
 ---
 name: t3-artifacts
-description: Publish a test sheet or interactive page the user fills in and you read back later, with a stable link that works on their phone and for teammates (T3 Code fleet fork). Use for test plans, acceptance checks, QA passes and checklists of any length, or any page whose results should persist. Needs T3 Code's artifact_publish and artifact_read tools.
+description: Publish a test sheet or interactive page the user fills in and you read back later, with a stable link that works in this chat, on their phone and for teammates (T3 Code fleet fork). Use for test plans, acceptance checks, QA passes and checklists of any length, or any page whose results should persist. Needs the fleet hub.
 ---
 
 # Artifacts (T3 Code fleet fork)
 
-An artifact lives on the user's fleet hub. It shows inline in this chat and in the Review window,
-saves what people do on it as they go, and keeps a stable link (`https://<hub>/a/<id>`).
+An artifact lives on the user's fleet hub. When your reply contains its link, T3 shows it right
+under your message and in the Review window. It saves what people do as they go, and the link
+(`https://<hub>/a/<id>`) works on the user's phone and for teammates they've let in.
+
+Publish and read with the script next to this file:
+
+```sh
+node ~/.claude/skills/t3-artifacts/artifact.mjs publish spec.json   # or: ... publish - < spec.json
+node ~/.claude/skills/t3-artifacts/artifact.mjs read <id>
+node ~/.claude/skills/t3-artifacts/artifact.mjs list
+```
+
+(Codex: `~/.codex/skills/t3-artifacts/artifact.mjs`.) `publish` prints the id, the URL and a
+markdown link. **Put that markdown link in your reply on its own line**: that is what shows the
+artifact in the chat. If the script says there's no hub address, ask the user for it.
 
 ## Test sheets
 
@@ -15,49 +28,46 @@ For test plans and checklists, publish a sheet; you write no HTML.
 ```json
 {
   "title": "#201 Procore login matching",
-  "sheet": {
-    "intro": "Run these on staging. Mark each one and note what you saw.",
-    "rows": [
-      {
-        "id": "match-exact",
-        "group": "Matching",
-        "title": "Exact login matches",
-        "detail": "Steps…\nExpect: linked."
-      },
-      {
-        "id": "no-user",
-        "group": "Edge cases",
-        "title": "No Procore user",
-        "detail": "Expect: unmatched."
-      }
-    ]
-  }
+  "intro": "Run these on staging. Mark each one and note what you saw.",
+  "rows": [
+    {
+      "id": "match-exact",
+      "group": "Matching",
+      "title": "Exact login matches",
+      "detail": "Steps…\nExpect: linked."
+    },
+    {
+      "id": "no-user",
+      "group": "Edge cases",
+      "title": "No Procore user",
+      "detail": "Expect: unmatched."
+    }
+  ]
 }
 ```
 
-- Each row gets Pass / Fail / Skip / Blocked and a note. Any number of rows (up to 300).
-- Give rows stable ids. To change the sheet, call `artifact_publish` again with its `id`: results
-  for rows you keep stay; removed rows drop out.
-- When the user presses Submit with the sheet open in this chat, you get a
-  `[From page: …]` message. Then call `artifact_read` and act on failed and blocked rows.
-- Results entered elsewhere (phone, teammate) don't message you. Check with `artifact_read` when
-  the user says they're done, or before you report on testing.
+- Each row gets Pass / Fail / Skip / Blocked and a note. Up to 300 rows.
+- Give rows stable ids. To change the sheet, publish again with `"id": "<id>"` added: results for
+  rows you keep stay, removed rows drop out, and open copies reload.
+- When the user presses Submit with the sheet open in this chat, you get a `[From page: …]`
+  message. Then run `read` and act on the failed and blocked rows.
+- Results entered elsewhere (phone, a teammate) don't message you. Run `read` when the user says
+  they're done, or before you report on testing.
 
 ## HTML pages
 
-Pass `html` instead of `sheet` for anything else that should persist. The page gets
-`window.t3artifact`:
+For anything else that should persist, publish `{ "title": "…", "html": "…" }` (or `"htmlFile"`,
+a path relative to the spec). Keep it self-contained (inline CSS, JS and images). It gets T3's
+theme variables, like `html_render` pages, and `window.t3artifact`:
 
-- `t3artifact.state`: what was last saved (`{ data, by, at }`), or null.
-- `t3artifact.save(data)`: saves `data` (JSON, up to 256 KB) for everyone; resolves with the new state.
+- `t3artifact.state`: the last save, `{ data, by, at }`, or null.
+- `t3artifact.save(data)`: saves `data` (JSON, up to 256 KB) for everyone.
 - `t3artifact.submit(text, data)`: records a submission and, in this chat, sends you `text` and `data`.
 - `t3artifact.onChange(fn)`: called when someone else's save arrives.
-
-Style it with the same theme variables as `html_render` pages.
 
 ## Rules
 
 - Say in one line what the user should do on it; don't restate the page.
-- Share the link from the tool result when the user wants it on their phone or for someone else.
-- Use a question sheet (`t3-questions`) for a few quick decisions; use an artifact when results
-  should persist, be checked off over time, or be filled in by someone else.
+- One artifact per job. Update it in place rather than publishing a new one.
+- For a few quick decisions, a question sheet (`t3-questions`) is faster. Use an artifact when
+  results should persist, be filled in over time, or be filled in by someone else.

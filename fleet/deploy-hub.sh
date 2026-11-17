@@ -51,11 +51,17 @@ echo "Building the hosted UI…"
   VITE_HOSTED_APP_URL="$hub_url" vp build --outDir "$out_dir/web" --emptyOutDir
 )
 cp "$repo_root/fleet/hub/server.mjs" "$out_dir/server.mjs"
+# Artifact pages (test sheet, page theme) come from packages/shared so they match T3's look.
+node --input-type=module -e '
+  const shared = await import(process.argv[1]);
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(process.argv[2], JSON.stringify({ sheetHtml: shared.artifactSheetHtml(), themeHead: shared.artifactThemeHead() }));
+' "$repo_root/packages/shared/src/artifacts.ts" "$out_dir/artifact-assets.json"
 
 release="$(date -u +%Y%m%d-%H%M%S)"
 echo "Uploading release $release…"
 ssh "$host" "mkdir -p $remote_root/releases/$release $remote_root/data && chmod 700 $remote_root/data"
-tar -C "$out_dir" -czf - web server.mjs | ssh "$host" "tar -C $remote_root/releases/$release -xzf -"
+tar -C "$out_dir" -czf - web server.mjs artifact-assets.json | ssh "$host" "tar -C $remote_root/releases/$release -xzf -"
 
 if [[ "$setup" == 1 ]]; then
   echo "Setting up the service and tailscale serve…"
