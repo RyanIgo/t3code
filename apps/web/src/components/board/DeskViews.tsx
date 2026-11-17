@@ -1,11 +1,14 @@
-import { ArrowLeftIcon, ExternalLinkIcon } from "lucide-react";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import ChatMarkdown from "../ChatMarkdown";
+import ChatView from "../ChatView";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
+import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
 import {
   type DeskDetail,
@@ -94,13 +97,10 @@ function when(value: string | null): string {
 }
 
 /** One work item, read and changed in T3: fields, plain words, description, PRs, family, chats. */
-export function ItemDialog(props: {
+function ItemDetails(props: {
   readonly item: DeskItem;
   readonly view: DeskView;
-  readonly chats: ReadonlyArray<CardChatState>;
-  readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
-  readonly onClose: () => void;
 }) {
   const { item, view } = props;
   const [detail, setDetail] = useState<DeskDetail | null>(null);
@@ -125,214 +125,355 @@ export function ItemDialog(props: {
   };
   const isFeature = item.workType === "Tracking" && item.title.startsWith("Feature:");
   return (
+    <div className="flex flex-col gap-4 p-4">
+      <header className="flex flex-col gap-1">
+        <span className="text-xs text-muted-foreground">
+          {[item.app, item.feature ? featureName(item.feature) : null, deskRef(item)]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+        <h2 className="text-base font-semibold">{deskTitle(item)}</h2>
+        {item.plain?.what && item.plain.what !== item.title ? (
+          <span className="text-xs text-muted-foreground">On GitHub: {item.title}</span>
+        ) : null}
+      </header>
+
+      <div className="grid grid-cols-2 gap-3">
+        {isFeature ? (
+          <FieldMenu
+            label="Stage"
+            field="Stage"
+            item={item}
+            value={item.stage}
+            options={options.Stage ?? []}
+          />
+        ) : (
+          <>
+            <FieldMenu
+              label="Sprint"
+              field="Sprint"
+              item={item}
+              value={item.sprint?.title ?? null}
+              options={(view.sprints ?? []).map((sprint) => sprint.title)}
+            />
+            <FieldMenu
+              label="Lane"
+              field="Lane"
+              item={item}
+              value={item.lane}
+              options={options.Lane ?? []}
+            />
+          </>
+        )}
+        <FieldMenu
+          label="Priority"
+          field="Priority"
+          item={item}
+          value={item.priority}
+          options={options.Priority ?? []}
+        />
+        <FieldMenu
+          label="Work type"
+          field="Work type"
+          item={item}
+          value={item.workType}
+          options={options["Work type"] ?? []}
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Status: {item.status ?? "none"} · Size: {item.size ?? "none"} · {item.state}
+        {detail?.author ? ` · opened by ${detail.author} ${when(detail.createdAt)}` : ""}
+      </p>
+
+      {item.plain ? (
+        <section className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 p-3 text-sm">
+          <DeskHeading>In plain words</DeskHeading>
+          {item.plain.what ? <p>{item.plain.what}</p> : null}
+          {item.plain.why ? <p className="text-muted-foreground">Why: {item.plain.why}</p> : null}
+          {item.plain.where ? (
+            <p className="text-muted-foreground">Now: {item.plain.where}</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {error ? (
+        <p className="text-sm text-destructive">Couldn't load the details: {error}</p>
+      ) : null}
+      {!detail && !error ? <p className="text-sm text-muted-foreground">Loading details…</p> : null}
+
+      {detail && detail.pullRequests.length > 0 ? (
+        <section className="flex flex-col gap-1.5">
+          <DeskHeading>Pull requests</DeskHeading>
+          <ul className="flex flex-col gap-1 text-sm">
+            {detail.pullRequests.map((pr) => (
+              <li key={pr.url} className="flex flex-wrap items-center gap-1.5">
+                <Badge variant={pr.state === "merged" ? "success" : "outline"} size="sm">
+                  #{pr.number} {pr.state}
+                </Badge>
+                {pr.checks && CHECKS[pr.checks] ? (
+                  <Badge variant={CHECKS[pr.checks]?.variant} size="sm">
+                    {CHECKS[pr.checks]?.label}
+                  </Badge>
+                ) : null}
+                {pr.review && REVIEW[pr.review] ? (
+                  <Badge variant="secondary" size="sm">
+                    {REVIEW[pr.review]}
+                  </Badge>
+                ) : null}
+                {pr.mergeable === "CONFLICTING" ? (
+                  <Badge variant="error" size="sm">
+                    can't merge
+                  </Badge>
+                ) : null}
+                <span className="min-w-0 truncate">{pr.title}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {detail && (detail.parent || detail.subIssues.length > 0) ? (
+        <section className="flex flex-col gap-1.5">
+          <DeskHeading>Related</DeskHeading>
+          <ul className="flex flex-col gap-1 text-sm">
+            {detail.parent ? (
+              <li>
+                <span className="text-muted-foreground">Part of </span>
+                <button
+                  type="button"
+                  className="cursor-pointer text-left hover:underline"
+                  onClick={() => detail.parent && openRef(detail.parent.url)}
+                >
+                  {detail.parent.title}
+                </button>
+              </li>
+            ) : null}
+            {detail.subIssues.map((sub) => (
+              <li key={sub.url} className="flex items-center gap-1.5">
+                <Badge variant={sub.state === "closed" ? "success" : "outline"} size="sm">
+                  {sub.state === "closed" ? "done" : "open"}
+                </Badge>
+                <button
+                  type="button"
+                  className="min-w-0 cursor-pointer truncate text-left hover:underline"
+                  onClick={() => openRef(sub.url)}
+                >
+                  {sub.title}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {detail ? (
+        <section className="flex flex-col gap-1.5">
+          <DeskHeading>Description</DeskHeading>
+          {detail.body.trim() ? (
+            <div className="text-sm">
+              <ChatMarkdown text={detail.body} cwd={undefined} />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">No description.</p>
+          )}
+        </section>
+      ) : null}
+
+      {detail && detail.comments.recent.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <DeskHeading>
+            Comments · {detail.comments.total}
+            {detail.comments.total > detail.comments.recent.length
+              ? ` (latest ${detail.comments.recent.length})`
+              : ""}
+          </DeskHeading>
+          {detail.comments.recent.map((comment) => (
+            <article key={comment.url} className="rounded-md border border-border p-3 text-sm">
+              <p className="mb-1 text-2xs text-muted-foreground">
+                {comment.author ?? "someone"} · {when(comment.createdAt)}
+              </p>
+              <ChatMarkdown text={comment.body} cwd={undefined} />
+            </article>
+          ))}
+        </section>
+      ) : null}
+      {item.url ? (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="self-start"
+          onClick={() => item.url && openExternal(item.url)}
+        >
+          <ExternalLinkIcon />
+          Open on GitHub
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The Desk's work window, like the Board's card window: an item's details on the left and its
+ * live T3 chat on the right, over the Desk so you keep your place. Opened on a chat alone, the
+ * chat fills it. Alt+← / Alt+→ step through the list it was opened from.
+ */
+export function DeskModal(props: {
+  readonly item: DeskItem | null;
+  readonly chat: CardChatState | null;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly view: DeskView;
+  readonly sequence: ReadonlyArray<string>;
+  readonly onNavigate: (itemId: string) => void;
+  readonly onOpenItem: (item: DeskItem) => void;
+  readonly onClose: () => void;
+}) {
+  const { item } = props;
+  const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
+  const shown =
+    (chosen && props.chats.find((chat) => chatKeyOf(chat) === chatKeyOf(chosen))) ??
+    chosen ??
+    props.chats[0] ??
+    null;
+  const [pane, setPane] = useState<"details" | "chat">(item ? "details" : "chat");
+  const index = item ? props.sequence.indexOf(item.itemId) : -1;
+  const previous = index > 0 ? props.sequence[index - 1] : undefined;
+  const next = index !== -1 ? props.sequence[index + 1] : undefined;
+  const title = item ? deskTitle(item) : (shown?.title ?? "Chat");
+  return (
     <Dialog
       open
       onOpenChange={(open) => {
         if (!open) props.onClose();
       }}
     >
-      <DialogPopup className="flex max-h-[90dvh] flex-col sm:max-w-3xl">
-        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
-          <header className="flex flex-col gap-1 pe-8">
-            <span className="text-xs text-muted-foreground">
-              {[item.app, item.feature ? featureName(item.feature) : null, deskRef(item)]
-                .filter(Boolean)
-                .join(" · ")}
-            </span>
-            <DialogTitle>{deskTitle(item)}</DialogTitle>
-            {item.plain?.what && item.plain.what !== item.title ? (
-              <span className="text-xs text-muted-foreground">On GitHub: {item.title}</span>
-            ) : null}
-          </header>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            {isFeature ? (
-              <FieldMenu
-                label="Stage"
-                field="Stage"
-                item={item}
-                value={item.stage}
-                options={options.Stage ?? []}
-              />
-            ) : (
-              <>
-                <FieldMenu
-                  label="Sprint"
-                  field="Sprint"
-                  item={item}
-                  value={item.sprint?.title ?? null}
-                  options={(view.sprints ?? []).map((sprint) => sprint.title)}
-                />
-                <FieldMenu
-                  label="Lane"
-                  field="Lane"
-                  item={item}
-                  value={item.lane}
-                  options={options.Lane ?? []}
-                />
-              </>
-            )}
-            <FieldMenu
-              label="Priority"
-              field="Priority"
-              item={item}
-              value={item.priority}
-              options={options.Priority ?? []}
-            />
-            <FieldMenu
-              label="Work type"
-              field="Work type"
-              item={item}
-              value={item.workType}
-              options={options["Work type"] ?? []}
-            />
+      <DialogPopup
+        showCloseButton={false}
+        className="flex h-[92dvh] flex-col sm:max-w-[min(96vw,96rem)]"
+        onKeyDown={(event) => {
+          if (!event.altKey) return;
+          if (event.key === "ArrowLeft" && previous) {
+            event.preventDefault();
+            props.onNavigate(previous);
+          } else if (event.key === "ArrowRight" && next) {
+            event.preventDefault();
+            props.onNavigate(next);
+          }
+        }}
+      >
+        <header className="flex shrink-0 items-center gap-2 border-b border-border py-2 ps-3 pe-3 sm:pe-36">
+          {item && props.sequence.length > 1 ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Previous item (Alt+←)"
+                disabled={!previous}
+                onClick={() => previous && props.onNavigate(previous)}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                {index === -1 ? "" : `${index + 1} of ${props.sequence.length}`}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Next item (Alt+→)"
+                disabled={!next}
+                onClick={() => next && props.onNavigate(next)}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </>
+          ) : null}
+          <div className="min-w-0 flex-1">
+            <DialogTitle>
+              <span className="block truncate text-sm">
+                {item?.app ? <span className="text-muted-foreground">{item.app} · </span> : null}
+                {title}
+              </span>
+            </DialogTitle>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Status: {item.status ?? "none"} · Size: {item.size ?? "none"} · {item.state}
-            {detail?.author ? ` · opened by ${detail.author} ${when(detail.createdAt)}` : ""}
-          </p>
-
-          {item.plain ? (
-            <section className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 p-3 text-sm">
-              <DeskHeading>In plain words</DeskHeading>
-              {item.plain.what ? <p>{item.plain.what}</p> : null}
-              {item.plain.why ? (
-                <p className="text-muted-foreground">Why: {item.plain.why}</p>
-              ) : null}
-              {item.plain.where ? (
-                <p className="text-muted-foreground">Now: {item.plain.where}</p>
-              ) : null}
-            </section>
+          {item ? (
+            <ToggleGroup
+              aria-label="Show"
+              className="sm:hidden"
+              value={[pane]}
+              onValueChange={(value) => {
+                if (value[0] === "details" || value[0] === "chat") setPane(value[0]);
+              }}
+            >
+              <Toggle value="details">Item</Toggle>
+              <Toggle value="chat">Chat</Toggle>
+            </ToggleGroup>
           ) : null}
-
-          {error ? (
-            <p className="text-sm text-destructive">Couldn't load the details: {error}</p>
-          ) : null}
-          {!detail && !error ? (
-            <p className="text-sm text-muted-foreground">Loading details…</p>
-          ) : null}
-
-          {detail && detail.pullRequests.length > 0 ? (
-            <section className="flex flex-col gap-1.5">
-              <DeskHeading>Pull requests</DeskHeading>
-              <ul className="flex flex-col gap-1 text-sm">
-                {detail.pullRequests.map((pr) => (
-                  <li key={pr.url} className="flex flex-wrap items-center gap-1.5">
-                    <Badge variant={pr.state === "merged" ? "success" : "outline"} size="sm">
-                      #{pr.number} {pr.state}
-                    </Badge>
-                    {pr.checks && CHECKS[pr.checks] ? (
-                      <Badge variant={CHECKS[pr.checks]?.variant} size="sm">
-                        {CHECKS[pr.checks]?.label}
-                      </Badge>
-                    ) : null}
-                    {pr.review && REVIEW[pr.review] ? (
-                      <Badge variant="secondary" size="sm">
-                        {REVIEW[pr.review]}
-                      </Badge>
-                    ) : null}
-                    {pr.mergeable === "CONFLICTING" ? (
-                      <Badge variant="error" size="sm">
-                        can't merge
-                      </Badge>
-                    ) : null}
-                    <span className="min-w-0 truncate">{pr.title}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {detail && (detail.parent || detail.subIssues.length > 0) ? (
-            <section className="flex flex-col gap-1.5">
-              <DeskHeading>Related</DeskHeading>
-              <ul className="flex flex-col gap-1 text-sm">
-                {detail.parent ? (
-                  <li>
-                    <span className="text-muted-foreground">Part of </span>
-                    <button
-                      type="button"
-                      className="cursor-pointer text-left hover:underline"
-                      onClick={() => detail.parent && openRef(detail.parent.url)}
-                    >
-                      {detail.parent.title}
-                    </button>
-                  </li>
-                ) : null}
-                {detail.subIssues.map((sub) => (
-                  <li key={sub.url} className="flex items-center gap-1.5">
-                    <Badge variant={sub.state === "closed" ? "success" : "outline"} size="sm">
-                      {sub.state === "closed" ? "done" : "open"}
-                    </Badge>
-                    <button
-                      type="button"
-                      className="min-w-0 cursor-pointer truncate text-left hover:underline"
-                      onClick={() => openRef(sub.url)}
-                    >
-                      {sub.title}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {props.chats.length > 0 ? (
-            <section className="flex flex-col gap-1.5">
-              <DeskHeading>T3 chats</DeskHeading>
-              <ThreadList threads={props.chats} onOpenChat={props.onOpenChat} empty="" />
-            </section>
-          ) : null}
-
-          {detail ? (
-            <section className="flex flex-col gap-1.5">
-              <DeskHeading>Description</DeskHeading>
-              {detail.body.trim() ? (
-                <div className="text-sm">
-                  <ChatMarkdown text={detail.body} cwd={undefined} />
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No description.</p>
-              )}
-            </section>
-          ) : null}
-
-          {detail && detail.comments.recent.length > 0 ? (
-            <section className="flex flex-col gap-2">
-              <DeskHeading>
-                Comments · {detail.comments.total}
-                {detail.comments.total > detail.comments.recent.length
-                  ? ` (latest ${detail.comments.recent.length})`
-                  : ""}
-              </DeskHeading>
-              {detail.comments.recent.map((comment) => (
-                <article key={comment.url} className="rounded-md border border-border p-3 text-sm">
-                  <p className="mb-1 text-2xs text-muted-foreground">
-                    {comment.author ?? "someone"} · {when(comment.createdAt)}
-                  </p>
-                  <ChatMarkdown text={comment.body} cwd={undefined} />
-                </article>
-              ))}
-            </section>
-          ) : null}
-        </div>
-        <footer className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
-          {item.url ? (
-            <Button variant="ghost" size="xs" onClick={() => item.url && openExternal(item.url)}>
-              <ExternalLinkIcon />
-              Open on GitHub
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button size="sm" onClick={props.onClose}>
+          <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
-        </footer>
+        </header>
+        <div className="flex min-h-0 flex-1">
+          {item ? (
+            <aside
+              className={
+                pane === "details"
+                  ? "flex min-h-0 w-full flex-col overflow-y-auto border-border sm:w-[30rem] sm:shrink-0 sm:border-e"
+                  : "hidden min-h-0 w-[30rem] shrink-0 flex-col overflow-y-auto border-e border-border sm:flex"
+              }
+            >
+              <ItemDetails
+                key={item.itemId}
+                item={item}
+                view={props.view}
+                onOpenItem={props.onOpenItem}
+              />
+            </aside>
+          ) : null}
+          <section
+            className={
+              !item || pane === "chat"
+                ? "relative flex min-h-0 min-w-0 flex-1 flex-col"
+                : "relative hidden min-h-0 min-w-0 flex-1 flex-col sm:flex"
+            }
+          >
+            {props.chats.length > 1 ? (
+              <nav
+                aria-label="Chats"
+                className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
+              >
+                {props.chats.map((chat) => (
+                  <Button
+                    key={chatKeyOf(chat)}
+                    variant={shown && chatKeyOf(shown) === chatKeyOf(chat) ? "secondary" : "ghost"}
+                    size="xs"
+                    onClick={() => setChosen(chat)}
+                  >
+                    <span className="max-w-56 truncate">{chat.title}</span>
+                  </Button>
+                ))}
+              </nav>
+            ) : null}
+            {shown ? (
+              <ChatView
+                key={chatKeyOf(shown)}
+                environmentId={shown.environmentId as EnvironmentId}
+                threadId={shown.threadId as ThreadId}
+                routeKind="server"
+                reserveTitleBarControlInset={false}
+              />
+            ) : (
+              <div className="m-auto max-w-sm p-6 text-center text-sm text-muted-foreground">
+                No T3 chat is working on this yet. Start one from its repo, or ask an agent about
+                it.
+              </div>
+            )}
+          </section>
+        </div>
       </DialogPopup>
     </Dialog>
   );
 }
+
+const chatKeyOf = (chat: CardChatState) => `${chat.environmentId}:${chat.threadId}`;
 
 function WorkList(props: {
   readonly title: string;
@@ -373,6 +514,10 @@ function WorkList(props: {
 export function AppView(props: {
   readonly app: string;
   readonly feature: string | null;
+  readonly subview: "overview" | "board" | "sprint";
+  readonly board: ReactNode;
+  readonly sprintPanel: ReactNode;
+  readonly onSubview: (view: "overview" | "board" | "sprint") => void;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sprint: DeskSprint | null;
   readonly notes: DeskNotes;
@@ -399,18 +544,46 @@ export function AppView(props: {
     sprint,
   );
   const goalTarget = sprint ? ({ kind: "sprintGoal", sprint: sprint.title, app } as const) : null;
+  const tabs = (
+    <nav className="flex flex-wrap items-center gap-2 text-sm">
+      <Button
+        variant="ghost"
+        size="xs"
+        onClick={feature ? () => props.onFeature(null) : props.onBack}
+      >
+        <ArrowLeftIcon />
+        {feature ? app : "All apps"}
+      </Button>
+      {feature ? null : (
+        <ToggleGroup
+          aria-label={`${app} view`}
+          value={[props.subview]}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "overview" || next === "board" || next === "sprint") props.onSubview(next);
+          }}
+        >
+          <Toggle value="overview">Overview</Toggle>
+          <Toggle value="board">Board</Toggle>
+          <Toggle value="sprint">Sprint</Toggle>
+        </ToggleGroup>
+      )}
+    </nav>
+  );
+  if (!feature && props.subview !== "overview") {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3 pt-3">
+        <div className="flex flex-col gap-1 px-4">
+          {tabs}
+          <h2 className="text-lg font-semibold">{app}</h2>
+        </div>
+        {props.subview === "board" ? props.board : props.sprintPanel}
+      </div>
+    );
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6">
-      <nav className="flex flex-wrap items-center gap-2 text-sm">
-        <Button
-          variant="ghost"
-          size="xs"
-          onClick={feature ? () => props.onFeature(null) : props.onBack}
-        >
-          <ArrowLeftIcon />
-          {feature ? app : "All apps"}
-        </Button>
-      </nav>
+      {tabs}
       <header className="flex flex-col gap-1">
         <h2 className="text-lg font-semibold">{feature ? featureName(feature) : app}</h2>
         {record ? (

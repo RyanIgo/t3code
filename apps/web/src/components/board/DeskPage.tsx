@@ -7,7 +7,6 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { useNavigate } from "@tanstack/react-router";
 import * as Schema from "effect/Schema";
 import { RefreshCwIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
@@ -37,6 +36,8 @@ import {
   deskTitle,
   NOW_LIMIT,
   summarizeApps,
+  groupWork,
+  sprintOverview,
   appRepos,
   chatsForApp,
   type AppSummary,
@@ -48,9 +49,17 @@ import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, formatDay, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
-import { AppView, ItemDialog, SprintView } from "./DeskViews";
+import { AppView, DeskModal, SprintView } from "./DeskViews";
 
 const DeskMode = Schema.Literals(["lanes", "apps", "sprint"]);
+const DeskFocusSchema = Schema.NullOr(
+  Schema.Struct({
+    app: Schema.String,
+    feature: Schema.NullOr(Schema.String),
+    view: Schema.Literals(["overview", "board", "sprint"]),
+  }),
+);
+type DeskFocus = NonNullable<typeof DeskFocusSchema.Type>;
 type DeskMode = typeof DeskMode.Type;
 const ALL = "*";
 const UNSORTED_SHOWN = 25;
@@ -76,10 +85,17 @@ export function DeskPage(props: {
   const desk = useDesk();
   const notes = useDeskNotes();
   const board = useBoard();
-  const navigate = useNavigate();
   const [mode, setMode] = useLocalStorage("t3-fleet:desk-mode", "apps" as DeskMode, DeskMode);
-  const [focus, setFocus] = useState<{ app: string; feature: string | null } | null>(null);
-  const [openItemId, setOpenItemId] = useState<string | null>(null);
+  const [focus, setFocus] = useLocalStorage(
+    "t3-fleet:desk-focus",
+    null as DeskFocus | null,
+    DeskFocusSchema,
+  );
+  const [modal, setModal] = useState<{
+    readonly itemId: string | null;
+    readonly chat: CardChatState | null;
+    readonly sequence: ReadonlyArray<string>;
+  } | null>(null);
   const [chosenSprint, setChosenSprint] = useState<string | null>(null);
   const [storedApp, setStoredApp] = useLocalStorage("t3-fleet:desk-app", ALL, Schema.String);
   const [query, setQuery] = useState("");
@@ -105,11 +121,16 @@ export function DeskPage(props: {
     }
   }
   const chatsFor = (item: DeskItem) => chatsForItem(item, props.chats, linksByChat);
-  const openChat = (chat: CardChatState) =>
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: { environmentId: chat.environmentId, threadId: chat.threadId },
-    });
+  // Chats open in the Desk's work window (with their item, when one matches) so the Desk stays put.
+  const openChat = (chat: CardChatState) => {
+    const key = `${chat.environmentId}:${chat.threadId}`;
+    const owner = items.find((entry) =>
+      chatsFor(entry).some((found) => `${found.environmentId}:${found.threadId}` === key),
+    );
+    setModal({ itemId: owner?.itemId ?? null, chat, sequence: [] });
+  };
+  const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
+    setModal({ itemId: entry.itemId, chat: null, sequence });
 
   const header = (
     <WorkspacePageHeader electron={isElectron} className="border-b border-border">
@@ -172,7 +193,6 @@ export function DeskPage(props: {
     );
   }
 
-  const columns = buildDeskColumns(items, { app, query });
   const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
   const chatsNeedingYou = props.chats.filter(chatWaitsOnYou);
 
@@ -183,20 +203,101 @@ export function DeskPage(props: {
     void setDeskLane(item.itemId, lane === "Unsorted" ? null : lane);
   };
 
-  const card = (item: DeskItem, draggable: boolean) => (
+  const card = (item: DeskItem, draggable: boolean, sequence: ReadonlyArray<string> = []) => (
     <DeskCard
       key={item.itemId}
       item={item}
       chats={chatsFor(item)}
       draggable={draggable}
-      showApp={app === null}
+      showApp={app === null && focus === null}
       currentSprint={sprint?.title ?? null}
       onOpenChat={openChat}
-      onOpen={(entry) => setOpenItemId(entry.itemId)}
+      onOpen={openItemIn(sequence)}
     />
   );
-  const openItem = items.find((entry) => entry.itemId === openItemId) ?? null;
+  const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
+  const modalItem = modal?.itemId
+    ? (items.find((entry) => entry.itemId === modal.itemId) ?? null)
+    : null;
   const sprintShown = view.sprints?.find((entry) => entry.title === chosenSprint) ?? sprint;
+  const focusApp = focus && apps.includes(focus.app) ? focus : null;
+
+  const lanes = (onlyApp: string | null) => {
+    const laneColumns = buildDeskColumns(items, { app: onlyApp ?? app, query });
+    const order = ["Unsorted" as const, ...DESK_LANES];
+    const sequence = order.flatMap((lane) => ids(laneColumns[lane]));
+    return (
+      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+        <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-4 pb-4">
+          {order.map((lane) => {
+            const laneItems = laneColumns[lane];
+            const shown =
+              lane === "Unsorted" && !showAllUnsorted
+                ? laneItems.slice(0, UNSORTED_SHOWN)
+                : laneItems;
+            return (
+              <DeskColumn
+                key={lane}
+                lane={lane}
+                count={laneItems.length}
+                footer={
+                  shown.length < laneItems.length ? (
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="mx-2 mb-2"
+                      onClick={() => setShowAllUnsorted(true)}
+                    >
+                      Show {laneItems.length - shown.length} more
+                    </Button>
+                  ) : null
+                }
+              >
+                {shown.map((item) => card(item, true, sequence))}
+              </DeskColumn>
+            );
+          })}
+        </div>
+      </DndContext>
+    );
+  };
+
+  const sprintPanel = (onlyApp: string | null) => {
+    if (!sprintShown) {
+      return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
+    }
+    const sequence = sprintOverview(items, sprintShown, onlyApp ? [onlyApp] : apps).apps.flatMap(
+      (entry) => ids(entry.items),
+    );
+    return (
+      <SprintView
+        view={view}
+        sprint={sprintShown}
+        nowMs={nowMs}
+        notes={notes.notes}
+        app={onlyApp ?? app}
+        card={(entry) => card(entry, false, sequence)}
+        onSprint={setChosenSprint}
+      />
+    );
+  };
+
+  const appSequence = focusApp
+    ? (() => {
+        const work = groupWork(
+          items,
+          (entry) =>
+            entry.app === focusApp.app &&
+            (focusApp.feature === null || entry.feature === focusApp.feature),
+          sprint,
+        );
+        return ids([...work.sprint, ...work.blocked, ...work.open, ...work.done]);
+      })()
+    : [];
+  const summaries = summarizeApps(items, app ? [app] : apps, sprint);
+  const overviewSequence = summaries.flatMap((summary) =>
+    ids([...summary.sprintItems, ...summary.blocked]),
+  );
 
   return frame(
     <>
@@ -207,7 +308,6 @@ export function DeskPage(props: {
           onValueChange={(next) => {
             if (next[0] === "lanes" || next[0] === "apps" || next[0] === "sprint") {
               setMode(next[0]);
-              setFocus(null);
             }
           }}
         >
@@ -215,26 +315,28 @@ export function DeskPage(props: {
           <Toggle value="sprint">Sprint</Toggle>
           <Toggle value="lanes">Lanes</Toggle>
         </ToggleGroup>
-        <div className="w-64 max-w-full">
-          <Select
-            value={app ?? ALL}
-            onValueChange={(value) => {
-              if (typeof value === "string") setStoredApp(value);
-            }}
-          >
-            <SelectTrigger aria-label="Application" size="sm">
-              <SelectValue>{app ?? "All applications"}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value={ALL}>All applications</SelectItem>
-              {apps.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
+        {mode !== "apps" ? (
+          <div className="w-64 max-w-full">
+            <Select
+              value={app ?? ALL}
+              onValueChange={(value) => {
+                if (typeof value === "string") setStoredApp(value);
+              }}
+            >
+              <SelectTrigger aria-label="Application" size="sm">
+                <SelectValue>{app ?? "All applications"}</SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                <SelectItem value={ALL}>All applications</SelectItem>
+                {apps.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          </div>
+        ) : null}
         <div className="w-56 max-w-full">
           <Input
             size="sm"
@@ -252,86 +354,74 @@ export function DeskPage(props: {
           </span>
         ) : null}
       </div>
-      {focus === null ? (
+      {mode === "apps" ? (
+        <nav aria-label="Applications" className="flex shrink-0 gap-1 overflow-x-auto px-4 pt-2">
+          <Button
+            variant={focusApp ? "ghost" : "secondary"}
+            size="xs"
+            onClick={() => setFocus(null)}
+          >
+            All apps
+          </Button>
+          {apps.map((name) => (
+            <Button
+              key={name}
+              variant={focusApp?.app === name ? "secondary" : "ghost"}
+              size="xs"
+              onClick={() =>
+                setFocus({ app: name, feature: null, view: focusApp?.view ?? "overview" })
+              }
+            >
+              {name}
+            </Button>
+          ))}
+        </nav>
+      ) : null}
+      {mode !== "apps" || focusApp === null ? (
         <NeedsYou
           chats={chatsNeedingYou}
           items={waiting}
           onOpenChat={openChat}
-          onOpenItem={(entry) => setOpenItemId(entry.itemId)}
+          onOpenItem={openItemIn(ids(waiting))}
         />
       ) : null}
-      {openItem ? (
-        <ItemDialog
-          key={openItem.itemId}
-          item={openItem}
+      {modal ? (
+        <DeskModal
+          key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}`}
+          item={modalItem}
+          chat={modal.chat}
+          chats={modalItem ? chatsFor(modalItem) : modal.chat ? [modal.chat] : []}
           view={view}
-          chats={chatsFor(openItem)}
-          onOpenChat={openChat}
-          onOpenItem={(entry) => setOpenItemId(entry.itemId)}
-          onClose={() => setOpenItemId(null)}
+          sequence={modal.sequence}
+          onNavigate={(itemId) => setModal({ itemId, chat: null, sequence: modal.sequence })}
+          onOpenItem={(entry) =>
+            setModal({ itemId: entry.itemId, chat: null, sequence: modal.sequence })
+          }
+          onClose={() => setModal(null)}
         />
       ) : null}
-      {mode === "apps" && focus ? (
+      {mode === "apps" && focusApp ? (
         <AppView
-          app={focus.app}
-          feature={focus.feature}
+          app={focusApp.app}
+          feature={focusApp.feature}
+          subview={focusApp.view}
           items={items}
           sprint={sprint}
           notes={notes.notes}
-          threads={chatsForApp(props.chats, appRepos(items, focus.app), props.projectName)}
-          card={(entry) => card(entry, false)}
-          onOpenItem={(entry) => setOpenItemId(entry.itemId)}
+          threads={chatsForApp(props.chats, appRepos(items, focusApp.app), props.projectName)}
+          card={(entry) => card(entry, false, appSequence)}
+          board={lanes(focusApp.app)}
+          sprintPanel={sprintPanel(focusApp.app)}
+          onOpenItem={openItemIn(appSequence)}
           onOpenChat={openChat}
-          onFeature={(feature) => setFocus({ app: focus.app, feature })}
+          onFeature={(feature) => setFocus({ ...focusApp, feature, view: "overview" })}
+          onSubview={(next) => setFocus({ ...focusApp, feature: null, view: next })}
           onBack={() => setFocus(null)}
         />
       ) : mode === "sprint" ? (
-        sprintShown ? (
-          <SprintView
-            view={view}
-            sprint={sprintShown}
-            nowMs={nowMs}
-            notes={notes.notes}
-            app={app}
-            card={(entry) => card(entry, false)}
-            onSprint={setChosenSprint}
-          />
-        ) : (
-          <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>
-        )
+        sprintPanel(null)
       ) : mode === "lanes" ? (
-        <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-          <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-4 pb-4">
-            {["Unsorted" as const, ...DESK_LANES].map((lane) => {
-              const laneItems = columns[lane];
-              const shown =
-                lane === "Unsorted" && !showAllUnsorted
-                  ? laneItems.slice(0, UNSORTED_SHOWN)
-                  : laneItems;
-              return (
-                <DeskColumn
-                  key={lane}
-                  lane={lane}
-                  count={laneItems.length}
-                  footer={
-                    shown.length < laneItems.length ? (
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        className="mx-2 mb-2"
-                        onClick={() => setShowAllUnsorted(true)}
-                      >
-                        Show {laneItems.length - shown.length} more
-                      </Button>
-                    ) : null
-                  }
-                >
-                  {shown.map((item) => card(item, true))}
-                </DeskColumn>
-              );
-            })}
-          </div>
-        </DndContext>
+        lanes(null)
       ) : (
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 xl:grid-cols-2">
           {sprint ? (
@@ -349,17 +439,17 @@ export function DeskPage(props: {
               />
             </section>
           ) : null}
-          {summarizeApps(items, app ? [app] : apps, sprint).map((summary) => (
+          {summaries.map((summary) => (
             <AppScorecard
               key={summary.app}
               summary={summary}
               sprintTitle={sprint?.title ?? null}
-              card={(item) => card(item, false)}
+              card={(item) => card(item, false, overviewSequence)}
               notes={notes.notes}
               threads={chatsForApp(props.chats, appRepos(items, summary.app), props.projectName)}
               onOpenChat={openChat}
-              onOpenApp={() => setFocus({ app: summary.app, feature: null })}
-              onOpenFeature={(feature) => setFocus({ app: summary.app, feature })}
+              onOpenApp={() => setFocus({ app: summary.app, feature: null, view: "overview" })}
+              onOpenFeature={(feature) => setFocus({ app: summary.app, feature, view: "overview" })}
             />
           ))}
         </div>
