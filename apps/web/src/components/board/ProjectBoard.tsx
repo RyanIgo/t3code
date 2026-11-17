@@ -316,6 +316,11 @@ export function BoardCardTile(props: {
                 : `${issues.length} issues`}
             </span>
           ) : null}
+          {placed.worktree ? (
+            <span className="max-w-full truncate font-mono text-2xs text-muted-foreground">
+              {placed.worktree.branch ?? placed.worktree.path.split("/").pop()}
+            </span>
+          ) : null}
           {machines.map((label) => (
             <span
               key={label}
@@ -325,7 +330,10 @@ export function BoardCardTile(props: {
             </span>
           ))}
           {placed.loose ? (
-            <span className="text-2xs text-muted-foreground">Chat · not on the board yet</span>
+            <span className="text-2xs text-muted-foreground">
+              {placed.chats.length > 1 ? `${placed.chats.length} chats` : "Chat"} · not on the board
+              yet
+            </span>
           ) : null}
         </span>
       </button>

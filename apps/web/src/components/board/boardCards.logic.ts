@@ -98,6 +98,22 @@ export interface CardChatState {
   readonly pullRequests: ReadonlyArray<CardPullRequest>;
   /** When the chat last changed state. */
   readonly since: string | null;
+  /** The git worktree the chat works in; null for the project's main checkout. */
+  readonly worktree: string | null;
+  readonly branch: string | null;
+}
+
+/** One git worktree on one machine. A card does its work in at most one. */
+export interface CardWorktree {
+  readonly key: string;
+  readonly path: string;
+  readonly branch: string | null;
+}
+
+export function worktreeOf(chat: CardChatState): CardWorktree | null {
+  return chat.worktree
+    ? { key: `${chat.environmentId}:${chat.worktree}`, path: chat.worktree, branch: chat.branch }
+    : null;
 }
 
 const ms = (value: string | null | undefined): number => {
@@ -124,8 +140,10 @@ export interface PlacedCard {
   readonly card: BoardCard;
   readonly stage: CardStage;
   readonly chats: ReadonlyArray<CardChatState>;
-  /** A chat that isn't on any card yet, shown so nothing on the machines is hidden. */
+  /** Chats no card owns yet (one, or every chat in one worktree), shown so nothing is hidden. */
   readonly loose: boolean;
+  /** The worktree the card's chats work in; new chats there join the card. */
+  readonly worktree: CardWorktree | null;
   readonly needsYou: boolean;
   readonly working: boolean;
 }
@@ -134,13 +152,28 @@ export interface PlacedCard {
  * Where each card sits: its hand-set stage, unless one of its chats changed state after that,
  * then where the chats point. Done is never undone by a chat.
  */
-export function placeCard(card: BoardCard, chats: ReadonlyArray<CardChatState>): PlacedCard {
-  const own = card.chats.flatMap((ref) => {
-    const found = chats.find(
-      (chat) => chat.environmentId === ref.environmentId && chat.threadId === ref.threadId,
-    );
+export function placeCard(
+  card: BoardCard,
+  chats: ReadonlyArray<CardChatState>,
+  /** Chats saved on any card; those stay with their card instead of joining by worktree. */
+  claimed: ReadonlySet<string> = new Set(),
+): PlacedCard {
+  const stored = card.chats.flatMap((ref) => {
+    const found = chats.find((chat) => chatKey(chat) === chatKey(ref));
     return found ? [found] : [];
   });
+  const worktree = stored.map(worktreeOf).find((entry) => entry !== null) ?? null;
+  // Done work keeps its chats; a new chat in a reused worktree is new work.
+  const joined =
+    worktree && card.stage !== "done"
+      ? chats.filter(
+          (chat) =>
+            worktreeOf(chat)?.key === worktree.key &&
+            !claimed.has(chatKey(chat)) &&
+            !stored.includes(chat),
+        )
+      : [];
+  const own = [...stored, ...joined];
   const derived = stageFromChats(own, card.testing);
   const latestChange = Math.max(0, ...own.map((chat) => ms(chat.since)));
   const useDerived =
@@ -149,54 +182,104 @@ export function placeCard(card: BoardCard, chats: ReadonlyArray<CardChatState>):
   const pullRequests = own.flatMap((chat) => chat.pullRequests);
   const allMerged = pullRequests.length > 0 && pullRequests.every((pr) => pr.state === "merged");
   return {
-    card,
+    card:
+      joined.length === 0
+        ? card
+        : {
+            ...card,
+            chats: [
+              ...card.chats,
+              ...joined.map((chat) => ({
+                environmentId: chat.environmentId,
+                threadId: chat.threadId,
+              })),
+            ],
+          },
     stage: allMerged ? "done" : useDerived ? derived : card.stage,
     chats: own,
     loose: false,
+    worktree,
     needsYou: own.some((chat) => chat.needsYou),
     working: own.some((chat) => chat.working),
   };
 }
 
-/** A temporary card for a chat that no card owns yet. */
-export function looseCard(chat: CardChatState): PlacedCard {
-  const at = chat.since ?? new Date(0).toISOString();
+/** Every card placed, with chats saved on one card kept off the others. */
+export function placeCards(
+  document: BoardDocument,
+  chats: ReadonlyArray<CardChatState>,
+): PlacedCard[] {
+  const claimed = new Set(document.cards.flatMap((card) => card.chats.map(chatKey)));
+  return document.cards.map((card) => {
+    const placed = placeCard(card, chats, claimed);
+    // Two cards in one worktree: a new chat there joins the first only.
+    for (const ref of placed.card.chats) claimed.add(chatKey(ref));
+    return placed;
+  });
+}
+
+/** Chats no card owns: one temporary card per worktree, or per chat in a main checkout. */
+export function looseCards(
+  placed: ReadonlyArray<PlacedCard>,
+  chats: ReadonlyArray<CardChatState>,
+): PlacedCard[] {
+  const owned = new Set(placed.flatMap((entry) => entry.card.chats.map(chatKey)));
+  const groups = new Map<string, CardChatState[]>();
+  for (const chat of chats) {
+    if (chat.projectKey === null || owned.has(chatKey(chat))) continue;
+    const key = worktreeOf(chat)?.key ?? `chat:${chatKey(chat)}`;
+    const group = groups.get(key);
+    if (group) group.push(chat);
+    else groups.set(key, [chat]);
+  }
+  return [...groups.values()].map(looseCard);
+}
+
+/** A temporary card for chats no card owns yet: one chat, or all of one worktree's. */
+function looseCard(chats: ReadonlyArray<CardChatState>): PlacedCard {
+  const first = chats[0] as CardChatState;
+  const worktree = worktreeOf(first);
+  const latest = Math.max(0, ...chats.map((chat) => ms(chat.since)));
+  const at = new Date(latest).toISOString();
   const card: BoardCard = {
-    id: `chat:${chat.environmentId}:${chat.threadId}`,
-    projectKey: chat.projectKey ?? "",
-    title: chat.title,
+    id: worktree ? `tree:${worktree.key}` : `chat:${chatKey(first)}`,
+    projectKey: first.projectKey ?? "",
+    title: chats.length > 1 ? (worktree?.branch ?? first.title) : first.title,
     notes: "",
     stage: "progress",
     stageSetAt: new Date(0).toISOString(),
     category: null,
     initiatives: [],
     links: [],
-    order: Number.MAX_SAFE_INTEGER - ms(at),
-    chats: [{ environmentId: chat.environmentId, threadId: chat.threadId }],
+    order: Number.MAX_SAFE_INTEGER - latest,
+    chats: chats.map((chat) => ({ environmentId: chat.environmentId, threadId: chat.threadId })),
     testing: null,
     createdAt: at,
     updatedAt: at,
   };
   return {
     card,
-    stage: looseStage(chat),
-    chats: [chat],
+    stage: looseStage(chats),
+    chats,
     loose: true,
-    needsYou: chat.needsYou,
-    working: chat.working,
+    worktree,
+    needsYou: chats.some((chat) => chat.needsYou),
+    working: chats.some((chat) => chat.working),
   };
 }
 
 /**
- * Where a chat with no card sits. An idle chat you've already seen is unfinished work, not
- * something to test, unless it has a PR to try.
+ * Where chats with no card sit. Idle chats you've already seen are unfinished work, not
+ * something to test, unless they have a PR to try.
  */
-function looseStage(chat: CardChatState): CardStage {
-  if (chat.working || chat.needsYou) return "progress";
-  if (chat.pullRequests.length > 0 && chat.pullRequests.every((pr) => pr.state === "merged")) {
-    return "done";
-  }
-  if (chat.column === "done" || chat.pullRequests.some((pr) => pr.state === "open")) {
+function looseStage(chats: ReadonlyArray<CardChatState>): CardStage {
+  if (chats.some((chat) => chat.working || chat.needsYou)) return "progress";
+  const pullRequests = chats.flatMap((chat) => chat.pullRequests);
+  if (pullRequests.length > 0 && pullRequests.every((pr) => pr.state === "merged")) return "done";
+  if (
+    chats.some((chat) => chat.column === "done") ||
+    pullRequests.some((pr) => pr.state === "open")
+  ) {
     return "testing";
   }
   return "progress";
@@ -221,23 +304,19 @@ export function buildBoardLists(
     ready: [],
     done: [],
   };
-  const owned = new Set<string>();
-  for (const card of document.cards) {
-    for (const ref of card.chats) owned.add(chatKey(ref));
+  const placedCards = placeCards(document, chats);
+  for (const placed of placedCards) {
+    const card = placed.card;
     const inScope =
       scope.kind === "all" ||
       (scope.kind === "project"
         ? card.projectKey === scope.projectKey
         : card.initiatives.some((name) => sameInitiative(name, scope.initiative)));
-    if (!inScope) continue;
-    const placed = placeCard(card, chats);
-    lists[placed.stage].push(placed);
+    if (inScope) lists[placed.stage].push(placed);
   }
   if (scope.kind !== "initiative") {
-    for (const chat of chats) {
-      if (chat.projectKey === null || owned.has(chatKey(chat))) continue;
-      if (scope.kind === "project" && chat.projectKey !== scope.projectKey) continue;
-      const placed = looseCard(chat);
+    for (const placed of looseCards(placedCards, chats)) {
+      if (scope.kind === "project" && placed.card.projectKey !== scope.projectKey) continue;
       lists[placed.stage].push(placed);
     }
   }
@@ -289,9 +368,8 @@ export function buildCategoryView(
     none: [],
   };
   const stageRank = new Map(CARD_STAGES.map((stage, index) => [stage.id, index]));
-  for (const card of document.cards) {
-    const placed = placeCard(card, chats);
-    view[card.category ?? "none"].push(placed);
+  for (const placed of placeCards(document, chats)) {
+    view[placed.card.category ?? "none"].push(placed);
   }
   for (const list of Object.values(view)) {
     list.sort(
@@ -412,13 +490,35 @@ export function parseBoardDocument(raw: string | null): BoardDocument {
   return { schemaVersion: 1, cards, removed };
 }
 
-const GITHUB_ITEM_URL = /^https:\/\/github\.com\/[^/]+\/([^/]+)\/(issues|pull)\/(\d+)/;
+const GITHUB_ITEM_URL =
+  /^(?:https?:\/\/)?(?:www\.)?github\.com\/([\w.-]+)\/([\w.-]+)\/(issues|pull)\/(\d+)/i;
+const GITHUB_SHORTHAND = /^([\w.-]+)\/([\w.-]+)#(\d+)$/;
+/** A GitHub Projects item, e.g. `...projects/3?pane=issue&issue=owner%7Crepo%7C12`. */
+const GITHUB_PROJECT_ITEM = /[?&]issue=([\w.-]+)(?:%7C|\|)([\w.-]+)(?:%7C|\|)(\d+)/i;
 
-/** A GitHub issue or PR link as a card link, or null for anything else. */
+/**
+ * A GitHub issue or PR as a card link, or null for anything else. Takes issue and PR URLs, an
+ * issue opened from a GitHub Project, and `owner/repo#12`.
+ */
 export function githubCardLink(raw: string): CardLink | null {
-  const match = GITHUB_ITEM_URL.exec(raw.trim());
-  if (!match) return null;
-  return { url: match[0], label: `${match[1]}#${match[3]}` };
+  const text = raw.trim();
+  const direct = GITHUB_ITEM_URL.exec(text);
+  if (direct) {
+    const [, owner, repo, kind, number] = direct;
+    return {
+      url: `https://github.com/${owner}/${repo}/${kind?.toLowerCase()}/${number}`,
+      label: `${repo}#${number}`,
+    };
+  }
+  const item =
+    GITHUB_SHORTHAND.exec(text) ??
+    (/github\.com\//i.test(text) ? GITHUB_PROJECT_ITEM.exec(text) : null);
+  if (!item) return null;
+  const [, owner, repo, number] = item;
+  return {
+    url: `https://github.com/${owner}/${repo}/issues/${number}`,
+    label: `${repo}#${number}`,
+  };
 }
 
 /** `current` plus any of `found` it lacks, by URL. */

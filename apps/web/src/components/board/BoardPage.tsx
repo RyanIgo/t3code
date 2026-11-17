@@ -37,9 +37,9 @@ import {
   buildCategoryView,
   CARD_CATEGORIES,
   listInitiatives,
-  looseCard,
+  looseCards,
   orderAt,
-  placeCard,
+  placeCards,
 } from "./boardCards.logic";
 import { addCards, useBoard, updateCard } from "./boardStore";
 import { CardModal } from "./CardModal";
@@ -105,6 +105,8 @@ function useCardChats(includeSettled: boolean): CardChatState[] {
             mergeability: link.snapshot?.mergeability ?? null,
           })),
         since: resolved.since ?? thread.updatedAt,
+        worktree: thread.worktreePath ?? null,
+        branch: thread.branch ?? null,
       };
     });
 }
@@ -186,6 +188,7 @@ function CardsPage(props: {
   const looseOnBoard = Object.values(boardLists).flatMap((list) =>
     list.filter((placed) => placed.loose),
   );
+  const looseChatCount = looseOnBoard.reduce((sum, placed) => sum + placed.chats.length, 0);
   const addAllToBoard = () =>
     addCards(
       CARD_STAGES.flatMap((stage) => {
@@ -210,12 +213,12 @@ function CardsPage(props: {
     displayName: group.displayName,
   }));
 
-  const resolvePlaced = (id: string): PlacedCard | null => {
-    const stored = board.document.cards.find((card) => card.id === id);
-    if (stored) return placeCard(stored, chats);
-    const chat = chats.find((entry) => `chat:${entry.environmentId}:${entry.threadId}` === id);
-    return chat ? looseCard(chat) : null;
-  };
+  const placedCards = placeCards(board.document, chats);
+  const loose = looseCards(placedCards, chats);
+  const resolvePlaced = (id: string): PlacedCard | null =>
+    placedCards.find((placed) => placed.card.id === id) ??
+    loose.find((placed) => placed.card.id === id) ??
+    null;
   const openPlaced = open ? resolvePlaced(open.id) : null;
   // The cards the window cycles through, placed live so a card that changes list moves tab.
   const openPool = open
@@ -346,7 +349,7 @@ function CardsPage(props: {
           ) : null}
           {props.view === "board" && looseOnBoard.length > 0 ? (
             <Button variant="outline" size="xs" onClick={addAllToBoard}>
-              Add {looseOnBoard.length} chat{looseOnBoard.length === 1 ? "" : "s"} to the board
+              Add {looseChatCount} chat{looseChatCount === 1 ? "" : "s"} to the board
             </Button>
           ) : null}
         </div>
@@ -399,6 +402,7 @@ function CardsPage(props: {
           projects={projects}
           initiatives={initiatives}
           pool={openPool}
+          loose={loose}
           onNavigate={navigateCard}
           onClose={() => setOpen(null)}
         />

@@ -25,6 +25,8 @@ const chat = (overrides: Partial<CardChatState> = {}): CardChatState => ({
   pullRequestNumber: null,
   pullRequests: [],
   since: "2026-11-16T10:00:00.000Z",
+  worktree: null,
+  branch: null,
   ...overrides,
 });
 
@@ -111,6 +113,28 @@ describe("buildBoardLists", () => {
     });
   });
 
+  it("keeps a card to one worktree: its new chats join, another worktree's chats group", () => {
+    const tree = (path: string, threadId: string) =>
+      chat({ threadId, worktree: path, branch: path.toUpperCase() });
+    const lists = buildBoardLists(
+      {
+        schemaVersion: 1,
+        cards: [card(), card({ id: "c2", chats: [{ environmentId: "env", threadId: "t7" }] })],
+        removed: [],
+      },
+      { kind: "all" },
+      [tree("w", "t1"), tree("w", "t4"), tree("w", "t7"), tree("x", "t5"), tree("x", "t6")],
+    );
+    const cards = Object.values(lists).flatMap((list) =>
+      list.map((placed) => [placed.card.id, placed.card.chats.map((ref) => ref.threadId)]),
+    );
+    expect(Object.fromEntries(cards)).toEqual({
+      c1: ["t1", "t4"],
+      c2: ["t7"],
+      "tree:env:x": ["t5", "t6"],
+    });
+  });
+
   it("shows an initiative's cards from every repo, matched loosely by name, without chats", () => {
     const document = {
       schemaVersion: 1 as const,
@@ -156,6 +180,10 @@ describe("githubCardLink", () => {
   it.each([
     ["https://github.com/cfevans/claude-setup/issues/76", "claude-setup#76"],
     ["https://github.com/o/r/pull/12/files", "r#12"],
+    ["github.com/o/r/issues/3#issuecomment-9", "r#3"],
+    ["o/r#4", "r#4"],
+    ["https://github.com/orgs/o/projects/29/views/1?pane=issue&issue=o%7Cr%7C77", "r#77"],
+    ["https://github.com/orgs/o/projects/29", null],
     ["https://gitlab.com/o/r/issues/1", null],
   ])("%s", (url, label) => {
     expect(githubCardLink(url)?.label ?? null).toBe(label);

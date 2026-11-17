@@ -3,9 +3,10 @@ import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
 import { XIcon } from "lucide-react";
-import { useEffect, useEffectEvent, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { readLocalApi } from "../../localApi";
 import { useThreadVisibleTurnItems } from "../../state/entities";
 import { collectReviewLinks } from "../review/reviewItems.logic";
 import { Badge } from "../ui/badge";
@@ -30,6 +31,7 @@ import {
   addLinks,
   chatKey,
   githubCardLink,
+  worktreeOf,
 } from "./boardCards.logic";
 import { addCard, removeCard, updateCard } from "./boardStore";
 import { PullRequestBadge } from "./ProjectBoard";
@@ -76,6 +78,8 @@ export function CardModal(props: {
   readonly initiatives: ReadonlyArray<string>;
   /** The board's cards in board order; the window's tabs and previous / next cycle these. */
   readonly pool: ReadonlyArray<PlacedCard>;
+  /** Chats no card owns, grouped by worktree; any of them can be added to this card. */
+  readonly loose: ReadonlyArray<PlacedCard>;
   readonly onNavigate: (cardId: string) => void;
   readonly onClose: () => void;
 }) {
@@ -270,6 +274,7 @@ export function CardModal(props: {
               projects={props.projects}
               initiatives={props.initiatives}
               chatByKey={chatByKey}
+              loose={props.loose}
               shownChat={shownChat}
               onShowChat={(ref) => {
                 setChatRef(ref);
@@ -317,6 +322,7 @@ function CardDetails(props: {
   readonly projects: ReadonlyArray<{ readonly projectKey: string; readonly displayName: string }>;
   readonly initiatives: ReadonlyArray<string>;
   readonly chatByKey: ReadonlyMap<string, CardChatState>;
+  readonly loose: ReadonlyArray<PlacedCard>;
   readonly shownChat: CardChatRef | null;
   readonly onShowChat: (ref: CardChatRef) => void;
   readonly onChange: (changes: Parameters<typeof updateCard>[1]) => void;
@@ -332,6 +338,16 @@ function CardDetails(props: {
   const pullRequests = placed.chats.flatMap((chat) => chat.pullRequests);
   const pullRequestUrls = new Set(pullRequests.map((pr) => pr.url));
   const links = card.links.filter((link) => !pullRequestUrls.has(link.url));
+  // A card works in one worktree: once it has one, its chats there join on their own, and a
+  // card working in the main checkout only takes more main-checkout chats.
+  const attachable =
+    placed.loose || placed.worktree
+      ? []
+      : props.loose.filter(
+          (entry) =>
+            entry.card.projectKey === card.projectKey &&
+            (placed.chats.length === 0 || entry.worktree === null),
+        );
   const addInitiative = () => {
     const next = addInitiatives(card.initiatives, initiativeDraft.split(","));
     if (next.length !== card.initiatives.length) onChange({ initiatives: next });
@@ -451,17 +467,17 @@ function CardDetails(props: {
           <ul className="flex flex-wrap gap-1" aria-labelledby="card-links-label">
             {pullRequests.map((pr) => (
               <li key={pr.url}>
-                <a href={pr.url} target="_blank" rel="noreferrer">
+                <ExternalLink href={pr.url}>
                   <PullRequestBadge pullRequest={pr} />
-                </a>
+                </ExternalLink>
               </li>
             ))}
             {links.map((link) => (
               <li key={link.url}>
                 <Badge variant="outline" size="lg">
-                  <a href={link.url} target="_blank" rel="noreferrer" className="hover:underline">
+                  <ExternalLink href={link.url} className="hover:underline">
                     {link.label}
-                  </a>
+                  </ExternalLink>
                   {link.fromChat ? null : (
                     <button
                       type="button"
@@ -566,7 +582,16 @@ function CardDetails(props: {
         />
       </label>
       <div className="flex flex-col gap-1.5">
-        <span>Chats</span>
+        <span id="card-chats-label">Chats</span>
+        {placed.worktree ? (
+          <p className="text-xs text-muted-foreground">
+            Worktree{" "}
+            <span className="font-mono">
+              {placed.worktree.branch ?? placed.worktree.path.split("/").pop()}
+            </span>
+            . New chats there join this card.
+          </p>
+        ) : null}
         {card.chats.length === 0 ? (
           <p className="text-xs text-muted-foreground">No chat yet.</p>
         ) : (
@@ -584,7 +609,10 @@ function CardDetails(props: {
                   >
                     <span className="truncate">{chat?.title ?? "Chat not loaded"}</span>
                   </Button>
-                  {placed.loose ? null : (
+                  {placed.loose ||
+                  (placed.worktree !== null &&
+                    chat !== undefined &&
+                    worktreeOf(chat)?.key === placed.worktree.key) ? null : (
                     <Button
                       variant="ghost"
                       size="xs"
@@ -602,6 +630,27 @@ function CardDetails(props: {
             })}
           </ul>
         )}
+        {attachable.length > 0 ? (
+          <Select
+            value={null}
+            onValueChange={(value) => {
+              const found = attachable.find((entry) => entry.card.id === value);
+              if (found) onChange({ chats: [...card.chats, ...found.card.chats] });
+            }}
+          >
+            <SelectTrigger aria-labelledby="card-chats-label" size="sm">
+              <SelectValue>Add a chat…</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {attachable.map((entry) => (
+                <SelectItem key={entry.card.id} value={entry.card.id}>
+                  {entry.card.title}
+                  {entry.chats.length > 1 ? ` (${entry.chats.length} chats)` : ""}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        ) : null}
       </div>
       {placed.loose ? null : confirmingRemove ? (
         <div className="flex flex-col gap-2 rounded-md border border-destructive/40 p-2">
@@ -626,5 +675,28 @@ function CardDetails(props: {
         </Button>
       )}
     </div>
+  );
+}
+
+/** Opens in the system browser on desktop, where a plain new-window link is blocked. */
+function ExternalLink(props: {
+  readonly href: string;
+  readonly className?: string;
+  readonly children: ReactNode;
+}) {
+  return (
+    <a
+      href={props.href}
+      target="_blank"
+      rel="noreferrer"
+      className={props.className}
+      onClick={(event) => {
+        if (!window.desktopBridge) return;
+        event.preventDefault();
+        void readLocalApi()?.shell.openExternal(props.href);
+      }}
+    >
+      {props.children}
+    </a>
   );
 }
