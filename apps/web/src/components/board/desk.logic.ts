@@ -316,6 +316,8 @@ export interface DeskDetail {
   };
   readonly parent: DeskIssueRef | null;
   readonly subIssues: ReadonlyArray<DeskIssueRef>;
+  /** What the hub's GitHub token couldn't read, e.g. "check results". */
+  readonly unavailable?: ReadonlyArray<string>;
   readonly pullRequests: ReadonlyArray<{
     readonly number: number;
     readonly title: string;

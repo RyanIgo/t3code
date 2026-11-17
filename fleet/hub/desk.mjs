@@ -143,7 +143,11 @@ export function createDesk({ dataRoot, project, token, log }) {
   let syncing = null;
   let lastSync = 0;
 
-  async function graphql(query, variables) {
+  /**
+   * GitHub answers what the token may see and refuses the rest field by field ("Resource not
+   * accessible"). With `partial`, keep the data and return those refusals instead of failing.
+   */
+  async function graphql(query, variables, partial = false) {
     const response = await fetch("https://api.github.com/graphql", {
       method: "POST",
       headers: {
@@ -155,6 +159,7 @@ export function createDesk({ dataRoot, project, token, log }) {
       signal: AbortSignal.timeout(30_000),
     });
     const body = await response.json().catch(() => null);
+    if (partial && response.ok && body?.data) return { data: body.data, errors: body.errors ?? [] };
     if (!response.ok || body?.errors?.length) {
       throw new Error(
         `GitHub ${response.status}: ${body?.errors?.[0]?.message ?? body?.message ?? "request failed"}`,
@@ -230,7 +235,11 @@ export function createDesk({ dataRoot, project, token, log }) {
     async detail(itemId) {
       const cached = details.get(itemId);
       if (cached && Date.now() - cached.at < DETAIL_TTL_MS) return cached.value;
-      const content = (await graphql(DETAIL_QUERY, { id: itemId }))?.node?.content;
+      const answer = await graphql(DETAIL_QUERY, { id: itemId }, true);
+      const content = answer.data?.node?.content;
+      if (!content && answer.errors.length) {
+        throw new Error(`GitHub: ${answer.errors[0]?.message ?? "request failed"}`);
+      }
       if (!content) throw new Error("No such item.");
       const value = {
         kind: content.__typename,
@@ -266,6 +275,16 @@ export function createDesk({ dataRoot, project, token, log }) {
           state: issue.state.toLowerCase(),
           repo: issue.repository.nameWithOwner,
         })),
+        // Parts the hub's token can't read (e.g. check results without "Commit statuses").
+        unavailable: [
+          ...new Set(
+            answer.errors.map((error) =>
+              (error.path ?? []).some((part) => part === "statusCheckRollup" || part === "commits")
+                ? "check results"
+                : "some details",
+            ),
+          ),
+        ],
         pullRequests:
           content.__typename === "PullRequest"
             ? [prSummary(content)]

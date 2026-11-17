@@ -1,6 +1,12 @@
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import type { DraftId } from "../../composerDraftStore";
-import { ArrowLeftIcon, ChevronLeftIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ExternalLinkIcon,
+  PlusIcon,
+} from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 
 import ChatMarkdown from "../ChatMarkdown";
@@ -200,6 +206,11 @@ function ItemDetails(props: {
 
       {error ? (
         <p className="text-sm text-destructive">Couldn't load the details: {error}</p>
+      ) : null}
+      {detail?.unavailable && detail.unavailable.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Not shown: {detail.unavailable.join(", ")} (the hub's GitHub token can't read them).
+        </p>
       ) : null}
       {!detail && !error ? <p className="text-sm text-muted-foreground">Loading details…</p> : null}
 
@@ -418,7 +429,9 @@ export function DeskModal(props: {
               <Toggle value="chat">Chat</Toggle>
             </ToggleGroup>
           ) : null}
-          {item ? <ChatAboutButton onClick={() => props.onChat(item)} /> : null}
+          {item && props.chats.length === 0 && !props.draft ? (
+            <ChatAboutButton onClick={() => props.onChat(item)} />
+          ) : null}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
@@ -447,7 +460,8 @@ export function DeskModal(props: {
                 : "relative hidden min-h-0 min-w-0 flex-1 flex-col sm:flex"
             }
           >
-            {props.chats.length + (props.draft ? 1 : 0) > 1 ? (
+            {props.chats.length + (props.draft ? 1 : 0) > 1 ||
+            (item !== null && props.chats.length > 0) ? (
               <nav
                 aria-label="Chats"
                 className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
@@ -478,6 +492,17 @@ export function DeskModal(props: {
                     <span className="max-w-56 truncate">{chat.title}</span>
                   </Button>
                 ))}
+                {item ? (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="ms-auto"
+                    onClick={() => props.onChat(item)}
+                  >
+                    <PlusIcon />
+                    New chat
+                  </Button>
+                ) : null}
               </nav>
             ) : null}
             {draft ? (
