@@ -9,7 +9,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { PlusIcon } from "lucide-react";
+import { PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "../../lib/utils";
@@ -28,7 +28,7 @@ import {
   CARD_STAGES,
   orderAt,
 } from "./boardCards.logic";
-import { addCard, updateCard } from "./boardStore";
+import { addCard, removeCardWithUndo, updateCard } from "./boardStore";
 
 const STAGE_HINT: Partial<Record<CardStage, string>> = {
   testing: "Try these and mark them passed",
@@ -250,7 +250,7 @@ export function BoardCardTile(props: {
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn("list-none", isDragging && "relative z-10 opacity-80")}
+      className={cn("group/tile relative list-none", isDragging && "z-10 opacity-80")}
     >
       <button
         type="button"
@@ -258,7 +258,7 @@ export function BoardCardTile(props: {
         {...listeners}
         onClick={props.onOpen}
         className={cn(
-          "flex w-full cursor-pointer flex-col gap-1.5 rounded-md border border-border bg-card px-2.5 py-2 text-left shadow-xs hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-hidden",
+          "flex w-full cursor-pointer flex-col gap-1.5 rounded-md border border-border bg-card py-2 ps-2.5 pe-7 text-left shadow-xs hover:bg-accent focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-hidden",
           placed.loose && "border-dashed",
         )}
       >
@@ -337,6 +337,18 @@ export function BoardCardTile(props: {
           ) : null}
         </span>
       </button>
+      {placed.loose ? null : (
+        <span className="absolute end-1 top-1 opacity-0 group-focus-within/tile:opacity-100 group-hover/tile:opacity-100 pointer-coarse:opacity-100">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Remove ${placed.card.title}`}
+            onClick={() => removeCardWithUndo(placed.card.id)}
+          >
+            <Trash2Icon />
+          </Button>
+        </span>
+      )}
     </li>
   );
 }

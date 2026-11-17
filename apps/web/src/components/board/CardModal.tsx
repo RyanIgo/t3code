@@ -2,7 +2,7 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
-import { XIcon } from "lucide-react";
+import { Trash2Icon, XIcon } from "lucide-react";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -33,7 +33,7 @@ import {
   githubCardLink,
   worktreeOf,
 } from "./boardCards.logic";
-import { addCard, removeCard, updateCard } from "./boardStore";
+import { addCard, removeCardWithUndo, updateCard } from "./boardStore";
 import { PullRequestBadge } from "./ProjectBoard";
 
 const TabsBy = Schema.Literals(["list", "category"]);
@@ -218,6 +218,19 @@ export function CardModal(props: {
             <Toggle value="chat">Chat</Toggle>
             <Toggle value="details">Card</Toggle>
           </ToggleGroup>
+          {placed.loose ? null : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                removeCardWithUndo(card.id);
+                props.onClose();
+              }}
+            >
+              <Trash2Icon />
+              Remove
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
@@ -282,10 +295,8 @@ export function CardModal(props: {
               }}
               onChange={change}
               onRemove={() => {
-                const target = next ?? previous;
-                removeCard(card.id);
-                if (target) props.onNavigate(target);
-                else props.onClose();
+                removeCardWithUndo(card.id);
+                props.onClose();
               }}
             />
           </aside>
@@ -364,7 +375,6 @@ function CardDetails(props: {
     setLinkDraft("");
     setLinkError(null);
   };
-  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const commitText = () => {
     const trimmedTitle = title.trim();
     const changes = {
@@ -652,26 +662,10 @@ function CardDetails(props: {
           </Select>
         ) : null}
       </div>
-      {placed.loose ? null : confirmingRemove ? (
-        <div className="flex flex-col gap-2 rounded-md border border-destructive/40 p-2">
-          <span className="text-xs">Remove this card? Its chats stay on their machines.</span>
-          <div className="flex gap-1.5">
-            <Button variant="destructive" size="xs" onClick={props.onRemove}>
-              Remove card
-            </Button>
-            <Button variant="ghost" size="xs" onClick={() => setConfirmingRemove(false)}>
-              Keep
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="self-start"
-          onClick={() => setConfirmingRemove(true)}
-        >
-          Remove card…
+      {placed.loose ? null : (
+        <Button variant="ghost" size="xs" className="self-start" onClick={props.onRemove}>
+          <Trash2Icon />
+          Remove card
         </Button>
       )}
     </div>

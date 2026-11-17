@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { isHostedStaticApp } from "../../hostedPairing";
 import { randomUUID } from "../../lib/utils";
+import { toastManager } from "../ui/toast";
 import {
   type BoardCard,
   type BoardDocument,
@@ -211,10 +212,40 @@ export function updateCard(id: string, changes: Partial<Omit<BoardCard, "id" | "
   });
 }
 
-export function removeCard(id: string) {
+function removeCard(id: string) {
+  const card = snapshot.document.cards.find((entry) => entry.id === id);
+  if (!card) return;
   save({
     ...snapshot.document,
     cards: snapshot.document.cards.filter((card) => card.id !== id),
     removed: [...snapshot.document.removed, id],
+  });
+}
+
+/** Puts a removed card back. It gets a new id: the old one stays removed on every device. */
+function restoreCard(card: BoardCard) {
+  const at = nowIso();
+  save({
+    ...snapshot.document,
+    cards: [...snapshot.document.cards, { ...card, id: randomUUID(), updatedAt: at }],
+  });
+}
+
+/** Removes a card and offers Undo, instead of asking first. */
+export function removeCardWithUndo(id: string) {
+  const card = snapshot.document.cards.find((entry) => entry.id === id);
+  if (!card) return;
+  removeCard(id);
+  const toastId = toastManager.add({
+    type: "info",
+    title: "Card removed",
+    description: `"${card.title}". Its chats stay on their machines.`,
+    actionProps: {
+      children: "Undo",
+      onClick: () => {
+        toastManager.close(toastId);
+        restoreCard(card);
+      },
+    },
   });
 }
