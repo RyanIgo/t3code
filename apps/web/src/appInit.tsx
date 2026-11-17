@@ -3,6 +3,7 @@ import type { ClientSettings } from "@t3tools/contracts/settings";
 import { createBrowserHistory, createHashHistory } from "@tanstack/react-router";
 
 import { applyAppearanceContrast } from "./appearanceContrast";
+import { setAppDocumentTitle } from "./documentTitle";
 import { applyAppearanceFontVariables } from "./appearanceFonts";
 import { startElectronBrowserHost } from "./browser/ElectronBrowserHost";
 import { startBrowserProfileReporting } from "./browser/BrowserProfileReporter";
@@ -107,12 +108,14 @@ function startDocumentTitle(): void {
   appAtomRegistry.subscribe(
     primaryServerConfigAtom,
     (config) => {
-      document.title = resolveServerBackedAppDisplayName({
-        baseName: APP_BASE_NAME,
-        fallbackDisplayName: APP_DISPLAY_NAME,
-        fallbackStageLabel: APP_STAGE_LABEL,
-        primaryServerVersion: config?.environment.serverVersion ?? null,
-      });
+      setAppDocumentTitle(
+        resolveServerBackedAppDisplayName({
+          baseName: APP_BASE_NAME,
+          fallbackDisplayName: APP_DISPLAY_NAME,
+          fallbackStageLabel: APP_STAGE_LABEL,
+          primaryServerVersion: config?.environment.serverVersion ?? null,
+        }),
+      );
     },
     { immediate: true },
   );

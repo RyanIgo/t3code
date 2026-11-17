@@ -10,7 +10,7 @@ import { isReviewWindow, openReviewWindow, supportsReviewWindow } from "./review
 
 /**
  * Fleet fork: a question sheet inside a chat message. It starts as a short summary; the
- * user answers here or in the Review window, where the same answers carry over.
+ * user answers here or in the Review tab, where the same answers carry over.
  */
 export function QuestionSheetCard(props: {
   readonly sheet: QuestionSheet;
@@ -68,7 +68,7 @@ export function QuestionSheetCard(props: {
                 }
               >
                 <PanelsLeftRightIcon aria-hidden />
-                Answer in Review window
+                Answer in Review tab
               </Button>
             ) : null}
           </div>

@@ -1,3 +1,4 @@
+import { showThreadInDocumentTitle } from "../../documentTitle";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -92,6 +93,8 @@ export const ChatHeader = memo(function ChatHeader({
   const breadcrumbContainerRef = useRef<HTMLDivElement>(null);
   const [collapseParentTitle, setCollapseParentTitle] = useState(false);
   const activeThreadRef = scopeThreadRef(activeThreadEnvironmentId, activeThreadId);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- names the browser tab after the chat it shows
+  useEffect(() => showThreadInDocumentTitle(activeThreadTitle), [activeThreadTitle]);
   const machineLabel =
     useEnvironmentIdentities().find(
       (environment) => environment.environmentId === activeThreadEnvironmentId,
@@ -506,7 +509,7 @@ export const ChatHeader = memo(function ChatHeader({
   );
 });
 
-/** Fleet fork: opens this chat in the Review window, beside its pages, PRs and links. */
+/** Fleet fork: opens this chat in its own Review tab, beside its pages, PRs and links. */
 function ReviewWindowButton(props: {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
@@ -517,7 +520,7 @@ function ReviewWindowButton(props: {
     if (!openReviewWindow(router.history.createHref(path))) {
       toastManager.add({
         type: "error",
-        title: "The browser blocked the Review window",
+        title: "The browser blocked the Review tab",
         description: "Allow pop-ups for this site, then try again.",
       });
     }
@@ -528,7 +531,7 @@ function ReviewWindowButton(props: {
         render={
           <button
             type="button"
-            aria-label="Open in a Review window"
+            aria-label="Open in a Review tab"
             onClick={open}
             className="inline-flex h-6 shrink-0 cursor-pointer items-center rounded-md px-1.5 text-muted-foreground/70 outline-hidden hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
           />
@@ -537,7 +540,7 @@ function ReviewWindowButton(props: {
         <PanelsLeftRightIcon aria-hidden className="size-3.5" />
       </TooltipTrigger>
       <TooltipPopup side="bottom" className="max-w-64">
-        Open this chat in a Review window: no sidebar, with its pages, PRs and links on the left.
+        Open this chat in its own Review tab: no sidebar, with its pages, PRs and links on the left.
         Drag it to your second screen.
       </TooltipPopup>
     </Tooltip>

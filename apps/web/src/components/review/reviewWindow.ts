@@ -3,9 +3,10 @@ import { useSyncExternalStore } from "react";
 import { isElectron } from "../../env";
 
 /**
- * Fleet fork: the Review window is a second browser window showing one chat with no
- * sidebar and its pages, PRs and links on the left. The window's name marks it, so the
- * mode survives reloads and moving between chats. `?review` in the URL also turns it on.
+ * Fleet fork: a Review tab is a browser tab showing one chat with no sidebar and its pages,
+ * PRs and links on the left. Each chat gets its own tab, named for it, so opening it again
+ * focuses that tab. The tab's name marks the mode, so it survives reloads; `?review` in the
+ * URL also turns it on.
  */
 const REVIEW_WINDOW_NAME = "t3-review";
 
@@ -14,8 +15,13 @@ let reviewWindow: boolean | null = null;
 export function isReviewWindow(): boolean {
   if (reviewWindow !== null) return reviewWindow;
   if (typeof window === "undefined") return false;
-  if (new URLSearchParams(window.location.search).has("review")) window.name = REVIEW_WINDOW_NAME;
-  reviewWindow = window.name === REVIEW_WINDOW_NAME;
+  if (
+    new URLSearchParams(window.location.search).has("review") &&
+    !window.name.startsWith(REVIEW_WINDOW_NAME)
+  ) {
+    window.name = REVIEW_WINDOW_NAME;
+  }
+  reviewWindow = window.name.startsWith(REVIEW_WINDOW_NAME);
   return reviewWindow;
 }
 
@@ -24,9 +30,11 @@ export function supportsReviewWindow(): boolean {
   return !isElectron && typeof window !== "undefined" && typeof window.open === "function";
 }
 
-/** Opens (or reuses) the one Review window, showing the chat at `href`. */
+/** Opens the chat at `href` in its own Review tab, or brings that tab forward. */
 export function openReviewWindow(href: string): boolean {
-  const opened = window.open(href, REVIEW_WINDOW_NAME, "popup,width=1600,height=1000");
+  const url = new URL(href, window.location.href);
+  url.searchParams.set("review", "");
+  const opened = window.open(url.toString(), `${REVIEW_WINDOW_NAME}:${url.pathname}${url.hash}`);
   opened?.focus();
   return opened !== null;
 }

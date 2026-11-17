@@ -2,9 +2,12 @@ import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import * as Schema from "effect/Schema";
-import { Trash2Icon, XIcon } from "lucide-react";
+import { ExternalLinkIcon, Trash2Icon, XIcon } from "lucide-react";
+import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
 
+import { openReviewWindow, supportsReviewWindow } from "../review/reviewWindow";
+import { toastManager } from "../ui/toast";
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { readLocalApi } from "../../localApi";
 import { useThreadVisibleTurnItems } from "../../state/entities";
@@ -85,6 +88,7 @@ export function CardModal(props: {
 }) {
   const { placed } = props;
   const card = placed.card;
+  const router = useRouter();
   const [chatRef, setChatRef] = useState<CardChatRef | null>(card.chats[0] ?? null);
   const [mobilePane, setMobilePane] = useState<"chat" | "details">(
     card.chats.length > 0 ? "chat" : "details",
@@ -218,6 +222,26 @@ export function CardModal(props: {
             <Toggle value="chat">Chat</Toggle>
             <Toggle value="details">Card</Toggle>
           </ToggleGroup>
+          {shownChat && supportsReviewWindow() ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Open this chat in its own Review tab"
+              onClick={() => {
+                const path = `/${encodeURIComponent(shownChat.environmentId)}/${encodeURIComponent(shownChat.threadId)}`;
+                if (!openReviewWindow(router.history.createHref(path))) {
+                  toastManager.add({
+                    type: "error",
+                    title: "The browser blocked the new tab",
+                    description: "Allow pop-ups for this site, then try again.",
+                  });
+                }
+              }}
+            >
+              <ExternalLinkIcon />
+              Open in tab
+            </Button>
+          ) : null}
           {placed.loose ? null : (
             <Button
               variant="ghost"
