@@ -1,3 +1,4 @@
+import { DeskDetailsSection } from "../board/DeskChat";
 import type {
   EditorId,
   EnvironmentId,
@@ -234,6 +235,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                   </div>
                 </ThreadDetailsSection>
               ) : null}
+
+              <DeskDetailsSection threadRef={activeThreadRef} />
 
               {!props.draftId ? (
                 <ThreadLifecycleSection

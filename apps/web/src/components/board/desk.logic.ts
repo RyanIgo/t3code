@@ -424,3 +424,22 @@ export function sprintOverview(
     apps: byApp,
   };
 }
+
+export interface ChatStatus {
+  readonly label: string;
+  readonly tone: "warning" | "error" | "info" | "success" | "secondary";
+  /** Lower sorts first: what needs the user, then what's moving, then what's quiet. */
+  readonly rank: number;
+}
+
+/** A chat's state in a word, the way the sidebar sees it. */
+export function chatStatus(chat: CardChatState): ChatStatus {
+  if (chat.needsYou) return { label: "Needs you", tone: "warning", rank: 0 };
+  if (chat.pullRequests.some((pr) => pr.state === "open" && pr.checks === "failing")) {
+    return { label: "Checks failing", tone: "error", rank: 1 };
+  }
+  if (chat.column === "done") return { label: "Result ready", tone: "success", rank: 2 };
+  if (chat.working) return { label: "Working", tone: "info", rank: 3 };
+  // The board's "queued" column is idle chats plus starting ones, which count as working above.
+  return { label: "Idle", tone: "secondary", rank: 4 };
+}

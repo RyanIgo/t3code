@@ -5,6 +5,7 @@ import {
   buildDeskColumns,
   chatsForApp,
   chatsForItem,
+  chatStatus,
   chatWaitsOnYou,
   type DeskItem,
   currentSprint,
@@ -234,4 +235,43 @@ it("groups an app's work by sprint, blocked, open and recently done, and sums a 
     ["Precon", 2, 1],
     ["Materials", 1, 0],
   ]);
+});
+
+it("names a chat's status, needing the user first", () => {
+  const chat = (overrides: Partial<CardChatState>): CardChatState => ({
+    environmentId: "env",
+    threadId: "t",
+    title: "t",
+    projectKey: "p",
+    column: "running",
+    needsYou: false,
+    working: false,
+    hasPullRequest: false,
+    pullRequestNumber: null,
+    pullRequests: [],
+    since: null,
+    worktree: null,
+    branch: null,
+    ...overrides,
+  });
+  const failing = {
+    url: "u",
+    label: "",
+    state: "open",
+    checks: "failing",
+    mergeability: null,
+  } as const;
+  expect(
+    [
+      chat({ column: "queued" }),
+      chat({ working: true }),
+      chat({ needsYou: true, column: "needs" }),
+      chat({ column: "done" }),
+      chat({ pullRequests: [failing] }),
+      chat({}),
+    ]
+      .map(chatStatus)
+      .sort((a, b) => a.rank - b.rank)
+      .map((status) => status.label),
+  ).toEqual(["Needs you", "Checks failing", "Result ready", "Working", "Idle", "Idle"]);
 });

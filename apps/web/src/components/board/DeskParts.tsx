@@ -10,6 +10,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Textarea } from "../ui/textarea";
 import type { CardChatState } from "./boardCards.logic";
 import {
+  chatStatus,
   chatWaitsOnYou,
   DESK_LANES,
   type DeskItem,
@@ -95,21 +96,16 @@ export function ThreadList(props: {
   if (props.threads.length === 0) {
     return <p className="text-xs text-muted-foreground">{props.empty}</p>;
   }
-  const shown = all ? props.threads : props.threads.slice(0, THREADS_SHOWN);
+  const sorted = [...props.threads].sort((a, b) => chatStatus(a).rank - chatStatus(b).rank);
+  const shown = all ? sorted : sorted.slice(0, THREADS_SHOWN);
   return (
     <>
       <ul className="flex flex-col gap-1 text-sm">
         {shown.map((chat) => (
           <li key={`${chat.environmentId}:${chat.threadId}`} className="flex items-center gap-2">
-            {chatWaitsOnYou(chat) ? (
-              <Badge variant="warning" size="sm">
-                Needs you
-              </Badge>
-            ) : chat.working ? (
-              <Badge variant="info" size="sm">
-                Working
-              </Badge>
-            ) : null}
+            <Badge variant={chatStatus(chat).tone} size="sm" className="shrink-0">
+              {chatStatus(chat).label}
+            </Badge>
             <button
               type="button"
               className="min-w-0 cursor-pointer truncate text-left hover:underline"

@@ -207,3 +207,38 @@ export function buildChatPrompt(input: {
   }
   return lines.join("\n");
 }
+
+const VIEW_LABEL = { overview: "Overview", board: "Board", sprint: "Sprint" } as const;
+
+export interface DeskPlace {
+  /** The sprint step ("Sprint 1"), when the chat belongs to one. */
+  readonly sprint: { readonly label: string; readonly fragment: string } | null;
+  /** The rest: the app and view, the feature, or the item. */
+  readonly info: { readonly label: string; readonly fragment: string };
+}
+
+/** A linked chat's place on the Desk as breadcrumb steps: sprint, then app / feature / item. */
+export function deskPlace(link: DeskChatLink): DeskPlace {
+  const sprint = link.sprint
+    ? {
+        label: link.sprint,
+        fragment: deskFragment({
+          kind: "sprint",
+          view: null,
+          feature: null,
+          app: link.app,
+          sprint: link.sprint,
+          itemUrl: null,
+        }),
+      }
+    : null;
+  const info =
+    link.kind === "item"
+      ? (link.about.split(":")[0] ?? link.about)
+      : link.kind === "sprint"
+        ? (link.app ?? "All apps")
+        : link.feature
+          ? featureName(link.feature)
+          : `${link.app ?? "App"} · ${VIEW_LABEL[link.view ?? "overview"]}`;
+  return { sprint, info: { label: info, fragment: deskFragment(link) } };
+}

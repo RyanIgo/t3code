@@ -425,7 +425,16 @@ export function DeskPage(props: {
         card={(entry) => card(entry, false, sequence)}
         onSprint={setChosenSprint}
         onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp ?? app })}
-        linkedChats={linkedChats((link) => link.sprint === sprintShown.title)}
+        linkedChats={withLinked(
+          linkedChats((link) => link.sprint === sprintShown.title && link.kind === "sprint"),
+          items
+            .filter(
+              (entry) =>
+                entry.sprint?.title === sprintShown.title &&
+                (onlyApp === null || entry.app === onlyApp),
+            )
+            .flatMap(chatsFor),
+        )}
         onOpenChat={openChat}
       />
     );

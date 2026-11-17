@@ -802,12 +802,14 @@ export function SprintView(props: {
         maintenance · {percent(overview.mix.other)}% fixes, research & support (budget 60 / 20 /
         20). Add work to a sprint from any item's Sprint menu.
       </p>
-      {props.linkedChats.length > 0 ? (
-        <section className="flex flex-col gap-1.5">
-          <DeskHeading>Chats on this sprint · {props.linkedChats.length}</DeskHeading>
-          <ThreadList threads={props.linkedChats} onOpenChat={props.onOpenChat} empty="" />
-        </section>
-      ) : null}
+      <section className="flex flex-col gap-1.5">
+        <DeskHeading>Threads on this sprint · {props.linkedChats.length}</DeskHeading>
+        <ThreadList
+          threads={props.linkedChats}
+          onOpenChat={props.onOpenChat}
+          empty="No threads on this sprint's work yet. Use Chat about this sprint to start one."
+        />
+      </section>
       <NoteEditor
         label={`${sprint.title} notes`}
         hint="What this sprint is for and what feedback said. Agents read it."

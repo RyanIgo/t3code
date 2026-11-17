@@ -1,5 +1,5 @@
 import { showThreadInDocumentTitle } from "../../documentTitle";
-import { DeskLinkChip } from "../board/DeskChat";
+import { DeskBreadcrumb, DeskLinkChip } from "../board/DeskChat";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -362,6 +362,7 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
+        <DeskBreadcrumb threadRef={activeThreadRef} />
         {parentThreadLink ? (
           <>
             <WorkspaceBreadcrumbItem>

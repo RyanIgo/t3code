@@ -8,8 +8,15 @@ import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
-import { type DeskChatContext, contextLabel, deskFragment } from "./deskChat.logic";
+import { type DeskChatContext, contextLabel, deskFragment, deskPlace } from "./deskChat.logic";
+import type { DeskChatLink } from "./deskNotes.logic";
 import { useDeskNotes } from "./deskNotesStore";
+import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
+import {
+  WorkspaceBreadcrumbItem,
+  WorkspaceBreadcrumbSeparator,
+  WorkspaceBreadcrumbText,
+} from "../WorkspaceBreadcrumb";
 
 /** A project a new chat can start in: a machine's copy of a repo. */
 export interface DeskProjectChoice {
@@ -161,15 +168,99 @@ export function ChatLauncher(props: {
   );
 }
 
+/** The Desk link for a chat (or a new chat's draft), when it was started or linked from the Desk. */
+function useDeskLink(threadRef: ScopedThreadRef): DeskChatLink | null {
+  const notes = useDeskNotes();
+  return notes.notes.links[`${threadRef.environmentId}:${threadRef.threadId}`] ?? null;
+}
+
+function useOpenDesk() {
+  const navigate = useNavigate();
+  const onBoard = useRouterState({ select: (state) => state.location.pathname === "/board" });
+  return (fragment: string) => {
+    if (onBoard) window.location.hash = fragment;
+    else void navigate({ to: "/board", hash: fragment });
+  };
+}
+
+/** Breadcrumb steps after the repo for a chat from the Desk: "Sprint 1 / Precon · Board". */
+export function DeskBreadcrumb(props: { readonly threadRef: ScopedThreadRef }) {
+  const link = useDeskLink(props.threadRef);
+  const openDesk = useOpenDesk();
+  if (!link) return null;
+  const place = deskPlace(link);
+  const steps = [place.sprint, place.info].filter((step) => step !== null);
+  return (
+    <>
+      {steps.map((step) => (
+        <span key={step.fragment} className="contents">
+          <WorkspaceBreadcrumbItem className="shrink">
+            <button
+              type="button"
+              aria-label={`Open ${step.label} on the Desk`}
+              onClick={() => openDesk(step.fragment)}
+              className="inline-flex min-w-0 max-w-full cursor-pointer items-center rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            >
+              <WorkspaceBreadcrumbText className="max-w-48">{step.label}</WorkspaceBreadcrumbText>
+            </button>
+          </WorkspaceBreadcrumbItem>
+          <WorkspaceBreadcrumbSeparator>
+            <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+          </WorkspaceBreadcrumbSeparator>
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** In the chat's details panel: what this chat is on, from the Desk, with a way back there. */
+export function DeskDetailsSection(props: { readonly threadRef: ScopedThreadRef }) {
+  const notes = useDeskNotes();
+  const link = useDeskLink(props.threadRef);
+  const openDesk = useOpenDesk();
+  if (!link) return null;
+  const goal =
+    link.sprint && link.app ? notes.notes.sprintGoals[link.sprint]?.[link.app]?.text : undefined;
+  const rows: Array<readonly [string, string]> = [
+    ["App", link.app ?? "All apps"],
+    ...(link.sprint ? [["Sprint", link.sprint] as const] : []),
+    ...(goal ? [["Sprint goal", goal] as const] : []),
+    ...(link.feature ? [["Feature", link.feature.split(" · ").slice(1).join(" · ")] as const] : []),
+    ["On", link.about],
+  ];
+  return (
+    <ThreadDetailsSection headingId="thread-details-desk-heading" title="Dev Desk">
+      <div className="flex flex-col gap-2 px-2.5 text-xs">
+        <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1">
+          {rows.map(([label, value]) => (
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 break-words">{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <Button
+          variant="outline"
+          size="xs"
+          className="self-start"
+          onClick={() => openDesk(deskFragment(link))}
+        >
+          <LayoutDashboardIcon />
+          Open on the Desk
+        </Button>
+      </div>
+    </ThreadDetailsSection>
+  );
+}
+
 /**
  * In a chat's header: where on the Desk the chat came from ("Desk: Precon · Board"). Opens the
  * Desk there. Shown only for chats started or linked from the Desk, and not on the Desk itself.
  */
 export function DeskLinkChip(props: { readonly threadRef: ScopedThreadRef }) {
-  const notes = useDeskNotes();
   const navigate = useNavigate();
   const onBoard = useRouterState({ select: (state) => state.location.pathname === "/board" });
-  const link = notes.notes.links[`${props.threadRef.environmentId}:${props.threadRef.threadId}`];
+  const link = useDeskLink(props.threadRef);
   if (!link || onBoard) return null;
   return (
     <Button
