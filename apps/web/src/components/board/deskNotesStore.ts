@@ -11,7 +11,9 @@ import {
   type DeskChatLink,
   withLink,
   withNote,
+  withSheet,
 } from "./deskNotes.logic";
+import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
 
 /**
  * Fleet fork: the Desk's notes (per-app notes for agents, sprint goals and notes), one document
@@ -131,4 +133,36 @@ export function saveDeskLink(chatKey: string, link: Omit<DeskChatLink, "updatedA
         description: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+/**
+ * Publishes a hub test sheet with one row per acceptance criterion of a story, remembers it for
+ * the item, and returns its id. Makes it again (same id) when the criteria changed.
+ */
+export async function publishStorySheet(item: DeskItem): Promise<string> {
+  if (!item.url || !item.story || item.story.criteria.length === 0) {
+    throw new Error("This item has no acceptance criteria.");
+  }
+  const existing = snapshot.notes.sheets[item.url];
+  const response = await fetch(existing ? `/fleet/artifacts/${existing.id}` : "/fleet/artifacts", {
+    method: existing ? "PUT" : "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: "sheet",
+      title: `Story check: ${deskTitle(item)} (${deskRef(item)})`,
+      intro: item.story.text || undefined,
+      rows: item.story.criteria.map((criterion, index) => ({
+        id: `c${index + 1}`,
+        title: criterion.text,
+        links: [{ url: item.url, label: deskRef(item) }],
+      })),
+    }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`The hub answered ${response.status}.`);
+  const { id } = (await response.json()) as { id: string };
+  const next = withSheet(snapshot.notes, item.url, { id, updatedAt: new Date().toISOString() });
+  publish({ ...snapshot, notes: next });
+  saving = saving.then(() => push(next)).catch(() => undefined);
+  return id;
 }

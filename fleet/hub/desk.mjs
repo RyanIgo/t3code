@@ -82,6 +82,27 @@ export function readPlainWords(body) {
   return plain.what || plain.why || plain.where ? plain : null;
 }
 
+const sectionOf = (body, heading) =>
+  new RegExp(`^##\\s*${heading}\\s*$([\\s\\S]*?)(?=^##\\s|^---\\s*$|(?![\\s\\S]))`, "im").exec(
+    body,
+  )?.[1];
+
+/** Markdown emphasis and code marks dropped, for showing as plain text. */
+const plainText = (text) => text.replace(/\*\*|`/g, "").trim();
+
+/** A user story: its "## User story" text and the "## Acceptance criteria" checklist. */
+export function readStory(body) {
+  if (typeof body !== "string") return null;
+  const story = sectionOf(body, "User story");
+  const criteria = [
+    ...(sectionOf(body, "Acceptance criteria") ?? "").matchAll(/^\s*[-*]\s*\[([ xX])\]\s*(.+)$/gm),
+  ]
+    .slice(0, 30)
+    .map((match) => ({ done: match[1] !== " ", text: plainText(match[2]).slice(0, 500) }));
+  if (!story && criteria.length === 0) return null;
+  return { text: plainText(story ?? "").slice(0, 1500), criteria };
+}
+
 function checksOf(state) {
   if (state === "SUCCESS") return "passing";
   if (state === "FAILURE" || state === "ERROR") return "failing";
@@ -147,6 +168,7 @@ function normalizeItem(node) {
         : null,
     mergeable: kind === "pr" ? (content.mergeable?.toLowerCase() ?? null) : null,
     plain: readPlainWords(content.body),
+    story: readStory(content.body),
   };
 }
 

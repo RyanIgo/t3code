@@ -52,6 +52,20 @@ export interface DeskItem {
   /** For a PR item: its checks, when the hub's token may read them. */
   readonly checks?: "passing" | "failing" | "pending" | "none" | null;
   readonly plain: DeskPlainWords | null;
+  /** A user story: who wants what and why, and the checklist that says it's done. */
+  readonly story?: DeskStory | null;
+}
+
+export interface DeskStory {
+  readonly text: string;
+  readonly criteria: ReadonlyArray<{ readonly text: string; readonly done: boolean }>;
+}
+
+/** "2 of 6 criteria", or null when the item has no checklist. */
+export function storyProgress(item: DeskItem): string | null {
+  const criteria = item.story?.criteria ?? [];
+  if (criteria.length === 0) return null;
+  return `${criteria.filter((criterion) => criterion.done).length} of ${criteria.length} criteria`;
 }
 
 export type DeskStage = "Experiment" | "Testing" | "Production";

@@ -78,6 +78,28 @@ gh project item-add 1 --owner cfevans --url <issue url>   # then set fields on t
 production users, anything affecting a commitment or date, risks (security, outage, data) and
 decisions or resources needed from others. Side tasks, refactors and experiments stay here.
 
+## User stories
+
+Items labeled `story` start with three sections above the original text; the Desk reads them:
+
+```markdown
+## User story
+
+**As** <who>, **I can** <do what>, **so that** <outcome>.
+
+## Acceptance criteria
+
+- [ ] <one checkable outcome, in the user's words>
+
+## Engineering
+
+<PRs, migrations, checks, known limits: for agents>
+```
+
+- Tick a criterion (`- [x]`) only when it was shown to work, on a test sheet or by the user. The Desk shows "2 of 6 criteria" from these boxes.
+- The Desk's "Make test sheet" turns the criteria into hub test sheet rows. Read the results with the t3-artifacts script before ticking.
+- Keep criteria in plain words. Technical detail, performance numbers and root-cause notes go under Engineering.
+
 ## Lanes and priority
 
 The project has **Lane** (Now / Next / Later / Blocked) beside **Priority** (P0–P3), Status,

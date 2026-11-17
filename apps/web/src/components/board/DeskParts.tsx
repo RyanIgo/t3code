@@ -18,6 +18,7 @@ import {
   deskRef,
   deskTitle,
   featureName,
+  storyProgress,
 } from "./desk.logic";
 import type { DeskNote } from "./deskNotes.logic";
 import { setDeskLane } from "./deskStore";
@@ -195,6 +196,16 @@ export function DeskCard(props: {
           ) : item.sprint ? (
             <Badge variant="outline" size="sm">
               {item.sprint.title}
+            </Badge>
+          ) : null}
+          {storyProgress(item) ? (
+            <Badge
+              variant={
+                item.story?.criteria.every((criterion) => criterion.done) ? "success" : "info"
+              }
+              size="sm"
+            >
+              {storyProgress(item)}
             </Badge>
           ) : null}
           {item.workType && item.workType !== "Feature work" ? (

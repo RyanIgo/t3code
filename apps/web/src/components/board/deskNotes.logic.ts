@@ -34,6 +34,13 @@ export interface DeskNotes {
   readonly sprintNotes: Readonly<Record<string, DeskNote>>;
   /** "<environmentId>:<threadId>" → what that chat is linked to. */
   readonly links: Readonly<Record<string, DeskChatLink>>;
+  /** GitHub item URL → the hub test sheet made from its acceptance criteria. */
+  readonly sheets: Readonly<Record<string, DeskSheet>>;
+}
+
+export interface DeskSheet {
+  readonly id: string;
+  readonly updatedAt: string;
 }
 
 export const EMPTY_DESK_NOTES: DeskNotes = {
@@ -42,6 +49,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   sprintGoals: {},
   sprintNotes: {},
   links: {},
+  sheets: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -104,6 +112,19 @@ function readLinks(value: unknown): Record<string, DeskChatLink> {
   );
 }
 
+function readSheets(value: unknown): Record<string, DeskSheet> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([url, raw]) => {
+      const sheet = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+      if (!/^https:\/\/github\.com\//.test(url)) return [];
+      if (typeof sheet.id !== "string" || !/^[a-z0-9]{12}$/.test(sheet.id)) return [];
+      if (typeof sheet.updatedAt !== "string") return [];
+      return [[url, { id: sheet.id, updatedAt: sheet.updatedAt }]];
+    }),
+  );
+}
+
 /** Reads a stored notes document, dropping anything malformed. */
 export function parseDeskNotes(raw: string | null): DeskNotes {
   if (!raw) return EMPTY_DESK_NOTES;
@@ -127,6 +148,7 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
     ),
     sprintNotes: readNotes(record.sprintNotes),
     links: readLinks(record.links),
+    sheets: readSheets(record.sheets),
   };
 }
 
@@ -155,12 +177,17 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
     ),
     sprintNotes: mergeNotes(remote.sprintNotes, local.sprintNotes),
     links: mergeNotes(remote.links, local.links),
+    sheets: mergeNotes(remote.sheets, local.sheets),
   };
 }
 
 /** Links (or relinks) a chat to part of the Desk. */
 export function withLink(notes: DeskNotes, chatKey: string, link: DeskChatLink): DeskNotes {
   return { ...notes, links: { ...notes.links, [chatKey]: link } };
+}
+
+export function withSheet(notes: DeskNotes, itemUrl: string, sheet: DeskSheet): DeskNotes {
+  return { ...notes, sheets: { ...notes.sheets, [itemUrl]: sheet } };
 }
 
 export type DeskNoteTarget =

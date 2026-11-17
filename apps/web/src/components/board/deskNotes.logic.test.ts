@@ -49,9 +49,15 @@ describe("desk notes", () => {
       JSON.stringify({
         apps: { Precon: { text: "ok", updatedAt: "2026-11-17T10:00:00Z" }, Bad: { text: 1 } },
         sprintGoals: { "Sprint 1": { Precon: { text: "g", updatedAt: "x", by: "agent" } } },
+        sheets: {
+          "https://github.com/o/r/issues/1": { id: "5c33d70fbd29", updatedAt: "x" },
+          "https://github.com/o/r/issues/2": { id: "../../etc", updatedAt: "x" },
+          "https://evil.example/1": { id: "5c33d70fbd29", updatedAt: "x" },
+        },
       }),
     );
     expect(Object.keys(notes.apps)).toEqual(["Precon"]);
+    expect(Object.keys(notes.sheets)).toEqual(["https://github.com/o/r/issues/1"]);
     expect(notes.sprintGoals["Sprint 1"]?.Precon?.by).toBe("agent");
     expect(parseDeskNotes("not json")).toEqual(EMPTY_DESK_NOTES);
   });

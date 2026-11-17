@@ -41,6 +41,7 @@ import {
 } from "./DeskParts";
 import { type DeskField, fetchDeskDetail, setDeskField } from "./deskStore";
 import { ChatAboutButton } from "./DeskChat";
+import { StorySection } from "./DeskStory";
 
 const NONE = "__none__";
 const STAGE_RANK: Record<string, number> = { Production: 3, Testing: 2, Experiment: 1, "": 0 };
@@ -203,6 +204,8 @@ function ItemDetails(props: {
           ) : null}
         </section>
       ) : null}
+
+      <StorySection item={item} />
 
       {error ? (
         <p className="text-sm text-destructive">Couldn't load the details: {error}</p>
