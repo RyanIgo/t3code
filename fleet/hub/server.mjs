@@ -10,6 +10,8 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeHttp from "node:http";
 import * as NodePath from "node:path";
 
+import { createDesk } from "./desk.mjs";
+
 const PORT = Number(process.env.HUB_PORT ?? 3790);
 const WEB_ROOT = NodePath.resolve(process.env.HUB_WEB ?? "./web");
 const DATA_ROOT = NodePath.resolve(process.env.HUB_DATA ?? "./data");
@@ -584,6 +586,46 @@ async function publishArtifact(id, create, req, reply, login) {
   return true;
 }
 
+// The Dev Desk reads the GitHub project named in data/desk-project ("owner/number") with the
+// token in data/github-token (or HUB_DESK_PROJECT / HUB_GITHUB_TOKEN). Never logged or served.
+const readSetting = (name, env) => {
+  if (process.env[env]?.trim()) return process.env[env].trim();
+  try {
+    return NodeFS.readFileSync(NodePath.join(DATA_ROOT, name), "utf8").trim();
+  } catch {
+    return "";
+  }
+};
+const desk = createDesk({
+  dataRoot: DATA_ROOT,
+  project: readSetting("desk-project", "HUB_DESK_PROJECT"),
+  token: readSetting("github-token", "HUB_GITHUB_TOKEN"),
+  log,
+});
+
+async function handleDesk(pathname, req, res) {
+  if (pathname === "/fleet/desk" && req.method === "GET") {
+    send(res, 200, desk.view());
+    return true;
+  }
+  if (pathname === "/fleet/desk/refresh" && req.method === "POST") {
+    await desk.refresh();
+    send(res, 200, desk.view());
+    return true;
+  }
+  const item = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)$/);
+  if (item && req.method === "POST") {
+    const body = JSON.parse(await readBody(req));
+    try {
+      send(res, 200, { item: await desk.setLane(item[1], body?.lane ?? null) });
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
+  return false;
+}
+
 const server = NodeHttp.createServer(async (req, res) => {
   try {
     const login = callerLogin(req);
@@ -596,6 +638,7 @@ const server = NodeHttp.createServer(async (req, res) => {
       return;
     }
     if (await handleArtifacts(pathname, req, res, login, owner)) return;
+    if (pathname.startsWith("/fleet/desk") && (await handleDesk(pathname, req, res))) return;
     if (pathname === "/fleet/whoami") {
       send(res, 200, { login });
       return;
@@ -620,6 +663,7 @@ if (OWNERS.size === 0) {
   process.exit(1);
 }
 await NodeFSP.mkdir(DATA_ROOT, { recursive: true, mode: 0o700 });
+await desk.start();
 server.listen(PORT, "127.0.0.1", () => {
   log("hub listening", { port: PORT, web: WEB_ROOT, data: DATA_ROOT, owners: [...OWNERS] });
 });

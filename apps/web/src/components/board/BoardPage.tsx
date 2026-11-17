@@ -43,12 +43,13 @@ import {
 } from "./boardCards.logic";
 import { addCards, useBoard, updateCard } from "./boardStore";
 import { CardModal } from "./CardModal";
+import { DeskPage } from "./DeskPage";
 import { resolveFleetBoardCard } from "./fleetBoard.logic";
 import { FleetBoardPage } from "./FleetBoardPage";
 import { BoardCardTile, ProjectBoard } from "./ProjectBoard";
 import { useFleetBoardThreads } from "./useFleetBoardThreads";
 
-const BoardView = Schema.Literals(["board", "views", "activity"]);
+const BoardView = Schema.Literals(["board", "views", "activity", "desk"]);
 type BoardView = typeof BoardView.Type;
 /** The repo picker's "All repos" entry; never a real project key. */
 const ALL_REPOS = "*";
@@ -60,6 +61,7 @@ const VIEW_OPTIONS: ReadonlyArray<{ readonly id: BoardView; readonly label: stri
   { id: "board", label: "Board" },
   { id: "views", label: "Views" },
   { id: "activity", label: "Activity" },
+  { id: "desk", label: "Desk" },
 ];
 
 function pullRequestState(
@@ -120,7 +122,9 @@ export function BoardPage() {
       value={[view]}
       onValueChange={(next) => {
         const value = next[0];
-        if (value === "board" || value === "views" || value === "activity") setView(value);
+        if (value === "board" || value === "views" || value === "activity" || value === "desk") {
+          setView(value);
+        }
       }}
     >
       {VIEW_OPTIONS.map((option) => (
@@ -131,7 +135,12 @@ export function BoardPage() {
     </ToggleGroup>
   );
   if (view === "activity") return <FleetBoardPage viewSwitcher={switcher} />;
+  if (view === "desk") return <DeskView switcher={switcher} />;
   return <CardsPage view={view} switcher={switcher} />;
+}
+
+function DeskView(props: { readonly switcher: React.ReactNode }) {
+  return <DeskPage switcher={props.switcher} chats={useCardChats(false)} />;
 }
 
 function CardsPage(props: {

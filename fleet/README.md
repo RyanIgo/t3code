@@ -114,6 +114,25 @@ logins to the service: `Environment=HUB_GUESTS=a@example.com,b@example.com` in
 `systemctl --user daemon-reload && systemctl --user restart t3-fleet-hub`. Artifact pages run
 sandboxed, so a page can't read the machines' sign-ins the hub keeps.
 
+### Dev Desk: development work in plain words
+
+Board → **Desk** on the hub shows every open item of one GitHub project (issues and PRs) by
+lane — Not sorted, Now (at most 5), Next, Later, Blocked — with what needs you on top and the T3
+chats working on each item. Drag a card or use its lane menu to move it; that sets the item's
+**Lane** field on GitHub, which stays the record. Agents keep a plain-words section on each issue
+(the `dev-desk` skill), which the Desk shows instead of the GitHub title.
+
+The hub syncs the project every 5 minutes. Give it a project and a GitHub token, on the hub:
+
+```sh
+echo cfevans/1 > ~/t3-fleet-hub/data/desk-project
+install -m 600 /dev/stdin ~/t3-fleet-hub/data/github-token   # paste the token, then Ctrl-D
+systemctl --user restart t3-fleet-hub
+```
+
+The token needs read/write on issues and pull requests in the project's repos and read/write
+on the organization's projects. It stays on the hub and is never served.
+
 A machine whose T3 server runs inside WSL has its Tailscale on Windows, where `t3 pair --tailscale`
 can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pair` and use the
 `https://<machine>.<tailnet>.ts.net/pair#token=…` form of the link:
