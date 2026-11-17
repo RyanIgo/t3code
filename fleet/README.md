@@ -85,7 +85,10 @@ The host needs Node 20+ and Tailscale. From this repo:
 ```sh
 fleet/deploy-hub.sh <ssh-host> --setup --owner you@example.com   # first time
 fleet/deploy-hub.sh <ssh-host>                                    # updates
+fleet/deploy-hub.sh <ssh-host> --hub-only                         # only fleet/hub/* changed
 ```
+
+Updates upload only the files that changed since the running release.
 
 Then open `https://<host>.<tailnet>.ts.net`, add each machine once with a pairing link from
 `t3 pair --tailscale` on that machine, and open the same address on your other devices.
@@ -160,3 +163,14 @@ Never point a dev server at `~/.t3/userdata`. Seed an isolated copy and run agai
 node apps/server/scripts/migrate-dev-db.ts --base-dir "$PWD/.t3"
 node scripts/dev-runner.ts dev --home-dir "$PWD/.t3" --no-browser   # open the printed pairingUrl, then /board
 ```
+
+To work on the hosted UI (Board, Desk, artifacts) without deploying, run it live against a
+copy of the hub's data. Edits show in the browser within seconds:
+
+```sh
+fleet/dev-review.sh start          # http://localhost:5740/board; --fresh-data recopies the hub data
+node fleet/dev-look.mjs '/board#desk=prs' shot.png --click "Sprint"   # headless screenshot, one kept profile
+fleet/dev-review.sh stop
+```
+
+Notes and artifacts saved there stay in the copy; Desk lane and field edits go to GitHub.

@@ -206,6 +206,19 @@ function resolveDevProxyTarget(
 
 const devProxyTarget = resolveDevProxyTarget(process.env.T3CODE_PORT, configuredWsUrl);
 
+// Fleet fork: live review of the hosted app (fleet/dev-review.sh). The dev server sends the
+// hub's own paths to a local fleet hub, as `tailscale serve` would, with the owner's login.
+const fleetDevHub = process.env.T3_FLEET_DEV_HUB?.trim();
+const fleetDevLogin = process.env.T3_FLEET_DEV_LOGIN?.trim() ?? "";
+const fleetDevProxy = fleetDevHub
+  ? Object.fromEntries(
+      ["^/fleet/", "^/a/"].map((prefix) => [
+        prefix,
+        { target: fleetDevHub, headers: { "tailscale-user-login": fleetDevLogin } },
+      ]),
+    )
+  : {};
+
 // Brotli quality 5 encodes in hundreds of ms; default quality 11 would replace transfer stalls with encode stalls.
 function devCompressionPlugin(): Plugin {
   return {
@@ -342,6 +355,7 @@ export default defineConfig(() => {
       warmup: {
         clientFiles: ["./src/main.tsx"],
       },
+      ...(fleetDevHub ? { proxy: fleetDevProxy } : {}),
       ...(devProxyTarget
         ? {
             // Share prefixes with the backend catch-all so the proxy and 404 lists cannot drift.

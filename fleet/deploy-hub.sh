@@ -4,6 +4,10 @@
 #
 #   fleet/deploy-hub.sh <ssh-host> --setup --owner you@example.com   first time
 #   fleet/deploy-hub.sh <ssh-host>                                    later updates
+#   fleet/deploy-hub.sh <ssh-host> --hub-only                         only server.mjs/desk.mjs changed
+#
+# Uploads only files that changed since the running release (rsync, hard links for the rest),
+# over one reused ssh connection.
 #
 # The host needs Node 20+ and Tailscale. Everything lives in ~/t3-fleet-hub there and runs as
 # a systemd user service behind `tailscale serve` (HTTPS on the host's tailnet name).
@@ -11,12 +15,13 @@ set -euo pipefail
 
 usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
-host="" setup=0 owner="" port=3790
+host="" setup=0 owner="" port=3790 hub_only=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --setup) setup=1 ;;
     --owner) owner="${2:?--owner needs your Tailscale login}"; shift ;;
     --port) port="${2:?}"; shift ;;
+    --hub-only) hub_only=1 ;;
     -h|--help) usage 0 ;;
     -*) echo "Unknown option: $1" >&2; usage 1 ;;
     *) host="$1" ;;
@@ -31,6 +36,15 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 remote_root='$HOME/t3-fleet-hub'
+if [[ "$setup" == 1 && "$hub_only" == 1 ]]; then
+  echo "--setup needs the UI too; drop --hub-only." >&2
+  exit 1
+fi
+
+# One ssh connection for the whole deploy (each new one costs over a second).
+control_dir="$(mktemp -d)"
+ssh_opts=(-o ControlMaster=auto -o "ControlPath=$control_dir/%C" -o ControlPersist=60)
+ssh() { command ssh "${ssh_opts[@]}" "$@"; }
 
 echo "Checking $host…"
 ssh "$host" 'command -v node >/dev/null && node -e "process.exit(Number(process.versions.node.split(\".\")[0]) >= 20 ? 0 : 1)"' \
@@ -42,14 +56,18 @@ echo "Hub address: $hub_url"
 
 # A separate output folder, so this machine's own client build in apps/web/dist is untouched.
 out_dir="$(mktemp -d)"
-trap 'rm -rf "$out_dir"' EXIT
-echo "Building the hosted UI…"
-(
-  cd "$repo_root/apps/web"
-  # Never set VITE_HTTP_URL / VITE_WS_URL: the hosted app connects to each machine itself.
-  unset VITE_HTTP_URL VITE_WS_URL
-  VITE_HOSTED_APP_URL="$hub_url" vp build --outDir "$out_dir/web" --emptyOutDir
-)
+trap 'command ssh "${ssh_opts[@]}" -O exit "$host" 2>/dev/null; rm -rf "$out_dir" "$control_dir"' EXIT
+if [[ "$hub_only" == 1 ]]; then
+  echo "Keeping the running release's UI (--hub-only)."
+else
+  echo "Building the hosted UI…"
+  (
+    cd "$repo_root/apps/web"
+    # Never set VITE_HTTP_URL / VITE_WS_URL: the hosted app connects to each machine itself.
+    unset VITE_HTTP_URL VITE_WS_URL
+    VITE_HOSTED_APP_URL="$hub_url" vp build --outDir "$out_dir/web" --emptyOutDir
+  )
+fi
 cp "$repo_root/fleet/hub/server.mjs" "$out_dir/server.mjs"
 cp "$repo_root/fleet/hub/desk.mjs" "$out_dir/desk.mjs"
 # Artifact pages (test sheet, page theme) come from packages/shared so they match T3's look.
@@ -61,8 +79,18 @@ node --input-type=module -e '
 
 release="$(date -u +%Y%m%d-%H%M%S)"
 echo "Uploading release $release…"
-ssh "$host" "mkdir -p $remote_root/releases/$release $remote_root/data && chmod 700 $remote_root/data"
-tar -C "$out_dir" -czf - web server.mjs desk.mjs artifact-assets.json | ssh "$host" "tar -C $remote_root/releases/$release -xzf -"
+ssh "$host" "mkdir -p $remote_root/releases $remote_root/data && chmod 700 $remote_root/data"
+if [[ "$hub_only" == 1 ]]; then
+  ssh "$host" "test -d $remote_root/current/web && mkdir -p $remote_root/releases/$release \
+    && cp -al $remote_root/current/web/. $remote_root/releases/$release/web" \
+    || { echo "No running release to keep the UI from; deploy without --hub-only." >&2; exit 1; }
+fi
+# Unchanged files (same content) become hard links to the running release's copies; the
+# link-dest path is relative to the new release folder. The first deploy has nothing to link to.
+rsync -rlpt --checksum --compress -e "ssh ${ssh_opts[*]}" \
+  --link-dest="../../current/" \
+  "$out_dir/" "$host:t3-fleet-hub/releases/$release/" \
+  || rsync -rlpt --checksum --compress -e "ssh ${ssh_opts[*]}" "$out_dir/" "$host:t3-fleet-hub/releases/$release/"
 
 if [[ "$setup" == 1 ]]; then
   echo "Setting up the service and tailscale serve…"
