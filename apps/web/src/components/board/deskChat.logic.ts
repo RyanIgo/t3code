@@ -12,7 +12,7 @@ import {
   groupWork,
   sprintOverview,
 } from "./desk.logic";
-import type { DeskChatLink, DeskNotes } from "./deskNotes.logic";
+import { ALL_APPS, type DeskChatLink, type DeskNotes } from "./deskNotes.logic";
 
 export type DeskChatContext =
   | {
@@ -121,6 +121,27 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
 }
 
 /** The chat's opening message: what Rigo is on, a snapshot, and how to build context. */
+const DIRECTION_SECTIONS = [
+  ["direction", "Direction"],
+  ["goals", "Goals"],
+  ["questions", "Open questions"],
+] as const;
+
+/** The app's direction and how Rigo steers, as kept on the Board, for a chat's first message. */
+function directionLines(notes: DeskNotes, app: string | null): string[] {
+  const lines: string[] = [];
+  const add = (label: string, text: string | undefined) => {
+    if (text?.trim()) lines.push("", `## ${label}`, text.trim());
+  };
+  if (app) {
+    for (const [id, label] of DIRECTION_SECTIONS) {
+      add(`${app}: ${label}`, notes.directions[app]?.[id]?.text);
+    }
+  }
+  add("How I steer (every application)", notes.directions[ALL_APPS]?.loop?.text);
+  return lines;
+}
+
 export function buildChatPrompt(input: {
   readonly context: DeskChatContext;
   readonly items: ReadonlyArray<DeskItem>;
@@ -142,7 +163,8 @@ export function buildChatPrompt(input: {
         app ? `App: ${app}` : null,
         item.feature ? `Feature: ${featureName(item.feature)}` : null,
         item.sprint ? `Sprint: ${item.sprint.title}` : null,
-        item.lane ? `Lane: ${item.lane}` : null,
+        item.status ? `Status: ${item.status}` : null,
+        item.lane === "Blocked" ? "Blocked" : null,
         item.priority ? `Priority: ${item.priority}` : null,
       ]
         .filter(Boolean)
@@ -194,15 +216,16 @@ export function buildChatPrompt(input: {
     );
   }
 
+  lines.push(...directionLines(notes, app));
   lines.push(
     "",
     "Before anything else, build your context from what you can reach:",
-    `1. Run \`${contextCommand}\` for the app's notes for agents, sprint goal and features (the dev-desk skill). If it isn't installed, use the snapshot above.`,
+    `1. Run \`${contextCommand}\` for the app's full direction, notes for agents, sprint goal and features (the dev-desk skill). If it isn't installed, use what's above.`,
     context.kind === "item" && context.item.repo && context.item.number !== null
       ? `2. Read the issue and its comments: \`gh issue view ${context.item.number} --repo ${context.item.repo} --comments\`, and any linked PRs.`
       : "2. Read the issues above that matter most (`gh issue view <n> --repo <owner/repo> --comments`).",
     "3. Search other T3 chats for these issue numbers before starting, so we don't duplicate work in progress.",
-    "4. Follow the notes for agents and stay inside the sprint goal; say so in one line if what I ask conflicts with them.",
+    "4. Follow the app's direction, its notes for agents and how I steer; say so in one line if what I ask conflicts with them.",
     "",
     "Then tell me in three short lines where this stands, and ask what I want to do first. Record decisions with `desk.mjs note`.",
   );

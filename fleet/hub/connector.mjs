@@ -413,7 +413,7 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
         capabilities: { tools: {} },
         serverInfo: { name: "dev-desk", title: "Dev Desk", version: "1.0.0" },
         instructions:
-          "Rigo's development work across his applications, from the GitHub project the T3 fleet hub syncs. Every item is a GitHub issue with a type (Story, Bug, Maintenance, Research, Support), an app, a status (Todo, In Progress, In Review, Done), a priority (P0-P3) and maybe a sprint. Start with desk_overview; refer to items as repo#number. Write titles in plain words a manager can read.",
+          "Rigo's development work across his applications, from the GitHub project the T3 fleet hub syncs. Every item is a GitHub issue with a type (Story, Bug, Maintenance, Research, Support), an app, a status (Todo, In Progress, In Review, Done), a priority (P0-P3) and maybe a sprint. Before discussing an application's priorities or plans, read its direction with app_direction (and app_direction with no app for the portfolio's rules on how Rigo steers); then use desk_overview for where the work stands. Refer to items as repo#number. Write titles in plain words a manager can read.",
       });
     }
     if (method === "ping") return result({});

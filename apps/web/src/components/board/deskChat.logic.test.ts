@@ -51,17 +51,32 @@ describe("chat context", () => {
       sprint,
     });
     expect(prompt).toContain("cfe-drawings#183 from the Dev Desk: Restart AI reads safely");
-    expect(prompt).toContain("Feature: AI reading pipeline · Sprint: Sprint 1 · Lane: Now");
+    expect(prompt).toContain("Feature: AI reading pipeline · Sprint: Sprint 1 · Status: Todo");
     expect(prompt).toContain('desk.mjs context "Precon"');
     expect(prompt).toContain("gh issue view 183 --repo cfevans/cfe-drawings --comments");
   });
 
-  it("gives an app's chat its sprint goal and a snapshot of the work", () => {
-    const notes = withNote(
+  it("gives an app's chat its direction, how Rigo steers, its sprint goal and the work", () => {
+    const at = "2026-11-17T10:00:00Z";
+    let notes = withNote(
       EMPTY_DESK_NOTES,
       { kind: "sprintGoal", sprint: "Sprint 1", app: "Precon" },
       "Estimators level bids on one screen",
-      "2026-11-17T10:00:00Z",
+      at,
+      null,
+    );
+    notes = withNote(
+      notes,
+      { kind: "direction", app: "Precon", section: "goals" },
+      "- Bids land sorted",
+      at,
+      null,
+    );
+    notes = withNote(
+      notes,
+      { kind: "direction", app: "*", section: "loop" },
+      "Ask before anything hard to reverse.",
+      at,
       null,
     );
     const prompt = buildChatPrompt({
@@ -77,6 +92,10 @@ describe("chat context", () => {
     expect(prompt).toContain("Sprint 1 goal: Estimators level bids on one screen");
     expect(prompt).toContain("In Sprint 1:\n- cfe-drawings#183 Restart AI reads safely [Now]");
     expect(prompt).toContain("Blocked:\n- cfe-drawings#9 Waiting on vendor [Blocked]");
+    expect(prompt).toContain("## Precon: Goals\n- Bids land sorted");
+    expect(prompt).toContain(
+      "## How I steer (every application)\nAsk before anything hard to reverse.",
+    );
   });
 
   it("labels and links contexts, and keeps the newer link when two devices save", () => {
