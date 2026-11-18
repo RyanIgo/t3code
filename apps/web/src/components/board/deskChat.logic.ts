@@ -33,7 +33,7 @@ export function contextLabel(context: DeskChatContext): string {
   if (context.kind === "sprint") {
     return context.app ? `${context.sprint.title} · ${context.app}` : context.sprint.title;
   }
-  const view = { overview: "Overview", board: "Board", sprint: "Sprint", prs: "PRs" }[context.view];
+  const view = { overview: "Overview", board: "Plan", sprint: "Sprint", prs: "PRs" }[context.view];
   return context.feature
     ? `${context.app} · ${featureName(context.feature)}`
     : `${context.app} · ${view}`;
@@ -215,7 +215,7 @@ export function buildChatPrompt(input: {
   return lines.join("\n");
 }
 
-const VIEW_LABEL = { overview: "Overview", board: "Board", sprint: "Sprint", prs: "PRs" } as const;
+const VIEW_LABEL = { overview: "Overview", board: "Plan", sprint: "Sprint", prs: "PRs" } as const;
 
 export interface DeskPlace {
   /** The sprint step ("Sprint 1"), when the chat belongs to one. */

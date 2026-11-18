@@ -184,7 +184,7 @@ function useOpenDesk() {
   };
 }
 
-/** Breadcrumb steps after the repo for a chat from the Desk: "Sprint 1 / Precon · Board". */
+/** Breadcrumb steps after the repo for a chat from the Desk: "Sprint 1 / Precon · Plan". */
 export function DeskBreadcrumb(props: { readonly threadRef: ScopedThreadRef }) {
   const link = useDeskLink(props.threadRef);
   const openDesk = useOpenDesk();
@@ -230,7 +230,7 @@ export function DeskDetailsSection(props: { readonly threadRef: ScopedThreadRef 
     ["On", link.about],
   ];
   return (
-    <ThreadDetailsSection headingId="thread-details-desk-heading" title="Dev Desk">
+    <ThreadDetailsSection headingId="thread-details-desk-heading" title="Board">
       <div className="flex flex-col gap-2 px-2.5 text-xs">
         <dl className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1">
           {rows.map(([label, value]) => (
@@ -255,7 +255,7 @@ export function DeskDetailsSection(props: { readonly threadRef: ScopedThreadRef 
 }
 
 /**
- * In a chat's header: where on the Desk the chat came from ("Desk: Precon · Board"). Opens the
+ * In a chat's header: where on the Desk the chat came from ("Board: Precon · Plan"). Opens the
  * Desk there. Shown only for chats started or linked from the Desk, and not on the Desk itself.
  */
 export function DeskLinkChip(props: { readonly threadRef: ScopedThreadRef }) {
@@ -271,7 +271,7 @@ export function DeskLinkChip(props: { readonly threadRef: ScopedThreadRef }) {
       onClick={() => void navigate({ to: "/board", hash: deskFragment(link) })}
     >
       <LayoutDashboardIcon />
-      <span className="truncate">Desk: {link.about}</span>
+      <span className="truncate">Board: {link.about}</span>
     </Button>
   );
 }

@@ -73,7 +73,7 @@ describe("chat context", () => {
       notes,
       sprint,
     });
-    expect(prompt).toContain("I'm working on Precon · Board from the Dev Desk.");
+    expect(prompt).toContain("I'm working on Precon · Plan from the Dev Desk.");
     expect(prompt).toContain("Sprint 1 goal: Estimators level bids on one screen");
     expect(prompt).toContain("In Sprint 1:\n- cfe-drawings#183 Restart AI reads safely [Now]");
     expect(prompt).toContain("Blocked:\n- cfe-drawings#9 Waiting on vendor [Blocked]");
