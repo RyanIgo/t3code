@@ -10,6 +10,7 @@ import {
   parseDeskNotes,
   type DeskChatLink,
   type PinPlace,
+  type PinRole,
   withLink,
   withNote,
   withPin,
@@ -138,8 +139,8 @@ export function saveDeskLink(chatKey: string, link: Omit<DeskChatLink, "updatedA
 }
 
 /** Pins a chat ("<environmentId>:<threadId>") to a place on the Board, or unpins it. */
-export function saveDeskPin(place: PinPlace, chatKey: string, pinned: boolean) {
-  const next = withPin(snapshot.notes, place, chatKey, pinned, new Date().toISOString());
+export function saveDeskPin(place: PinPlace, chatKey: string, pinned: boolean, role?: PinRole) {
+  const next = withPin(snapshot.notes, place, chatKey, pinned, new Date().toISOString(), role);
   publish({ ...snapshot, notes: next });
   saving = saving
     .then(() => push(next))

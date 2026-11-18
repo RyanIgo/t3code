@@ -297,7 +297,10 @@ export function DeskPinButton(props: { readonly threadRef: ScopedThreadRef }) {
   if (link?.itemUrl)
     choices.push({ place: { kind: "item", url: link.itemUrl }, label: `Its item (${link.about})` });
   if (link?.sprint)
-    choices.push({ place: { kind: "sprint", sprint: link.sprint }, label: link.sprint });
+    choices.push({
+      place: { kind: "sprint", sprint: link.sprint, app: link.app },
+      label: `${link.sprint}${link.app ? ` · ${link.app}` : ""}`,
+    });
   for (const app of apps) choices.push({ place: { kind: "app", app }, label: app });
   return (
     <PinMenu

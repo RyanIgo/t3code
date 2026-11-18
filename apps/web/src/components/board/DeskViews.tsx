@@ -356,8 +356,8 @@ function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoi
     choices.push({ place: { kind: "item", url: item.url }, label: `This item (${deskRef(item)})` });
   if (item?.sprint)
     choices.push({
-      place: { kind: "sprint", sprint: item.sprint.title },
-      label: item.sprint.title,
+      place: { kind: "sprint", sprint: item.sprint.title, app: item.app },
+      label: `${item.sprint.title}${item.app ? ` · ${item.app}` : ""}`,
     });
   for (const app of apps) choices.push({ place: { kind: "app", app }, label: app });
   return choices;
@@ -801,6 +801,8 @@ export function SprintView(props: {
   readonly onChat: () => void;
   /** The Status columns (To do, In progress, In review, Done). */
   readonly board: ReactNode;
+  /** The app's planning chats and the sprint's own chats, side by side. */
+  readonly pinned: ReactNode;
 }) {
   const { sprint, view } = props;
   const apps = props.app ? [props.app] : (view.apps ?? []);
@@ -869,6 +871,7 @@ export function SprintView(props: {
         maintenance · {percent(overview.mix.other)}% bugs, research & support (budget 60 / 20 / 20).
         Drag a card to change its status; add work from the Backlog.
       </p>
+      {props.pinned}
       {props.app ? (
         <NoteEditor
           label={`${props.app} goal for ${sprint.title}`}

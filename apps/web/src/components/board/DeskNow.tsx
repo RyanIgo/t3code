@@ -1,8 +1,9 @@
 import { type ReactNode, useEffect, useState } from "react";
 
+import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import type { CardChatState } from "./boardCards.logic";
-import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
+import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading, openExternal } from "./DeskParts";
 
@@ -76,189 +77,243 @@ const PR_LABEL = {
   fix: { label: "Send back", tone: "error" },
 } as const;
 
+type Tone = "success" | "error" | "warning" | "info" | "outline" | "secondary";
+type Lane = "working" | "review" | "test" | "merge";
+const LANES: ReadonlyArray<{ readonly id: Lane; readonly label: string; readonly hint: string }> = [
+  { id: "working", label: "Working", hint: "Agents running now" },
+  { id: "review", label: "Review", hint: "Questions, approvals, results" },
+  { id: "test", label: "Test", hint: "Sheets with checks to do" },
+  { id: "merge", label: "Merge", hint: "Merge, close or send back" },
+];
+
+interface Entry {
+  readonly key: string;
+  readonly lane: Lane;
+  readonly app: string;
+  readonly badge: string;
+  readonly tone: Tone;
+  readonly title: string;
+  readonly meta: string;
+  readonly onClick: () => void;
+}
+
+const OTHER = "Other";
+/** How much an app needs Rigo: reviews first, then merges, tests, and running work last. */
+const WEIGHT: Record<Lane, number> = { review: 100, merge: 10, test: 3, working: 1 };
+
 /**
- * Fleet fork: the Now tab. At a glance, what agents are working on and where Rigo is needed:
- * to review (questions, approvals, results), to test (sheets with checks to do) and to merge.
+ * Fleet fork: the Now tab, every application at once. One band per app that has something going
+ * on, the one that needs Rigo most first; across each band, what's working and what waits on him
+ * to review, test or merge. Each row is one click to act on.
  */
 export function NowView(props: {
-  readonly app: string | null;
   readonly nowMs: number;
   readonly chats: ReadonlyArray<CardChatState>;
   /** Items waiting on Rigo outside chats (blocked, PRs in review). */
   readonly waiting: ReadonlyArray<DeskItem>;
   readonly prs: ReadonlyArray<DeskPr>;
   readonly appOf: (chat: CardChatState) => string | null;
+  readonly apps: ReadonlyArray<string>;
   readonly pinned: ReactNode;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onOpenPr: (pr: DeskPr) => void;
 }) {
-  // With an app chosen: sheets published from that app's chats, or naming the app.
-  const sheets = useSheetsToTest(props.nowMs).filter(
-    (sheet) =>
-      props.app === null ||
-      props.chats.some((chat) => chat.threadId === sheet.thread?.threadId) ||
-      sheet.title.toLowerCase().includes(props.app.toLowerCase()),
-  );
-  const working = props.chats
-    .filter((chat) => chat.working)
-    .toSorted((a, b) => Date.parse(a.since ?? "") - Date.parse(b.since ?? ""));
-  const asking = props.chats.filter((chat) => chat.needsYou);
-  const results = props.chats.filter((chat) => !chat.needsYou && chat.column === "done");
-  const prs = props.prs.filter(
-    (pr) =>
-      (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
-      !isDependencyUpdate(pr),
-  );
+  const sheets = useSheetsToTest(props.nowMs);
+  const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
+  const sheetApp = (sheet: SheetSummary) => {
+    const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
+    if (chat) return appOfChat(chat);
+    const title = sheet.title.toLowerCase();
+    return props.apps.find((app) => title.includes(app.toLowerCase())) ?? OTHER;
+  };
+  const chatEntry = (chat: CardChatState, lane: Lane, badge: string, tone: Tone): Entry => ({
+    key: `chat:${chat.environmentId}:${chat.threadId}`,
+    lane,
+    app: appOfChat(chat),
+    badge,
+    tone,
+    title: chatTitle(chat.title),
+    meta: ago(props.nowMs, chat.since),
+    onClick: () => props.onOpenChat(chat),
+  });
+  const entries: Entry[] = [
+    ...props.chats
+      .filter((chat) => chat.working)
+      .map((chat) => chatEntry(chat, "working", "Working", "info")),
+    ...props.chats
+      .filter((chat) => chat.needsYou)
+      .map((chat) =>
+        chatEntry(
+          chat,
+          "review",
+          chat.asking === "subagent approval"
+            ? "Subagent approval"
+            : chat.asking === "approval"
+              ? "Approve"
+              : chat.asking === "question"
+                ? "Answer"
+                : "Needs you",
+          "warning",
+        ),
+      ),
+    ...props.chats
+      .filter((chat) => !chat.needsYou && chat.column === "done")
+      .map((chat) => chatEntry(chat, "review", "Result", "success")),
+    ...props.waiting.map((item): Entry => ({
+      key: `item:${item.itemId}`,
+      lane: "review",
+      app: item.app ?? OTHER,
+      badge: item.lane === "Blocked" ? "Blocked" : "Review",
+      tone: item.lane === "Blocked" ? "error" : "info",
+      title: deskTitle(item),
+      meta: deskRef(item) ?? "",
+      onClick: () => props.onOpenItem(item),
+    })),
+    ...sheets.map((sheet): Entry => {
+      const { total, pass, fail, skip, blocked } = sheet.counts;
+      return {
+        key: `sheet:${sheet.id}`,
+        lane: "test",
+        app: sheetApp(sheet),
+        badge: `${pass + fail + skip + blocked} of ${total}`,
+        tone: fail > 0 ? "error" : "outline",
+        title: sheet.title,
+        meta: ago(props.nowMs, sheet.updatedAt),
+        onClick: () => openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString()),
+      };
+    }),
+    ...props.prs
+      .filter(
+        (pr) =>
+          (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
+          !isDependencyUpdate(pr),
+      )
+      .map((pr): Entry => {
+        const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
+        return {
+          key: `pr:${pr.url}`,
+          lane: "merge",
+          app: pr.app ?? OTHER,
+          badge: stage.label,
+          tone: stage.tone,
+          title: pr.title,
+          meta: `${pr.repo.split("/").pop()}#${pr.number}`,
+          onClick: () => props.onOpenPr(pr),
+        };
+      }),
+  ];
   const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
-  const reviewCount = asking.length + results.length + props.waiting.length;
-  const chatRow = (
-    chat: CardChatState,
-    label: string,
-    tone: ReturnType<typeof chatStatus>["tone"],
-  ) => (
-    <Row
-      key={`${chat.environmentId}:${chat.threadId}`}
-      badge={label}
-      tone={tone}
-      title={chatTitle(chat.title)}
-      meta={[props.appOf(chat), ago(props.nowMs, chat.since)].filter(Boolean).join(" · ")}
-      onClick={() => props.onOpenChat(chat)}
-    />
-  );
+  const count = (lane: Lane, of: ReadonlyArray<Entry> = entries) =>
+    of.filter((entry) => entry.lane === lane).length;
+  const bands = [...new Set(entries.map((entry) => entry.app))]
+    .map((app) => ({ app, entries: entries.filter((entry) => entry.app === app) }))
+    .map((band) => ({
+      ...band,
+      weight: LANES.reduce((sum, lane) => sum + WEIGHT[lane.id] * count(lane.id, band.entries), 0),
+    }))
+    .toSorted(
+      (a, b) =>
+        Number(a.app === OTHER) - Number(b.app === OTHER) ||
+        b.weight - a.weight ||
+        a.app.localeCompare(b.app),
+    );
+  const needsYou = count("review") + count("test") + count("merge");
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6">
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-lg font-semibold">{props.app ? `Now in ${props.app}` : "Now"}</h2>
+        <h2 className="text-lg font-semibold">
+          {needsYou === 0 ? "Nothing needs you right now" : `${needsYou} things need you`}
+        </h2>
         <span className="text-xs text-muted-foreground">
-          {working.length} working · {reviewCount} to review · {sheets.length} to test ·{" "}
-          {prs.length} to merge or send back
+          {count("review")} to review · {count("test")} to test · {count("merge")} to merge or send
+          back · {count("working")} {count("working") === 1 ? "agent" : "agents"} working
+          {bumps > 0 ? ` · ${bumps} version bumps not shown` : ""}
         </span>
       </header>
       {props.pinned}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Column
-          title="Working"
-          count={working.length}
-          hint="Agents running right now"
-          empty="No agent is running."
-        >
-          {working.map((chat) => chatRow(chat, "Working", "info"))}
-        </Column>
-        <Column
-          title="Review"
-          count={reviewCount}
-          hint="Questions, approvals and results"
-          empty="Nothing waiting for your review."
-        >
-          {asking.map((chat) =>
-            chatRow(
-              chat,
-              chat.asking === "subagent approval"
-                ? "Subagent approval"
-                : chat.asking === "approval"
-                  ? "Approve"
-                  : chat.asking === "question"
-                    ? "Answer"
-                    : "Needs you",
-              "warning",
-            ),
-          )}
-          {results.map((chat) => chatRow(chat, "Result", "success"))}
-          {props.waiting.map((item) => (
-            <Row
-              key={item.itemId}
-              badge={item.lane === "Blocked" ? "Blocked" : "Review"}
-              tone={item.lane === "Blocked" ? "error" : "info"}
-              title={deskTitle(item)}
-              meta={[item.app, deskRef(item)].filter(Boolean).join(" · ")}
-              onClick={() => props.onOpenItem(item)}
-            />
-          ))}
-        </Column>
-        <Column
-          title="Test"
-          count={sheets.length}
-          hint="Test sheets with checks to do"
-          empty="No test sheets waiting."
-        >
-          {sheets.map((sheet) => {
-            const { total, pass, fail, skip, blocked } = sheet.counts;
-            return (
-              <Row
-                key={sheet.id}
-                badge={`${pass + fail + skip + blocked} of ${total}`}
-                tone={fail > 0 ? "error" : "outline"}
-                title={sheet.title}
-                meta={ago(props.nowMs, sheet.updatedAt)}
-                onClick={() =>
-                  openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString())
-                }
-              />
-            );
-          })}
-        </Column>
-        <Column
-          title="Merge"
-          count={prs.length}
-          hint={
-            bumps > 0
-              ? `PRs to merge, close or send back · plus ${bumps} version bumps`
-              : "PRs to merge, close or send back"
-          }
-          empty="No pull request waiting on you."
-        >
-          {prs.map((pr) => {
-            const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
-            return (
-              <Row
-                key={pr.url}
-                badge={stage.label}
-                tone={stage.tone}
-                title={pr.title}
-                meta={[pr.app, `${pr.repo.split("/").pop()}#${pr.number}`]
-                  .filter(Boolean)
-                  .join(" · ")}
-                onClick={() => props.onOpenPr(pr)}
-              />
-            );
-          })}
-        </Column>
+      <div className="hidden grid-cols-[12rem_repeat(4,minmax(0,1fr))] gap-3 px-3 lg:grid">
+        <span />
+        {LANES.map((lane) => (
+          <span key={lane.id} className="flex flex-col">
+            <DeskHeading>
+              {lane.label} · {count(lane.id)}
+            </DeskHeading>
+            <span className="text-2xs text-muted-foreground">{lane.hint}</span>
+          </span>
+        ))}
       </div>
-    </div>
-  );
-}
-
-function Column(props: {
-  readonly title: string;
-  readonly count: number;
-  readonly hint: string;
-  readonly empty: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <section
-      aria-label={props.title}
-      className="flex min-w-0 flex-col gap-2 rounded-lg border border-border bg-muted/40 p-2"
-    >
-      <header className="px-1 pt-1">
-        <DeskHeading>
-          {props.title} · {props.count}
-        </DeskHeading>
-        <p className="text-2xs text-muted-foreground">{props.hint}</p>
-      </header>
-      {props.count === 0 ? (
-        <p className="px-1 pb-1 text-xs text-muted-foreground">{props.empty}</p>
+      {bands.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No agent is running and nothing waits on you.
+        </p>
       ) : (
-        <ul className="flex flex-col gap-1.5">{props.children}</ul>
+        bands.map((band) => (
+          <section
+            key={band.app}
+            aria-label={band.app}
+            className={cn(
+              "grid grid-cols-1 gap-3 rounded-lg border bg-muted/40 p-3 lg:grid-cols-[12rem_repeat(4,minmax(0,1fr))]",
+              count("review", band.entries) > 0 ? "border-warning/60" : "border-border",
+            )}
+          >
+            <header className="flex flex-col gap-1">
+              <h3 className="text-sm font-semibold">{band.app}</h3>
+              <span className="flex flex-wrap gap-1">
+                {LANES.filter(
+                  (lane) => lane.id !== "working" && count(lane.id, band.entries) > 0,
+                ).map((lane) => (
+                  <Badge
+                    key={lane.id}
+                    variant={lane.id === "review" ? "warning" : "outline"}
+                    size="sm"
+                  >
+                    {count(lane.id, band.entries)} to {lane.label.toLowerCase()}
+                  </Badge>
+                ))}
+                {count("working", band.entries) > 0 ? (
+                  <Badge variant="info" size="sm">
+                    {count("working", band.entries)} working
+                  </Badge>
+                ) : null}
+              </span>
+            </header>
+            {LANES.map((lane) => {
+              const cell = band.entries.filter((entry) => entry.lane === lane.id);
+              return (
+                <div key={lane.id} className="flex min-w-0 flex-col gap-1.5">
+                  <span className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase lg:hidden">
+                    {lane.label}
+                  </span>
+                  {cell.length === 0 ? (
+                    <span className="hidden text-xs text-muted-foreground lg:block">·</span>
+                  ) : (
+                    <ul className="flex flex-col gap-1.5">
+                      {cell.map((entry) => (
+                        <Row
+                          key={entry.key}
+                          badge={entry.badge}
+                          tone={entry.tone}
+                          title={entry.title}
+                          meta={entry.meta}
+                          onClick={entry.onClick}
+                        />
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+        ))
       )}
-    </section>
+    </div>
   );
 }
 
 function Row(props: {
   readonly badge: string;
-  readonly tone: "success" | "error" | "warning" | "info" | "outline" | "secondary";
+  readonly tone: Tone;
   readonly title: string;
   readonly meta: string;
   readonly onClick: () => void;

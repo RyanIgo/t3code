@@ -1,5 +1,6 @@
 import { PinIcon, XIcon } from "lucide-react";
 
+import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import {
@@ -12,7 +13,15 @@ import {
 } from "../ui/menu";
 import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle } from "./desk.logic";
-import { type DeskNotes, type PinPlace, pinnedChats, pinPlace } from "./deskNotes.logic";
+import {
+  type DeskNotes,
+  PIN_ROLE_LABEL,
+  PIN_ROLES,
+  pinAt,
+  type PinPlace,
+  pinnedChats,
+  pinPlace,
+} from "./deskNotes.logic";
 import { saveDeskPin } from "./deskNotesStore";
 import { DeskHeading } from "./DeskParts";
 
@@ -66,8 +75,8 @@ export function PinMenu(props: {
 }
 
 /**
- * Fleet fork: the chats pinned to one place, as chips with their live status. A chat that's
- * settled or gone drops off; unpin with the x.
+ * Fleet fork: the chats pinned to one place, as chips with their live status and what each is
+ * for (planner, development, bug fixes, feature). A chat that's settled or gone drops off.
  */
 export function PinnedStrip(props: {
   readonly place: PinPlace;
@@ -76,6 +85,12 @@ export function PinnedStrip(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   /** Shown when nothing is pinned; omit to hide the strip instead. */
   readonly empty?: string;
+  /** The heading; defaults to "Pinned chats". */
+  readonly title?: string;
+  /** One line under the heading on what this group is for. */
+  readonly hint?: string;
+  /** Set apart in its own box, for a page that shows more than one group. */
+  readonly framed?: boolean;
 }) {
   const byKey = new Map(props.chats.map((chat) => [chatKey(chat), chat]));
   const pinned = pinnedChats(props.notes, props.place).flatMap((key) => {
@@ -84,19 +99,60 @@ export function PinnedStrip(props: {
   });
   if (pinned.length === 0 && !props.empty) return null;
   return (
-    <section aria-label="Pinned chats" className="flex flex-col gap-1.5">
-      <DeskHeading>Pinned chats · {pinned.length}</DeskHeading>
+    <section
+      aria-label={props.title ?? "Pinned chats"}
+      className={cn(
+        "flex min-w-0 flex-col gap-1.5",
+        props.framed && "rounded-lg border border-border bg-muted/40 p-3",
+      )}
+    >
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <DeskHeading>
+          {props.title ?? "Pinned chats"} · {pinned.length}
+        </DeskHeading>
+        {props.hint ? <span className="text-2xs text-muted-foreground">{props.hint}</span> : null}
+      </div>
       {pinned.length === 0 ? (
         <p className="text-xs text-muted-foreground">{props.empty}</p>
       ) : (
         <ul className="flex flex-wrap gap-2">
           {pinned.map((chat) => {
             const status = chatStatus(chat);
+            const role = pinAt(props.notes, props.place, chatKey(chat))?.role ?? null;
             return (
               <li
                 key={chatKey(chat)}
-                className="flex max-w-80 min-w-0 items-center gap-1.5 rounded-md border border-border bg-card py-1 ps-2 pe-1"
+                className="flex max-w-96 min-w-0 items-center gap-1.5 rounded-md border border-border bg-card py-1 ps-1 pe-1"
               >
+                <Menu>
+                  <MenuTrigger
+                    render={
+                      <Button
+                        variant={role ? "secondary" : "ghost"}
+                        size="xs"
+                        aria-label={`What ${chatTitle(chat.title)} is for`}
+                      />
+                    }
+                  >
+                    {role ? PIN_ROLE_LABEL[role] : "Role"}
+                  </MenuTrigger>
+                  <MenuPopup align="start">
+                    <MenuGroup>
+                      <MenuGroupLabel>This chat is for</MenuGroupLabel>
+                      {PIN_ROLES.map((entry) => (
+                        <MenuCheckboxItem
+                          key={entry}
+                          checked={role === entry}
+                          onCheckedChange={() =>
+                            saveDeskPin(props.place, chatKey(chat), true, entry)
+                          }
+                        >
+                          {PIN_ROLE_LABEL[entry]}
+                        </MenuCheckboxItem>
+                      ))}
+                    </MenuGroup>
+                  </MenuPopup>
+                </Menu>
                 <button
                   type="button"
                   className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left text-sm"

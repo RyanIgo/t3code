@@ -90,6 +90,13 @@ describe("desk notes", () => {
     const unpinnedElsewhere = withPin(pinned, precon, "env:a", false, "2026-11-18T12:00:00Z");
     const merged = parseDeskNotes(JSON.stringify(mergeDeskNotes(pinned, unpinnedElsewhere)));
     expect(pinnedChats(merged, precon)).toEqual(["env:b"]);
+    const withPlanner = withPin(merged, precon, "env:c", true, "2026-11-18T13:00:00Z");
+    const roles = withPin(withPlanner, precon, "env:b", true, "2026-11-18T09:00:00Z", "planner");
+    expect(pinnedChats(parseDeskNotes(JSON.stringify(roles)), precon)).toEqual(["env:b", "env:c"]);
+    const sprintPrecon = { kind: "sprint", sprint: "Sprint 1", app: "Precon" } as const;
+    const sprint = withPin(roles, sprintPrecon, "env:d", true, "2026-11-18T13:00:00Z");
+    expect(pinnedChats(sprint, sprintPrecon)).toEqual(["env:d"]);
+    expect(pinnedChats(sprint, { kind: "sprint", sprint: "Sprint 1" })).toEqual([]);
     expect(pinnedChats(merged, { kind: "today" })).toEqual([]);
     expect(
       parseDeskNotes(

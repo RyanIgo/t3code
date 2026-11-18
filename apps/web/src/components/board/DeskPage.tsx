@@ -110,7 +110,7 @@ function pinPlacesFor(context: DeskChatContext): PinPlace[] {
     return places;
   }
   if (context.kind === "sprint") {
-    const places: PinPlace[] = [{ kind: "sprint", sprint: context.sprint.title }];
+    const places: PinPlace[] = [{ kind: "sprint", sprint: context.sprint.title, app: context.app }];
     if (context.app) places.push({ kind: "app", app: context.app });
     return places;
   }
@@ -469,6 +469,32 @@ export function DeskPage(props: {
         app={app}
         onSprint={setChosenSprint}
         onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
+        pinned={
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {app ? (
+              <PinnedStrip
+                framed
+                title={`Planning: ${app}`}
+                hint="Whole-app chats, such as the planner"
+                place={{ kind: "app", app }}
+                notes={notes.notes}
+                chats={props.chats}
+                onOpenChat={openChat}
+                empty={`Nothing pinned to ${app} yet. Pin the app's planner chat to see it here.`}
+              />
+            ) : null}
+            <PinnedStrip
+              framed
+              title={`${sprintShown.title}${app ? ` · ${app}` : ""}`}
+              hint="This sprint's work: development, bug fixes, features"
+              place={{ kind: "sprint", sprint: sprintShown.title, app }}
+              notes={notes.notes}
+              chats={props.chats}
+              onOpenChat={openChat}
+              empty={`Nothing pinned to this sprint yet. Use Chat about this sprint, or Pin on a chat.`}
+            />
+          </div>
+        }
         board={
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -501,10 +527,21 @@ export function DeskPage(props: {
   const caughtUpAt = caughtUp > 0 ? caughtUp : nowMs - 8 * 3_600_000;
   const repoOf = (chat: CardChatState) =>
     chat.projectKey ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null) : null;
-  const repoApp = new Map<string, string>();
-  for (const name of apps) {
-    for (const repo of appRepos(items, name)) if (!repoApp.has(repo)) repoApp.set(repo, name);
+  // A repo belongs to the app that owns most of its items (claude-setup is Dev platform's).
+  const repoCounts = new Map<string, Map<string, number>>();
+  for (const entry of items) {
+    if (!entry.repo || !entry.app) continue;
+    const repo = entry.repo.split("/").pop() ?? entry.repo;
+    const byApp = repoCounts.get(repo) ?? new Map<string, number>();
+    byApp.set(entry.app, (byApp.get(entry.app) ?? 0) + 1);
+    repoCounts.set(repo, byApp);
   }
+  const repoApp = new Map(
+    [...repoCounts].map(([repo, byApp]) => [
+      repo,
+      [...byApp].toSorted((a, b) => b[1] - a[1])[0]?.[0] ?? repo,
+    ]),
+  );
   const appOf = (chat: CardChatState) => {
     const repo = repoOf(chat);
     return repo ? (repoApp.get(repo) ?? repo) : null;
@@ -531,7 +568,7 @@ export function DeskPage(props: {
   return frame(
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
-        <div className="w-64 max-w-full">
+        <div className={mode === "now" ? "hidden" : "w-64 max-w-full"}>
           <Select
             value={app ?? ALL}
             onValueChange={(value) => {
@@ -618,22 +655,22 @@ export function DeskPage(props: {
       ) : null}
       {mode === "now" ? (
         <NowView
-          app={app}
           nowMs={nowMs}
-          chats={appChats}
-          waiting={waiting}
-          prs={prs.filter((pr) => app === null || pr.app === app)}
+          chats={props.chats}
+          waiting={waitingOnYou(items)}
+          prs={prs}
+          apps={apps}
           appOf={appOf}
           pinned={
             <PinnedStrip
-              place={app ? { kind: "app", app } : { kind: "today" }}
+              place={{ kind: "today" }}
               notes={notes.notes}
               chats={props.chats}
               onOpenChat={openChat}
             />
           }
           onOpenChat={openChat}
-          onOpenItem={openItemIn(ids(waiting))}
+          onOpenItem={openItemIn(ids(waitingOnYou(items)))}
           onOpenPr={openPr}
         />
       ) : mode === "today" ? (

@@ -46,42 +46,63 @@ export interface DeskNotes {
 export interface DeskPin {
   readonly pinned: boolean;
   readonly updatedAt: string;
+  /** What the chat is for here, so several chats on one place stay easy to tell apart. */
+  readonly role?: PinRole;
 }
+
+export const PIN_ROLES = ["planner", "development", "bugs", "feature", "other"] as const;
+export type PinRole = (typeof PIN_ROLES)[number];
+export const PIN_ROLE_LABEL: Record<PinRole, string> = {
+  planner: "Planner",
+  development: "Development",
+  bugs: "Bug fixes",
+  feature: "Feature",
+  other: "Other",
+};
 
 /** Where a chat can be pinned on the Board. */
 export type PinPlace =
   | { readonly kind: "today" }
   | { readonly kind: "app"; readonly app: string }
-  | { readonly kind: "sprint"; readonly sprint: string }
+  | { readonly kind: "sprint"; readonly sprint: string; readonly app?: string | null }
   | { readonly kind: "item"; readonly url: string };
 
 export function pinPlace(place: PinPlace): string {
   if (place.kind === "today") return "today";
   if (place.kind === "app") return `app:${place.app}`;
-  if (place.kind === "sprint") return `sprint:${place.sprint}`;
+  if (place.kind === "sprint") return `sprint:${place.sprint}${place.app ? `@${place.app}` : ""}`;
   return `item:${place.url}`;
 }
 
-/** The chats pinned to a place, most recently pinned first. */
+/** The chats pinned to a place: a planner first, then the most recently pinned. */
 export function pinnedChats(notes: DeskNotes, place: PinPlace): string[] {
   return Object.entries(notes.pins[pinPlace(place)] ?? {})
     .filter(([, pin]) => pin.pinned)
-    .sort((a, b) => time(b[1]) - time(a[1]))
+    .sort(
+      (a, b) =>
+        Number(b[1].role === "planner") - Number(a[1].role === "planner") ||
+        time(b[1]) - time(a[1]),
+    )
     .map(([chatKey]) => chatKey);
 }
 
+export function pinAt(notes: DeskNotes, place: PinPlace, chatKey: string): DeskPin | null {
+  return notes.pins[pinPlace(place)]?.[chatKey] ?? null;
+}
+
+/** Pins or unpins a chat at a place; a role given replaces the old one, otherwise it's kept. */
 export function withPin(
   notes: DeskNotes,
   place: PinPlace,
   chatKey: string,
   pinned: boolean,
   at: string,
+  role?: PinRole,
 ): DeskNotes {
   const key = pinPlace(place);
-  return {
-    ...notes,
-    pins: { ...notes.pins, [key]: { ...notes.pins[key], [chatKey]: { pinned, updatedAt: at } } },
-  };
+  const keptRole = role ?? notes.pins[key]?.[chatKey]?.role;
+  const pin: DeskPin = { pinned, updatedAt: at, ...(keptRole ? { role: keptRole } : {}) };
+  return { ...notes, pins: { ...notes.pins, [key]: { ...notes.pins[key], [chatKey]: pin } } };
 }
 
 function readPins(value: unknown): Record<string, Record<string, DeskPin>> {
@@ -94,7 +115,13 @@ function readPins(value: unknown): Record<string, Record<string, DeskPin>> {
         const pin = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
         if (!chatKey.includes(":") || typeof pin.pinned !== "boolean") return [];
         if (typeof pin.updatedAt !== "string") return [];
-        return [[chatKey, { pinned: pin.pinned, updatedAt: pin.updatedAt }] as const];
+        const role = PIN_ROLES.find((entry) => entry === pin.role);
+        return [
+          [
+            chatKey,
+            { pinned: pin.pinned, updatedAt: pin.updatedAt, ...(role ? { role } : {}) },
+          ] as const,
+        ];
       });
       return [[place, Object.fromEntries(entries)]];
     }),
