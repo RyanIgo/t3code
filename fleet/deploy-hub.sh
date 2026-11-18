@@ -105,7 +105,10 @@ Environment=HUB_PORT=$port
 Environment=HUB_OWNERS=$owner
 Environment=HUB_WEB=%h/t3-fleet-hub/current/web
 Environment=HUB_DATA=%h/t3-fleet-hub/data
-ExecStart=$(ssh "$host" 'command -v node') %h/t3-fleet-hub/current/server.mjs
+# Secrets come from Doppler when ~/.config/t3-fleet-hub/doppler.env holds a DOPPLER_TOKEN
+# (fleet/README.md, Secrets); without it the hub reads files in its data folder.
+EnvironmentFile=-%h/.config/t3-fleet-hub/doppler.env
+ExecStart=/bin/sh -c 'if [ -n "\$\$DOPPLER_TOKEN" ]; then exec doppler run -- $(ssh "$host" 'command -v node') %h/t3-fleet-hub/current/server.mjs; else exec $(ssh "$host" 'command -v node') %h/t3-fleet-hub/current/server.mjs; fi'
 Restart=on-failure
 RestartSec=3
 

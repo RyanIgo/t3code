@@ -144,24 +144,35 @@ systemctl --user restart t3-fleet-hub
 The token needs read/write on issues and pull requests in the project's repos and read/write
 on the organization's projects. It stays on the hub and is never served.
 
+#### Secrets: Doppler
+
+The hub's secrets live in the Doppler project `t3-fleet-hub`, config `prd`: `HUB_GITHUB_TOKEN`,
+`HUB_ENTRA_TENANT_ID` and `HUB_ENTRA_CLIENT_ID` (references to the warehouse's Microsoft app),
+`HUB_ENTRA_CLIENT_SECRET` and `HUB_CONNECTOR_ORIGIN`. The service starts through `doppler run`
+with a read-only service token for that config, kept on the hub:
+
+```sh
+doppler configs tokens create hub-droplet -p t3-fleet-hub -c prd --plain \
+  | ssh <host> 'mkdir -p ~/.config/t3-fleet-hub && umask 077 && { printf "DOPPLER_TOKEN="; cat; } > ~/.config/t3-fleet-hub/doppler.env'
+ssh <host> 'systemctl --user restart t3-fleet-hub'   # after changing a secret in Doppler
+```
+
+Without that file the hub falls back to files in its data folder (`github-token`,
+`entra-tenant-id`, `entra-client-id`, `entra-client-secret`, `connector-origin`).
+
 #### The Dev Desk connector for Claude
 
 The hub also serves the Desk as a remote MCP connector (desk overview, list and read work,
 file and update items, status briefs) for claude.ai, Claude Desktop and the phone. It listens
 on its own port (3791) and only that port is published, with `tailscale funnel`; sign-in is
-Microsoft Entra, limited to `HUB_OWNERS`. On the hub:
+Microsoft Entra, limited to `HUB_OWNERS`. The Entra app needs the redirect URI
+`https://<host>.<tailnet>.ts.net:8443/oauth/callback`; then publish the port:
 
 ```sh
-cd ~/t3-fleet-hub/data
-echo https://<host>.<tailnet>.ts.net:8443 > connector-origin
-install -m 600 /dev/stdin entra-tenant-id       # paste, then Ctrl-D (same for the next two)
-install -m 600 /dev/stdin entra-client-id
-install -m 600 /dev/stdin entra-client-secret
 tailscale funnel --bg --https=8443 http://127.0.0.1:3791
 ```
 
-The Entra app needs the redirect URI `https://<host>.<tailnet>.ts.net:8443/oauth/callback`. In
-Claude, add a custom connector with `https://<host>.<tailnet>.ts.net:8443/mcp`.
+In Claude, add a custom connector with `https://<host>.<tailnet>.ts.net:8443/mcp`.
 
 A machine whose T3 server runs inside WSL has its Tailscale on Windows, where `t3 pair --tailscale`
 can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pair` and use the
