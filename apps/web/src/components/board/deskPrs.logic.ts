@@ -7,10 +7,11 @@
 import type { CardChatState } from "./boardCards.logic";
 import { type DeskItem, type DeskSprint, featureName } from "./desk.logic";
 
-export type PrStage = "ready" | "fix" | "waiting" | "unverified" | "draft";
+export type PrStage = "ready" | "landed" | "fix" | "waiting" | "unverified" | "draft";
 
 export const PR_STAGES: ReadonlyArray<{ readonly id: PrStage; readonly label: string }> = [
   { id: "ready", label: "Ready to merge" },
+  { id: "landed", label: "Already in main" },
   { id: "fix", label: "Needs fixing" },
   { id: "waiting", label: "Waiting" },
   { id: "unverified", label: "Not verified" },
@@ -30,6 +31,10 @@ export interface DeskPr {
   readonly checks: "passing" | "failing" | "pending" | "none" | null;
   readonly mergeable: "mergeable" | "conflicting" | "unknown" | null;
   readonly review: string | null;
+  /** The branch it merges into when that isn't the default branch (a stacked PR). */
+  readonly stackedOn: string | null;
+  /** The default branch already has all its commits: close it, there's nothing to merge. */
+  readonly landed: boolean;
   /** The PR's own Desk item, or the issue it closes. */
   readonly item: DeskItem | null;
   readonly chats: ReadonlyArray<CardChatState>;
@@ -65,6 +70,7 @@ function repoApps(items: ReadonlyArray<DeskItem>): Map<string, string> {
 }
 
 function stageOf(pr: Omit<DeskPr, "stage" | "reasons">): { stage: PrStage; reasons: string[] } {
+  if (pr.landed) return { stage: "landed", reasons: ["its changes are already in main"] };
   if (pr.draft) return { stage: "draft", reasons: ["draft"] };
   const fix = [
     pr.mergeable === "conflicting" ? "merge conflict" : null,
@@ -73,6 +79,7 @@ function stageOf(pr: Omit<DeskPr, "stage" | "reasons">): { stage: PrStage; reaso
   ].filter((reason): reason is string => reason !== null);
   if (fix.length > 0) return { stage: "fix", reasons: fix };
   const waiting = [
+    pr.stackedOn ? `merges into ${pr.stackedOn}, not main` : null,
     pr.checks === "pending" ? "checks running" : null,
     pr.review === "REVIEW_REQUIRED" ? "needs review" : null,
   ].filter((reason): reason is string => reason !== null);
@@ -114,6 +121,8 @@ export function collectPrs(
       checks: null,
       mergeable: null,
       review: null,
+      stackedOn: null,
+      landed: false,
       item: null,
       chats: [],
     };
@@ -131,6 +140,8 @@ export function collectPrs(
         mergeable: mergeState(item.mergeable) ?? pr.mergeable,
         checks: item.checks ?? pr.checks,
         review: item.review ?? pr.review,
+        stackedOn: item.stackedOn ?? null,
+        landed: item.landed === true,
         item,
       });
       prs.set(item.url, pr);
@@ -148,6 +159,8 @@ export function collectPrs(
           draft: linked.state === "draft",
           mergeable: mergeState(linked.mergeable),
           review: linked.review ?? null,
+          stackedOn: linked.stackedOn ?? null,
+          landed: linked.landed === true,
           item,
         });
       }
@@ -193,10 +206,11 @@ export interface PrGroup {
 
 const STAGE_RANK: Record<PrStage, number> = {
   ready: 0,
-  fix: 1,
-  waiting: 2,
-  unverified: 3,
-  draft: 4,
+  landed: 1,
+  fix: 2,
+  waiting: 3,
+  unverified: 4,
+  draft: 5,
 };
 
 /** PRs grouped by app, sprint or chat; within a group, ready first. A PR shows under each of its chats. */

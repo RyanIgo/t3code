@@ -22,6 +22,7 @@ import {
 
 const STAGE_TONE: Record<PrStage, "success" | "error" | "info" | "outline" | "secondary"> = {
   ready: "success",
+  landed: "secondary",
   fix: "error",
   waiting: "info",
   unverified: "secondary",
@@ -280,6 +281,10 @@ export function PrPanel(props: {
         {pr.stage === "ready" ? (
           <Button size="xs" onClick={() => openExternal(pr.url)}>
             Merge on GitHub
+          </Button>
+        ) : pr.stage === "landed" ? (
+          <Button size="xs" onClick={() => openExternal(pr.url)}>
+            Close on GitHub
           </Button>
         ) : props.chat ? (
           <Button size="xs" onClick={() => props.chat && askChat(props.chat, fixRequest)}>

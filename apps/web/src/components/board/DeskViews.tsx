@@ -29,6 +29,7 @@ import {
   groupWork,
   sprintOverview,
   chatTitle,
+  workKind,
 } from "./desk.logic";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskNote } from "./deskNotesStore";
@@ -39,12 +40,14 @@ import {
   openExternal,
   STAGE_VARIANT,
   ThreadList,
+  TypeTag,
 } from "./DeskParts";
 import { type DeskField, fetchDeskDetail, setDeskField } from "./deskStore";
 import { ChatAboutButton } from "./DeskChat";
 import { PrPanel } from "./DeskPrs";
 import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
+import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 
 const NONE = "__none__";
 const STAGE_RANK: Record<string, number> = { Production: 3, Testing: 2, Experiment: 1, "": 0 };
@@ -138,17 +141,9 @@ function ItemDetails(props: {
   const isFeature = item.workType === "Tracking" && item.title.startsWith("Feature:");
   return (
     <div className="flex flex-col gap-4 p-4">
-      <header className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">
-          {[item.app, item.feature ? featureName(item.feature) : null, deskRef(item)]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-        <h2 className="text-base font-semibold">{deskTitle(item)}</h2>
-        {item.plain?.what && item.plain.what !== item.title ? (
-          <span className="text-xs text-muted-foreground">On GitHub: {item.title}</span>
-        ) : null}
-      </header>
+      {item.plain?.what && item.plain.what !== item.title ? (
+        <span className="text-xs text-muted-foreground">On GitHub: {item.title}</span>
+      ) : null}
 
       <StorySection item={item} />
 
@@ -434,9 +429,16 @@ export function DeskModal(props: {
           ) : null}
           <div className="min-w-0 flex-1">
             <DialogTitle>
-              <span className="block truncate text-sm">
-                {item?.app ? <span className="text-muted-foreground">{item.app} · </span> : null}
-                {title}
+              <span className="flex min-w-0 items-center gap-2 text-sm">
+                {item ? <TypeTag kind={workKind(item)} /> : null}
+                <span className="truncate">{title}</span>
+                {item ? (
+                  <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                    {[item.app, item.feature ? featureName(item.feature) : null, deskRef(item)]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                ) : null}
               </span>
             </DialogTitle>
           </div>
@@ -491,8 +493,11 @@ export function DeskModal(props: {
             (item !== null && props.chats.length > 0) ? (
               <nav
                 aria-label="Chats"
-                className="flex shrink-0 gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
+                className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
               >
+                <span className="me-1 shrink-0 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+                  Agent chat
+                </span>
                 {props.draft ? (
                   <Button
                     variant={draft ? "secondary" : "ghost"}
@@ -532,34 +537,36 @@ export function DeskModal(props: {
                 ) : null}
               </nav>
             ) : null}
-            {draft ? (
-              <ChatView
-                key={draft.draftId}
-                environmentId={draft.environmentId}
-                threadId={draft.threadId}
-                routeKind="draft"
-                draftId={draft.draftId}
-                reserveTitleBarControlInset={false}
-              />
-            ) : shown ? (
-              <ChatView
-                key={chatKeyOf(shown)}
-                environmentId={shown.environmentId as EnvironmentId}
-                threadId={shown.threadId as ThreadId}
-                routeKind="server"
-                reserveTitleBarControlInset={false}
-              />
-            ) : (
-              <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
-                No T3 chat is working on this yet.
-                {item ? (
-                  <ChatAboutButton
-                    onClick={() => props.onChat(item)}
-                    label="Start or link a chat"
-                  />
-                ) : null}
-              </div>
-            )}
+            <ChatEmbedContext value>
+              {draft ? (
+                <ChatView
+                  key={draft.draftId}
+                  environmentId={draft.environmentId}
+                  threadId={draft.threadId}
+                  routeKind="draft"
+                  draftId={draft.draftId}
+                  reserveTitleBarControlInset={false}
+                />
+              ) : shown ? (
+                <ChatView
+                  key={chatKeyOf(shown)}
+                  environmentId={shown.environmentId as EnvironmentId}
+                  threadId={shown.threadId as ThreadId}
+                  routeKind="server"
+                  reserveTitleBarControlInset={false}
+                />
+              ) : (
+                <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                  No T3 chat is working on this yet.
+                  {item ? (
+                    <ChatAboutButton
+                      onClick={() => props.onChat(item)}
+                      label="Start or link a chat"
+                    />
+                  ) : null}
+                </div>
+              )}
+            </ChatEmbedContext>
           </section>
         </div>
       </DialogPopup>

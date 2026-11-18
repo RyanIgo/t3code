@@ -626,7 +626,7 @@ export function DeskPage(props: {
           prs={prLens(
             (pr) =>
               (app === null || pr.app === app) &&
-              (pr.stage === "ready" || pr.stage === "fix") &&
+              (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
               (showBumps || !isDependencyUpdate(pr)),
             "app",
           )}

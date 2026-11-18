@@ -47,6 +47,22 @@ const prSummary = (pr) => ({
   checks: pr.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state ?? null,
 });
 
+// Where a PR merges to, and how many of its commits the default branch lacks ("main" only;
+// behindBy 0 means its work already landed another way).
+const BRANCH_FIELDS =
+  'baseRefName baseRepository { defaultBranchRef { name } } headRef { compare(headRef: "main") { behindBy } }';
+
+/** A PR's branch facts: its base when that isn't the default branch, and whether it landed. */
+function branchFacts(pr) {
+  const defaultBranch = pr.baseRepository?.defaultBranchRef?.name ?? null;
+  const unique = defaultBranch === "main" ? pr.headRef?.compare?.behindBy : undefined;
+  return {
+    stackedOn:
+      pr.baseRefName && defaultBranch && pr.baseRefName !== defaultBranch ? pr.baseRefName : null,
+    landed: typeof unique === "number" ? unique === 0 : null,
+  };
+}
+
 const PROJECT_QUERY = `query($owner: String!, $number: Int!, $cursor: String) {
   organization(login: $owner) { projectV2(number: $number) {
     id title
@@ -67,8 +83,8 @@ const PROJECT_QUERY = `query($owner: String!, $number: Int!, $cursor: String) {
           ... on Issue { number title url state body updatedAt closedAt
             repository { nameWithOwner }
             assignees(first: 5) { nodes { login } }
-            closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number title url state isDraft reviewDecision mergeable } } }
-          ... on PullRequest { number title url state body updatedAt closedAt isDraft reviewDecision mergeable
+            closedByPullRequestsReferences(first: 5, includeClosedPrs: true) { nodes { number title url state isDraft reviewDecision mergeable ${BRANCH_FIELDS} } } }
+          ... on PullRequest { number title url state body updatedAt closedAt isDraft reviewDecision mergeable ${BRANCH_FIELDS}
             commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
             repository { nameWithOwner } assignees(first: 5) { nodes { login } } }
           ... on DraftIssue { title body updatedAt }
@@ -166,6 +182,7 @@ function normalizeItem(node) {
       state: pr.isDraft && pr.state === "OPEN" ? "draft" : pr.state.toLowerCase(),
       review: pr.reviewDecision ?? null,
       mergeable: pr.mergeable?.toLowerCase() ?? null,
+      ...branchFacts(pr),
     })),
     // A PR item's own review decision and merge state.
     review: kind === "pr" ? (content.reviewDecision ?? null) : null,
@@ -175,6 +192,7 @@ function normalizeItem(node) {
         ? checksOf(content.commits?.nodes?.[0]?.commit?.statusCheckRollup?.state)
         : null,
     mergeable: kind === "pr" ? (content.mergeable?.toLowerCase() ?? null) : null,
+    ...(kind === "pr" ? branchFacts(content) : {}),
     plain: readPlainWords(content.body),
     story: readStory(content.body),
   };

@@ -47,7 +47,7 @@ const chat = (threadId: string, prs: CardChatState["pullRequests"]): CardChatSta
 const pr = (n: number) => `https://github.com/cfevans/app/pull/${n}`;
 
 describe("PR lens", () => {
-  it("merges PRs from items, issues and chats, and says why each isn't ready", () => {
+  it("merges PRs from items, issues and chats, and says why each isn't ready or is already in", () => {
     const items = [
       item({
         itemId: "p1",
@@ -75,6 +75,24 @@ describe("PR lens", () => {
         url: pr(8),
         checks: "none",
         mergeable: "mergeable",
+      }),
+      item({
+        itemId: "p10",
+        kind: "pr",
+        number: 10,
+        url: pr(10),
+        checks: "passing",
+        mergeable: "mergeable",
+        landed: true,
+      }),
+      item({
+        itemId: "p11",
+        kind: "pr",
+        number: 11,
+        url: pr(11),
+        checks: "passing",
+        mergeable: "mergeable",
+        stackedOn: "feature-a",
       }),
     ];
     const chats = [
@@ -104,6 +122,8 @@ describe("PR lens", () => {
       6: ["ready", ""],
       7: ["unverified", "checks not seen, merge state not computed"],
       8: ["ready", ""],
+      10: ["landed", "its changes are already in main"],
+      11: ["waiting", "merges into feature-a, not main"],
     });
     const three = prs.find((entry) => entry.number === 3);
     expect(three).toMatchObject({

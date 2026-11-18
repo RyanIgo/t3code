@@ -42,12 +42,18 @@ export interface DeskItem {
     readonly title?: string;
     readonly review?: string | null;
     readonly mergeable?: string | null;
+    /** The branch it merges into, when that isn't the default branch. */
+    readonly stackedOn?: string | null;
+    /** True when the default branch already has all its commits. */
+    readonly landed?: boolean | null;
   }>;
   /** For a PR item: its review decision and merge state, from the hub's sync. */
   readonly review?: string | null;
   readonly mergeable?: string | null;
   /** For a PR item: its checks, when the hub's token may read them. */
   readonly checks?: "passing" | "failing" | "pending" | "none" | null;
+  readonly stackedOn?: string | null;
+  readonly landed?: boolean | null;
   readonly plain: DeskPlainWords | null;
   /** A user story: who wants what and why, and the checklist that says it's done. */
   readonly story?: DeskStory | null;

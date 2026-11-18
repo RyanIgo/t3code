@@ -42,6 +42,8 @@ const pr = (overrides: Partial<DeskPr>): DeskPr => ({
   checks: "passing",
   mergeable: "mergeable",
   review: null,
+  stackedOn: null,
+  landed: false,
   item: null,
   chats: [],
   stage: "ready",

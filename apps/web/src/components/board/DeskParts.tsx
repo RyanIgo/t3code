@@ -179,6 +179,7 @@ const AGENT_BADGE = {
 
 const PR_BADGE = {
   ready: { label: "PR ready to merge", variant: "success" },
+  landed: { label: "PR already in main: close it", variant: "secondary" },
   fix: { label: "PR needs a fix", variant: "error" },
   waiting: { label: "PR checks running", variant: "info" },
   unverified: { label: "PR open", variant: "outline" },
