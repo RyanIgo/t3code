@@ -54,7 +54,7 @@ import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
 import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
 import { TodayView } from "./DeskToday";
-import { focusByApp } from "./deskFocus.logic";
+import { changesSince, focusByApp } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -163,6 +163,8 @@ export function DeskPage(props: {
     deepLink?.kind === "sprint" ? deepLink.sprint : null,
   );
   const [storedApp, setStoredApp] = useLocalStorage("t3-fleet:desk-app", ALL, Schema.String);
+  // When the user last said they were caught up; 0 means never (then: the last 8 hours).
+  const [caughtUp, setCaughtUp] = useLocalStorage("t3-fleet:caught-up", 0, Schema.Number);
   const [query, setQuery] = useState("");
   const [showAllUnsorted, setShowAllUnsorted] = useState(false);
   const sensors = useSensors(
@@ -509,6 +511,9 @@ export function DeskPage(props: {
     : [];
   const summaries = summarizeApps(items, app ? [app] : apps, sprint);
 
+  const caughtUpAt = caughtUp > 0 ? caughtUp : nowMs - 8 * 3_600_000;
+  const repoOf = (chat: CardChatState) =>
+    chat.projectKey ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null) : null;
   const nowItems = items.filter(
     (entry) => entry.lane === "Now" && (app === null || entry.app === app),
   );
@@ -603,6 +608,16 @@ export function DeskPage(props: {
       {mode === "today" ? (
         <TodayView
           app={app}
+          catchup={changesSince(
+            caughtUpAt,
+            items.filter((entry) => app === null || entry.app === app),
+            app === null ? props.chats : appThreads(app),
+          )}
+          caughtUpAt={caughtUpAt}
+          onCaughtUp={() => setCaughtUp(Date.now())}
+          onOpenChat={openChat}
+          onOpenItem={openItemIn([])}
+          repoOf={repoOf}
           focus={focusByApp({
             apps,
             items,
@@ -617,11 +632,7 @@ export function DeskPage(props: {
           needsYou={
             <NeedsYou
               chats={chatsNeedingYou}
-              repoOf={(chat) =>
-                chat.projectKey
-                  ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null)
-                  : null
-              }
+              repoOf={repoOf}
               items={waiting}
               onOpenChat={openChat}
               onOpenItem={openItemIn(ids(waiting))}

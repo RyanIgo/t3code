@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import type { DeskItem } from "./desk.logic";
-import { focusByApp } from "./deskFocus.logic";
+import type { CardChatState } from "./boardCards.logic";
+import { changesSince, focusByApp } from "./deskFocus.logic";
 import type { DeskPr } from "./deskPrs.logic";
 
 const sprint = { title: "Sprint 1", startDate: "2026-11-16", duration: 14 };
@@ -73,5 +74,40 @@ describe("focus by app", () => {
       sprintTotal: 2,
     });
     expect(rows[0]).toMatchObject({ needsYou: 1, prsToFix: 1, blocked: 1 });
+  });
+
+  it("lists what finished or started asking since the user caught up", () => {
+    const chat = (threadId: string, overrides: Partial<CardChatState>): CardChatState => ({
+      environmentId: "env",
+      threadId,
+      title: threadId,
+      projectKey: null,
+      column: "running",
+      needsYou: false,
+      working: false,
+      hasPullRequest: false,
+      pullRequestNumber: null,
+      pullRequests: [],
+      since: null,
+      worktree: null,
+      branch: null,
+      ...overrides,
+    });
+    const since = Date.parse("2026-11-17T12:00:00Z");
+    const changes = changesSince(
+      since,
+      [
+        item({ itemId: "old", closedAt: "2026-11-17T11:00:00Z", state: "closed" }),
+        item({ itemId: "new", closedAt: "2026-11-17T13:00:00Z", state: "closed" }),
+      ],
+      [
+        chat("done-after", { column: "done", since: "2026-11-17T12:30:00Z" }),
+        chat("asking-after", { needsYou: true, since: "2026-11-17T12:45:00Z" }),
+        chat("done-before", { column: "done", since: "2026-11-17T11:30:00Z" }),
+        chat("running-after", { since: "2026-11-17T12:50:00Z" }),
+      ],
+    );
+    expect(changes.chats.map((entry) => entry.threadId)).toEqual(["asking-after", "done-after"]);
+    expect(changes.closed.map((entry) => entry.itemId)).toEqual(["new"]);
   });
 });
