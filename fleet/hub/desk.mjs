@@ -18,6 +18,7 @@ const EDITABLE_FIELDS = new Set([
   "Sprint",
   "Work type",
   "Feature",
+  "App",
 ]);
 
 const DETAIL_QUERY = `query($id: ID!) { node(id: $id) { ... on ProjectV2Item { content {
@@ -394,7 +395,7 @@ export function createDesk({ dataRoot, project, token, log }) {
         lanes: LANES,
         initiatives: Object.keys(snapshot.fields?.Initiative?.options ?? {}),
         options: Object.fromEntries(
-          ["Lane", "Priority", "Stage", "Work type", "Feature"].map((name) => [
+          ["Status", "Lane", "Priority", "Stage", "Work type", "Feature", "App"].map((name) => [
             name,
             Object.keys(snapshot.fields?.[name]?.options ?? {}),
           ]),
@@ -411,6 +412,84 @@ export function createDesk({ dataRoot, project, token, log }) {
     async refresh() {
       if (Date.now() - lastSync < MIN_REFRESH_MS) return syncing ?? Promise.resolve();
       return run();
+    },
+    /**
+     * Files a new issue in one of the project's repos, adds it to the project and sets its
+     * fields ({ "Work type": "Bug", App: "Precon", ... }); returns the new item.
+     */
+    async createItem({ repo, title, body, fields }) {
+      if (!snapshot.project) throw new Error("The Desk hasn't synced yet.");
+      const [repoOwner, repoName] = String(repo).split("/");
+      const found = await graphql(
+        `
+          query ($owner: String!, $name: String!) {
+            repository(owner: $owner, name: $name) {
+              id
+            }
+          }
+        `,
+        { owner: repoOwner, name: repoName },
+      );
+      const created = await graphql(
+        `
+          mutation ($repo: ID!, $title: String!, $body: String) {
+            createIssue(input: { repositoryId: $repo, title: $title, body: $body }) {
+              issue {
+                id
+                number
+                url
+              }
+            }
+          }
+        `,
+        { repo: found.repository.id, title, body: body ?? "" },
+      );
+      const issue = created.createIssue.issue;
+      const added = await graphql(
+        `
+          mutation ($project: ID!, $content: ID!) {
+            addProjectV2ItemById(input: { projectId: $project, contentId: $content }) {
+              item {
+                id
+              }
+            }
+          }
+        `,
+        { project: snapshot.project.id, content: issue.id },
+      );
+      const item = {
+        itemId: added.addProjectV2ItemById.item.id,
+        kind: "issue",
+        repo: `${repoOwner}/${repoName}`,
+        number: issue.number,
+        title,
+        url: issue.url,
+        state: "open",
+        updatedAt: new Date().toISOString(),
+        closedAt: null,
+        status: null,
+        priority: null,
+        size: null,
+        initiative: null,
+        app: null,
+        feature: null,
+        stage: null,
+        workType: null,
+        sprint: null,
+        lane: null,
+        assignees: [],
+        pullRequests: [],
+        review: null,
+        checks: null,
+        mergeable: null,
+        plain: readPlainWords(body),
+        story: readStory(body),
+      };
+      snapshot.items.push(item);
+      for (const [name, value] of Object.entries(fields ?? {})) {
+        if (value) await this.setField(item.itemId, name, value);
+      }
+      return item;
     },
     /** Sets (or clears, with null) an item's Lane on GitHub, then in the cache. */
     async setLane(itemId, lane) {
@@ -506,6 +585,7 @@ export function createDesk({ dataRoot, project, token, log }) {
         );
       }
       const key = {
+        App: "app",
         Status: "status",
         Lane: "lane",
         Priority: "priority",

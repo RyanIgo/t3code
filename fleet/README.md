@@ -144,6 +144,25 @@ systemctl --user restart t3-fleet-hub
 The token needs read/write on issues and pull requests in the project's repos and read/write
 on the organization's projects. It stays on the hub and is never served.
 
+#### The Dev Desk connector for Claude
+
+The hub also serves the Desk as a remote MCP connector (desk overview, list and read work,
+file and update items, status briefs) for claude.ai, Claude Desktop and the phone. It listens
+on its own port (3791) and only that port is published, with `tailscale funnel`; sign-in is
+Microsoft Entra, limited to `HUB_OWNERS`. On the hub:
+
+```sh
+cd ~/t3-fleet-hub/data
+echo https://<host>.<tailnet>.ts.net:8443 > connector-origin
+install -m 600 /dev/stdin entra-tenant-id       # paste, then Ctrl-D (same for the next two)
+install -m 600 /dev/stdin entra-client-id
+install -m 600 /dev/stdin entra-client-secret
+tailscale funnel --bg --https=8443 http://127.0.0.1:3791
+```
+
+The Entra app needs the redirect URI `https://<host>.<tailnet>.ts.net:8443/oauth/callback`. In
+Claude, add a custom connector with `https://<host>.<tailnet>.ts.net:8443/mcp`.
+
 A machine whose T3 server runs inside WSL has its Tailscale on Windows, where `t3 pair --tailscale`
 can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pair` and use the
 `https://<machine>.<tailnet>.ts.net/pair#token=…` form of the link:

@@ -4,7 +4,7 @@
 #
 #   fleet/deploy-hub.sh <ssh-host> --setup --owner you@example.com   first time
 #   fleet/deploy-hub.sh <ssh-host>                                    later updates
-#   fleet/deploy-hub.sh <ssh-host> --hub-only                         only server.mjs/desk.mjs changed
+#   fleet/deploy-hub.sh <ssh-host> --hub-only                         only fleet/hub/*.mjs changed
 #
 # Uploads only files that changed since the running release (rsync, hard links for the rest),
 # over one reused ssh connection.
@@ -70,6 +70,7 @@ else
 fi
 cp "$repo_root/fleet/hub/server.mjs" "$out_dir/server.mjs"
 cp "$repo_root/fleet/hub/desk.mjs" "$out_dir/desk.mjs"
+cp "$repo_root/fleet/hub/connector.mjs" "$out_dir/connector.mjs"
 # Artifact pages (test sheet, page theme) come from packages/shared so they match T3's look.
 node --input-type=module -e '
   const shared = await import(process.argv[1]);

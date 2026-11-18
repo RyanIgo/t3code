@@ -77,7 +77,7 @@ token="$(gh auth token 2>/dev/null || true)"
 
 # The hub runs from the working tree's files, like a deploy would ship them.
 mkdir -p "$state/hub"
-cp "$repo_root/fleet/hub/server.mjs" "$repo_root/fleet/hub/desk.mjs" "$state/hub/"
+cp "$repo_root/fleet/hub/server.mjs" "$repo_root/fleet/hub/desk.mjs" "$repo_root/fleet/hub/connector.mjs" "$state/hub/"
 node --input-type=module -e '
   const shared = await import(process.argv[1]);
   const { writeFileSync } = await import("node:fs");
@@ -87,7 +87,7 @@ node --input-type=module -e '
 url="http://localhost:$port"
 echo "$url" > "$state/url"
 
-HUB_PORT="$hub_port" HUB_OWNERS="$login" HUB_DATA="$state/data" HUB_WEB="$state/hub/no-web" \
+HUB_PORT="$hub_port" HUB_CONNECTOR_PORT="$((hub_port - 1))" HUB_OWNERS="$login" HUB_DATA="$state/data" HUB_WEB="$state/hub/no-web" \
   HUB_GITHUB_TOKEN="$token" setsid node "$state/hub/server.mjs" > "$state/hub.log" 2>&1 < /dev/null &
 echo $! > "$state/hub.pid"
 

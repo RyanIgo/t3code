@@ -10,9 +10,12 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeHttp from "node:http";
 import * as NodePath from "node:path";
 
+import { createConnector } from "./connector.mjs";
 import { createDesk } from "./desk.mjs";
 
 const PORT = Number(process.env.HUB_PORT ?? 3790);
+// The Dev Desk connector's own port, published by `tailscale funnel`; only connector paths answer.
+const CONNECTOR_PORT = Number(process.env.HUB_CONNECTOR_PORT ?? 3791);
 const WEB_ROOT = NodePath.resolve(process.env.HUB_WEB ?? "./web");
 const DATA_ROOT = NodePath.resolve(process.env.HUB_DATA ?? "./data");
 const OWNERS = new Set(
@@ -687,6 +690,28 @@ if (OWNERS.size === 0) {
 }
 await NodeFSP.mkdir(DATA_ROOT, { recursive: true, mode: 0o700 });
 await desk.start();
+const connector = createConnector({
+  dataRoot: DATA_ROOT,
+  owners: OWNERS,
+  readSetting,
+  desk,
+  readNotes: async () => {
+    const record = await readDocument("desknotes");
+    try {
+      return record.document ? JSON.parse(record.document) : null;
+    } catch {
+      return null;
+    }
+  },
+  log,
+});
+NodeHttp.createServer((req, res) => void connector(req, res)).listen(
+  CONNECTOR_PORT,
+  "127.0.0.1",
+  () => {
+    log("connector listening", { port: CONNECTOR_PORT });
+  },
+);
 server.listen(PORT, "127.0.0.1", () => {
   log("hub listening", { port: PORT, web: WEB_ROOT, data: DATA_ROOT, owners: [...OWNERS] });
 });
