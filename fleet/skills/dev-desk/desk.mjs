@@ -102,6 +102,20 @@ async function context(given) {
     (item) => item.app === app && item.title.startsWith("Feature:") && item.workType === "Tracking",
   );
   const lines = [`# ${app}`];
+  const section = (key, label, source) => {
+    const text = source?.[key]?.text?.trim();
+    if (text) lines.push(`\n## ${label}\n${text}`);
+  };
+  // The direction Rigo keeps on the app's page: read it before planning or building.
+  const direction = notes.directions?.[app];
+  section("direction", "Direction", direction);
+  section("arc", "The arc (now, next, later)", direction);
+  section("goals", "Goals", direction);
+  section("decisions", "Decisions", direction);
+  section("questions", "Open questions", direction);
+  const portfolio = notes.directions?.["*"];
+  section("principles", "Design principles (every application)", portfolio);
+  section("loop", "How Rigo steers (every application)", portfolio);
   if (sprint) {
     const goal = notes.sprintGoals?.[sprint.title]?.[app]?.text;
     lines.push(`\n## ${sprint.title} (from ${sprint.startDate}, ${sprint.duration} days)`);

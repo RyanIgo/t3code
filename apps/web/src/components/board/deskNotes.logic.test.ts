@@ -44,6 +44,37 @@ describe("desk notes", () => {
     expect(noteAt(merged, { kind: "sprintNotes", sprint: "Sprint 1" })?.by).toBe("agent");
   });
 
+  it("keeps each direction section's newer edit, per application", () => {
+    const base = withNote(
+      EMPTY_DESK_NOTES,
+      { kind: "direction", app: "Precon", section: "arc" },
+      "old arc",
+      "2026-11-18T10:00:00Z",
+      null,
+    );
+    const mine = withNote(
+      base,
+      { kind: "direction", app: "Precon", section: "arc" },
+      "new arc",
+      "2026-11-18T12:00:00Z",
+      null,
+    );
+    const theirs = withNote(
+      base,
+      { kind: "direction", app: "Precon", section: "goals" },
+      "goals",
+      "2026-11-18T11:00:00Z",
+      "agent",
+    );
+    const merged = parseDeskNotes(JSON.stringify(mergeDeskNotes(mine, theirs)));
+    expect(noteAt(merged, { kind: "direction", app: "Precon", section: "arc" })?.text).toBe(
+      "new arc",
+    );
+    expect(noteAt(merged, { kind: "direction", app: "Precon", section: "goals" })?.by).toBe(
+      "agent",
+    );
+  });
+
   it("reads a stored document, dropping malformed notes", () => {
     const notes = parseDeskNotes(
       JSON.stringify({

@@ -142,6 +142,7 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
         resource: `${s.origin}/mcp`,
         authorization_servers: [s.origin],
         bearer_methods_supported: ["header"],
+        scopes_supported: ["desk"],
         resource_name: "Dev Desk",
       },
       server: {
@@ -150,6 +151,7 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
         token_endpoint: `${s.origin}/oauth/token`,
         registration_endpoint: `${s.origin}/oauth/register`,
         response_types_supported: ["code"],
+        response_modes_supported: ["query"],
         grant_types_supported: ["authorization_code", "refresh_token"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none"],
@@ -311,6 +313,16 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
     const tx = form.get("tx") ?? "";
     const entry = pending.get(`tx:${tx}`);
     const nonce = readCookies(req.headers.cookie).get(`__Host-desk_login_${tx}`);
+    if (!entry && nonce === undefined) {
+      return sendHtml(
+        res,
+        200,
+        page(
+          "Already done",
+          "<h1>Already done</h1><p>This sign-in already finished. Go back to Claude.</p>",
+        ),
+      );
+    }
     const expected = nonce
       ? NodeCrypto.createHmac("sha256", nonce).update(tx).digest("base64url")
       : "";
@@ -428,13 +440,22 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
       "content-type": "text/html; charset=utf-8",
       "cache-control": "no-store",
       "content-security-policy":
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://claude.ai https://claude.com http://localhost:* http://127.0.0.1:*; frame-ancestors 'none'",
       "x-frame-options": "DENY",
     });
     res.end(html);
   }
 
   return async function handle(req, res) {
+    // One line per request (no query strings or tokens) to see what reaches the connector.
+    res.on("finish", () =>
+      log("connector request", {
+        method: req.method,
+        path: String(req.url).split("?")[0],
+        status: res.statusCode,
+        agent: String(req.headers["user-agent"] ?? "").slice(0, 60),
+      }),
+    );
     const s = settings();
     const url = new URL(req.url, s.origin || "http://connector");
     const reply = (status, body, headers = {}) => {
@@ -484,7 +505,7 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
             401,
             { error: "invalid_token" },
             {
-              "www-authenticate": `Bearer resource_metadata="${s.origin}/.well-known/oauth-protected-resource"`,
+              "www-authenticate": `Bearer realm="dev-desk", resource_metadata="${s.origin}/.well-known/oauth-protected-resource/mcp"`,
             },
           );
         }
@@ -674,6 +695,38 @@ function createTools({ desk, readNotes }) {
         if (todo.length) out.push("Sprint work not started:", ...todo.map(line));
       }
       return out.join("\n");
+    },
+  );
+
+  add(
+    "app_direction",
+    "An application's direction as Rigo keeps it: who it's for and what it's meant to do, its arc (now, next, later), goals with dates, decisions and open questions. Omit app for the portfolio: the organizational arc, design principles, the Framework and how Rigo steers.",
+    { properties: { app: { type: "string" } } },
+    async ({ app }) => {
+      const v = view();
+      const key = app ? appArg(v, app) : "*";
+      const sections = (await readNotes())?.directions?.[key] ?? {};
+      const labels =
+        key === "*"
+          ? {
+              arc: "The arc",
+              principles: "Design principles",
+              framework: "The Framework",
+              loop: "How Rigo steers",
+            }
+          : {
+              direction: "Direction",
+              arc: "The arc",
+              goals: "Goals",
+              decisions: "Decisions",
+              questions: "Open questions",
+            };
+      const out = [`# ${key === "*" ? "All applications" : key}`];
+      for (const [id, label] of Object.entries(labels)) {
+        const text = sections[id]?.text?.trim();
+        if (text) out.push(`\n## ${label}\n${text}`);
+      }
+      return out.length > 1 ? out.join("\n") : "No direction written yet for this application.";
     },
   );
 

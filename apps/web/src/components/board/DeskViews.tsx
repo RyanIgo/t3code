@@ -31,7 +31,7 @@ import {
   chatTitle,
   workKind,
 } from "./desk.logic";
-import { type DeskNotes, noteAt } from "./deskNotes.logic";
+import { APP_DIRECTION, type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskNote } from "./deskNotesStore";
 import {
   DeskHeading,
@@ -47,6 +47,7 @@ import { ChatAboutButton } from "./DeskChat";
 import { PrPanel } from "./DeskPrs";
 import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
+import { DirectionPanel } from "./DeskDirection";
 import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 
 const NONE = "__none__";
@@ -673,6 +674,15 @@ export function AppView(props: {
           </div>
         ) : null}
       </header>
+
+      {feature ? null : (
+        <DirectionPanel
+          app={app}
+          title={`Where ${app} is going`}
+          sections={APP_DIRECTION}
+          notes={props.notes}
+        />
+      )}
 
       {!feature ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

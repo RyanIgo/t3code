@@ -49,7 +49,8 @@ import {
   type WorkKind,
 } from "./desk.logic";
 import { refreshDesk, setDeskField, useDesk } from "./deskStore";
-import { type DeskNotes, noteAt } from "./deskNotes.logic";
+import { ALL_APPS, type DeskNotes, noteAt, PORTFOLIO_DIRECTION } from "./deskNotes.logic";
+import { DirectionPanel } from "./DeskDirection";
 import { saveDeskLink, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, DeskHeading, STAGE_VARIANT } from "./DeskParts";
@@ -675,6 +676,14 @@ export function DeskPage(props: {
         />
       ) : (
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="md:col-span-2 xl:col-span-3">
+            <DirectionPanel
+              app={ALL_APPS}
+              title="Where all the applications are going"
+              sections={PORTFOLIO_DIRECTION}
+              notes={notes.notes}
+            />
+          </div>
           {summaries.map((summary) => (
             <AppScorecard
               key={summary.app}

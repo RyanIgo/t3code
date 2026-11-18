@@ -36,7 +36,37 @@ export interface DeskNotes {
   readonly links: Readonly<Record<string, DeskChatLink>>;
   /** GitHub item URL → the hub test sheet made from its acceptance criteria. */
   readonly sheets: Readonly<Record<string, DeskSheet>>;
+  /** Application name (or ALL_APPS for the whole portfolio) → direction section → its text. */
+  readonly directions: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
 }
+
+/** The directions key for what applies to every application. */
+export const ALL_APPS = "*";
+
+/** The sections of an application's direction, in reading order. */
+export const APP_DIRECTION = [
+  {
+    id: "direction",
+    label: "Direction",
+    hint: "Who it's for, what it's meant to do, its priority, and whether it's a custom app or part of the Framework.",
+  },
+  { id: "arc", label: "The arc", hint: "Now, next, later." },
+  { id: "goals", label: "Goals", hint: "2 to 5 outcomes, each with a date." },
+  { id: "decisions", label: "Decisions", hint: "What's been decided, and when." },
+  { id: "questions", label: "Open questions", hint: "What still needs a call." },
+] as const;
+
+/** The sections of the portfolio's direction, shown above every application. */
+export const PORTFOLIO_DIRECTION = [
+  { id: "arc", label: "The arc", hint: "The organizational goal every application serves." },
+  {
+    id: "principles",
+    label: "Design principles",
+    hint: "What decides trade-offs in every application.",
+  },
+  { id: "framework", label: "The Framework", hint: "The shared base the EMG companies can adopt." },
+  { id: "loop", label: "How Rigo steers", hint: "What reaches Rigo, and the daily cycle." },
+] as const;
 
 export interface DeskSheet {
   readonly id: string;
@@ -50,6 +80,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   sprintNotes: {},
   links: {},
   sheets: {},
+  directions: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -149,6 +180,13 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
     sprintNotes: readNotes(record.sprintNotes),
     links: readLinks(record.links),
     sheets: readSheets(record.sheets),
+    directions: Object.fromEntries(
+      Object.entries(
+        typeof record.directions === "object" && record.directions !== null
+          ? record.directions
+          : {},
+      ).map(([app, sections]) => [app, readNotes(sections)]),
+    ),
   };
 }
 
@@ -178,6 +216,11 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
     sprintNotes: mergeNotes(remote.sprintNotes, local.sprintNotes),
     links: mergeNotes(remote.links, local.links),
     sheets: mergeNotes(remote.sheets, local.sheets),
+    directions: Object.fromEntries(
+      [...new Set([...Object.keys(local.directions), ...Object.keys(remote.directions)])].map(
+        (app) => [app, mergeNotes(remote.directions[app] ?? {}, local.directions[app] ?? {})],
+      ),
+    ),
   };
 }
 
@@ -193,11 +236,13 @@ export function withSheet(notes: DeskNotes, itemUrl: string, sheet: DeskSheet): 
 export type DeskNoteTarget =
   | { readonly kind: "app"; readonly app: string }
   | { readonly kind: "sprintGoal"; readonly sprint: string; readonly app: string }
-  | { readonly kind: "sprintNotes"; readonly sprint: string };
+  | { readonly kind: "sprintNotes"; readonly sprint: string }
+  | { readonly kind: "direction"; readonly app: string; readonly section: string };
 
 export function noteAt(notes: DeskNotes, target: DeskNoteTarget): DeskNote | null {
   if (target.kind === "app") return notes.apps[target.app] ?? null;
   if (target.kind === "sprintNotes") return notes.sprintNotes[target.sprint] ?? null;
+  if (target.kind === "direction") return notes.directions[target.app]?.[target.section] ?? null;
   return notes.sprintGoals[target.sprint]?.[target.app] ?? null;
 }
 
@@ -212,6 +257,15 @@ export function withNote(
   if (target.kind === "app") return { ...notes, apps: { ...notes.apps, [target.app]: note } };
   if (target.kind === "sprintNotes") {
     return { ...notes, sprintNotes: { ...notes.sprintNotes, [target.sprint]: note } };
+  }
+  if (target.kind === "direction") {
+    return {
+      ...notes,
+      directions: {
+        ...notes.directions,
+        [target.app]: { ...notes.directions[target.app], [target.section]: note },
+      },
+    };
   }
   return {
     ...notes,
