@@ -19,6 +19,7 @@ import {
   deskTitle,
   featureName,
   storyProgress,
+  chatTitle,
 } from "./desk.logic";
 import type { DeskNote } from "./deskNotes.logic";
 import { setDeskLane } from "./deskStore";
@@ -112,7 +113,7 @@ export function ThreadList(props: {
               className="min-w-0 cursor-pointer truncate text-left hover:underline"
               onClick={() => props.onOpenChat(chat)}
             >
-              {chat.title}
+              {chatTitle(chat.title)}
             </button>
           </li>
         ))}

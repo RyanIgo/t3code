@@ -9,6 +9,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
 import { type DeskChatContext, contextLabel, deskFragment, deskPlace } from "./deskChat.logic";
+import { chatTitle } from "./desk.logic";
 import type { DeskChatLink } from "./deskNotes.logic";
 import { useDeskNotes } from "./deskNotesStore";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
@@ -137,7 +138,7 @@ export function ChatLauncher(props: {
                       key={`${entry.environmentId}:${entry.threadId}`}
                       value={`${entry.environmentId}:${entry.threadId}`}
                     >
-                      {entry.title}
+                      {chatTitle(entry.title)}
                     </SelectItem>
                   ))}
                 </SelectPopup>

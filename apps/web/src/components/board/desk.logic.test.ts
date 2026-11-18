@@ -11,6 +11,7 @@ import {
   currentSprint,
   groupWork,
   sprintOverview,
+  chatTitle,
   summarizeApps,
   waitingOnYou,
 } from "./desk.logic";
@@ -236,6 +237,18 @@ it("groups an app's work by sprint, blocked, open and recently done, and sums a 
     ["Materials", 1, 0],
   ]);
   expect(sprintOverview(items, sprint, ["Precon"], false)).toMatchObject({ total: 2, done: 1 });
+});
+
+it("reads chat titles without pasted links", () => {
+  expect(chatTitle("PR #233 (https://github.com/cfevans/cfe-data-warehouse/pull/233)")).toBe(
+    "PR #233",
+  );
+  expect(chatTitle("Review https://github.com/cfevans/app/issues/12 today")).toBe(
+    "Review app#12 today",
+  );
+  expect(chatTitle("https://example.com/x")).toBe("https://example.com/x");
+  expect(chatTitle("PR #233 (https://github.com/cfevans/cfe-data-wareh")).toBe("PR #233");
+  expect(chatTitle("Permissions")).toBe("Permissions");
 });
 
 it("names a chat's status, needing the user first", () => {

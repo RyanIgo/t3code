@@ -2,7 +2,7 @@
  * Fleet fork: where to look first across applications, for coming back after a break. One row
  * per app with what waits on you, what can merge, and what has stalled. Pure logic only.
  */
-import type { DeskItem, DeskSprint } from "./desk.logic";
+import { type DeskItem, type DeskSprint, sprintOverview } from "./desk.logic";
 import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
 
 export interface AppFocus {
@@ -33,9 +33,9 @@ export function focusByApp(input: {
   const rows = input.apps.map((app): AppFocus => {
     const items = input.items.filter((item) => item.app === app);
     const prs = input.prs.filter((pr) => pr.app === app && !isDependencyUpdate(pr));
-    const sprintItems = input.sprint
-      ? items.filter((item) => item.sprint?.title === input.sprint?.title)
-      : [];
+    const progress = input.sprint
+      ? sprintOverview(input.items, input.sprint, [app], false)
+      : { done: 0, total: 0 };
     return {
       app,
       needsYou: input.needsYou(app),
@@ -44,8 +44,8 @@ export function focusByApp(input: {
       noAgent: items.filter((item) => item.lane === "Now" && isOpen(item) && !input.hasChat(item))
         .length,
       blocked: items.filter((item) => item.lane === "Blocked" && isOpen(item)).length,
-      sprintDone: sprintItems.filter((item) => !isOpen(item) || item.status === "Done").length,
-      sprintTotal: sprintItems.length,
+      sprintDone: progress.done,
+      sprintTotal: progress.total,
     };
   });
   const urgency = (row: AppFocus) =>

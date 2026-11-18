@@ -42,12 +42,14 @@ import {
   type AppSummary,
   currentSprint,
   waitingOnYou,
+  chatStatus,
+  chatTitle,
 } from "./desk.logic";
 import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
-import { saveDeskLink, saveDeskNote, useDeskNotes } from "./deskNotesStore";
+import { saveDeskLink, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import { DeskCard, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
+import { DeskCard, STAGE_VARIANT } from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
 import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
@@ -506,9 +508,6 @@ export function DeskPage(props: {
       })()
     : [];
   const summaries = summarizeApps(items, app ? [app] : apps, sprint);
-  const overviewSequence = summaries.flatMap((summary) =>
-    ids([...summary.sprintItems, ...summary.blocked]),
-  );
 
   const nowItems = items.filter(
     (entry) => entry.lane === "Now" && (app === null || entry.app === app),
@@ -646,6 +645,9 @@ export function DeskPage(props: {
           card={(entry) => card(entry, false, ids(nowItems))}
           onPrs={() => setMode("prs")}
           onPlan={() => setMode("plan")}
+          onClearDone={(finished) => {
+            for (const entry of finished) void setDeskLane(entry.itemId, null);
+          }}
         />
       ) : mode === "apps" && focusApp ? (
         <AppView
@@ -677,33 +679,18 @@ export function DeskPage(props: {
       ) : mode === "plan" ? (
         lanes(null)
       ) : (
-        <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 xl:grid-cols-2">
-          {sprint ? (
-            <section
-              aria-label={`${sprint.title} notes`}
-              className="rounded-lg border border-border bg-muted/40 p-3 xl:col-span-2"
-            >
-              <NoteEditor
-                label={`${sprint.title} notes`}
-                hint="What this sprint is for and what feedback said. Agents read it."
-                placeholder="e.g. Goal: get bid review and access control in front of users by Nov 22; feedback from the test sheets goes here."
-                note={noteAt(notes.notes, { kind: "sprintNotes", sprint: sprint.title })}
-                rows={3}
-                onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
-              />
-            </section>
-          ) : null}
+        <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 md:grid-cols-2 xl:grid-cols-3">
           {summaries.map((summary) => (
             <AppScorecard
               key={summary.app}
               summary={summary}
               sprintTitle={sprint?.title ?? null}
-              card={(item) => card(item, false, overviewSequence)}
+              sprintProgress={
+                sprint ? sprintOverview(items, sprint, [summary.app], false) : { done: 0, total: 0 }
+              }
               notes={notes.notes}
               threads={appThreads(summary.app)}
-              onOpenChat={openChat}
-              onOpenApp={() => setFocus({ app: summary.app, feature: null, view: "overview" })}
-              onOpenFeature={(feature) => setFocus({ app: summary.app, feature, view: "overview" })}
+              onOpenApp={() => setStoredApp(summary.app)}
             />
           ))}
         </div>
@@ -717,135 +704,72 @@ export function DeskPage(props: {
 function AppScorecard(props: {
   readonly summary: AppSummary;
   readonly sprintTitle: string | null;
-  readonly card: (item: DeskItem) => ReactNode;
+  /** Same counting as the Sprint tab. */
+  readonly sprintProgress: { readonly done: number; readonly total: number };
   readonly notes: DeskNotes;
   readonly threads: ReadonlyArray<CardChatState>;
-  readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenApp: () => void;
-  readonly onOpenFeature: (feature: string) => void;
 }) {
   const { summary } = props;
-  const goalTarget = props.sprintTitle
-    ? ({ kind: "sprintGoal", sprint: props.sprintTitle, app: summary.app } as const)
+  const goal = props.sprintTitle
+    ? noteAt(props.notes, { kind: "sprintGoal", sprint: props.sprintTitle, app: summary.app })
     : null;
-  const { mix } = summary;
-  const total = mix.feature + mix.maintenance + mix.other;
-  const percent = (value: number) => (total === 0 ? 0 : Math.round((value / total) * 100));
+  const stages = (["Production", "Testing", "Experiment"] as const).flatMap((stage) => {
+    const count = summary.features.filter((feature) => feature.stage === stage).length;
+    return count > 0 ? [{ stage, count }] : [];
+  });
+  const statuses = new Map<
+    string,
+    { tone: ReturnType<typeof chatStatus>["tone"]; count: number }
+  >();
+  for (const chat of props.threads) {
+    const status = chatStatus(chat);
+    statuses.set(status.label, {
+      tone: status.tone,
+      count: (statuses.get(status.label)?.count ?? 0) + 1,
+    });
+  }
   return (
-    <section
-      aria-label={summary.app}
-      className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3"
+    <button
+      type="button"
+      aria-label={`Open ${summary.app}`}
+      onClick={props.onOpenApp}
+      className="flex cursor-pointer flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-left hover:border-ring"
     >
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-sm font-semibold">
-          <button
-            type="button"
-            className="cursor-pointer hover:underline"
-            onClick={props.onOpenApp}
-          >
-            {summary.app}
-          </button>
-        </h2>
+      <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="text-sm font-semibold">{summary.app}</span>
         <span className="text-xs text-muted-foreground">
-          {summary.open} open · {summary.maintenance} maintenance · {summary.blocked.length} blocked
+          {summary.open} open
+          {summary.blocked.length > 0 ? ` · ${summary.blocked.length} blocked` : ""}
         </span>
-      </header>
-      {goalTarget ? (
-        <NoteEditor
-          label={`${props.sprintTitle} goal`}
-          hint="One line: what this app should reach this sprint."
-          placeholder="e.g. Estimators level bids on one screen, in Testing with two of them."
-          note={noteAt(props.notes, goalTarget)}
-          rows={1}
-          onSave={(text) => saveDeskNote(goalTarget, text)}
-        />
+      </span>
+      <span className={cn("text-xs", goal?.text ? "" : "text-muted-foreground")}>
+        {goal?.text ? `Goal: ${goal.text}` : "No sprint goal yet"}
+      </span>
+      <span className="flex flex-wrap items-center gap-1">
+        {stages.map(({ stage, count }) => (
+          <Badge key={stage} variant={STAGE_VARIANT[stage]} size="sm">
+            {count} {stage}
+          </Badge>
+        ))}
+        {props.sprintTitle ? (
+          <span className="text-2xs text-muted-foreground">
+            {props.sprintProgress.total > 0
+              ? `${props.sprintTitle}: ${props.sprintProgress.done} of ${props.sprintProgress.total} done`
+              : `Nothing in ${props.sprintTitle}`}
+          </span>
+        ) : null}
+      </span>
+      {statuses.size > 0 ? (
+        <span className="flex flex-wrap items-center gap-1">
+          {[...statuses].map(([label, { tone, count }]) => (
+            <Badge key={label} variant={tone} size="sm">
+              {count} {label.toLowerCase()}
+            </Badge>
+          ))}
+        </span>
       ) : null}
-      {summary.features.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Features
-          </h3>
-          <ul className="flex flex-col gap-1 text-sm">
-            {summary.features.map((feature) => (
-              <li key={feature.feature} className="flex items-center gap-2">
-                <span className="w-24 shrink-0">
-                  {feature.stage ? (
-                    <Badge variant={STAGE_VARIANT[feature.stage]} size="sm">
-                      {feature.stage}
-                    </Badge>
-                  ) : (
-                    <span className="text-2xs text-muted-foreground">No stage</span>
-                  )}
-                </span>
-                <button
-                  type="button"
-                  className="min-w-0 flex-1 cursor-pointer truncate text-left hover:underline disabled:cursor-default disabled:no-underline"
-                  onClick={() => props.onOpenFeature(feature.feature)}
-                >
-                  {feature.name}
-                </button>
-                <span className="shrink-0 text-2xs text-muted-foreground tabular-nums">
-                  {feature.inSprint > 0 ? `${feature.inSprint} in sprint · ` : ""}
-                  {feature.open} open{feature.blocked > 0 ? ` · ${feature.blocked} blocked` : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-1.5">
-        <h3 className="flex flex-wrap items-baseline gap-2 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-          {props.sprintTitle ?? "This sprint"}
-          {total > 0 ? (
-            <span className="font-normal tracking-normal normal-case">
-              {percent(mix.feature)}% features · {percent(mix.maintenance)}% maintenance ·{" "}
-              {percent(mix.other)}% fixes, research & support (budget 60 / 20 / 20)
-            </span>
-          ) : null}
-        </h3>
-        {summary.sprintItems.length > 0 ? (
-          <ol className="flex flex-col gap-2">{summary.sprintItems.map(props.card)}</ol>
-        ) : (
-          <p className="text-xs text-muted-foreground">Nothing planned for this sprint.</p>
-        )}
-      </div>
-      {summary.blocked.length > 0 ? (
-        <div className="flex flex-col gap-1.5">
-          <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-            Blocked
-          </h3>
-          <ol className="flex flex-col gap-2">{summary.blocked.map(props.card)}</ol>
-        </div>
-      ) : null}
-      <div className="flex flex-col gap-1.5">
-        <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-          Threads · {props.threads.length}
-        </h3>
-        <ThreadList
-          threads={props.threads}
-          onOpenChat={props.onOpenChat}
-          empty="No open T3 chats in this app's repos."
-        />
-      </div>
-      <details className="group/notes">
-        <summary className="cursor-pointer text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-          Notes for agents
-          {props.notes.apps[summary.app] ? "" : " · none yet"}
-        </summary>
-        <div className="mt-1.5">
-          <NoteEditor
-            label="Notes for agents"
-            hint="Goals, decisions, conventions, what not to touch. Agents read this before working here."
-            placeholder={
-              "e.g.\n- Estimators are the users; keep screens plain.\n- Decided 2026-11-17: leveling is the heart of Bids.\n- Don't change the AI read switches without asking."
-            }
-            note={props.notes.apps[summary.app] ?? null}
-            rows={8}
-            onSave={(text) => saveDeskNote({ kind: "app", app: summary.app }, text)}
-          />
-        </div>
-      </details>
-    </section>
+    </button>
   );
 }
 
@@ -873,7 +797,7 @@ function NeedsYou(props: {
           className="min-w-0 cursor-pointer truncate text-left hover:underline"
           onClick={() => props.onOpenChat(chat)}
         >
-          {chat.title}
+          {chatTitle(chat.title)}
         </button>
         {props.repoOf(chat) ? (
           <span className="shrink-0 text-2xs text-muted-foreground">{props.repoOf(chat)}</span>

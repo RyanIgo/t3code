@@ -100,6 +100,20 @@ export const featureName = (feature: string) =>
 
 const isOpen = (item: DeskItem) => item.state === "open" || item.state === "draft";
 
+/**
+ * A chat title without pasted links: a GitHub link becomes "repo#number" and a link in
+ * brackets after the name is dropped. Display only; the chat keeps its name.
+ */
+export function chatTitle(title: string): string {
+  const cleaned = title
+    .replace(/\(\s*https?:\/\/[^)\s]*\s*\)?/g, "")
+    .replace(/https?:\/\/github\.com\/[^/\s]+\/([^/\s]+)\/(?:pull|issues)\/(\d+)\S*/g, "$1#$2")
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return cleaned || title;
+}
+
 /** What a person reads first: the plain "What", else the GitHub title. */
 export const deskTitle = (item: DeskItem) => item.plain?.what ?? item.title;
 

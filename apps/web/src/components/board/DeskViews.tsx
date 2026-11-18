@@ -28,6 +28,7 @@ import {
   featureRecord,
   groupWork,
   sprintOverview,
+  chatTitle,
 } from "./desk.logic";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskNote } from "./deskNotesStore";
@@ -499,7 +500,7 @@ export function DeskModal(props: {
                       setChosen(chat);
                     }}
                   >
-                    <span className="max-w-56 truncate">{chat.title}</span>
+                    <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
                   </Button>
                 ))}
                 {item ? (
@@ -617,22 +618,24 @@ export function AppView(props: {
     sprint,
   );
   const goalTarget = sprint ? ({ kind: "sprintGoal", sprint: sprint.title, app } as const) : null;
-  const tabs = (
-    <nav className="flex flex-wrap items-center gap-2 text-sm">
-      {feature ? (
-        <Button variant="ghost" size="xs" onClick={() => props.onFeature(null)}>
-          <ArrowLeftIcon />
-          {app}
-        </Button>
-      ) : null}
-      <ChatAboutButton onClick={props.onChat} />
-    </nav>
-  );
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6">
-      {tabs}
       <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{feature ? featureName(feature) : app}</h2>
+        {feature ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="self-start"
+            onClick={() => props.onFeature(null)}
+          >
+            <ArrowLeftIcon />
+            {app}
+          </Button>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <h2 className="text-lg font-semibold">{feature ? featureName(feature) : app}</h2>
+          <ChatAboutButton onClick={props.onChat} />
+        </div>
         {record ? (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             {record.stage ? (

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import type { DeskItem } from "./desk.logic";
+import { type DeskItem, deskTitle } from "./desk.logic";
 import type { AppFocus } from "./deskFocus.logic";
 import { DeskHeading } from "./DeskParts";
 
@@ -25,9 +25,15 @@ export function TodayView(props: {
   readonly card: (item: DeskItem) => ReactNode;
   readonly onPrs: () => void;
   readonly onPlan: () => void;
+  /** Moves finished work out of the Now lane. */
+  readonly onClearDone: (items: ReadonlyArray<DeskItem>) => void;
 }) {
-  const moving = props.now.filter(props.hasChat);
-  const idle = props.now.filter((item) => !props.hasChat(item));
+  const isDone = (item: DeskItem) =>
+    item.status === "Done" || (item.state !== "open" && item.state !== "draft");
+  const done = props.now.filter(isDone);
+  const active = props.now.filter((item) => !isDone(item));
+  const moving = active.filter(props.hasChat);
+  const idle = active.filter((item) => !props.hasChat(item));
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pb-6">
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-3">
@@ -62,12 +68,21 @@ export function TodayView(props: {
       </section>
       <section aria-label="This week" className="flex flex-col gap-2 px-4">
         <div className="flex items-center gap-2">
-          <DeskHeading>This week (Now lane) · {props.now.length}</DeskHeading>
+          <DeskHeading>This week (Now lane) · {active.length}</DeskHeading>
           <Button variant="ghost" size="xs" onClick={props.onPlan}>
             Change the plan
           </Button>
         </div>
-        {props.now.length === 0 ? (
+        {done.length > 0 ? (
+          <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {done.length} finished item{done.length === 1 ? " is" : "s are"} still in Now (
+            {done.map(deskTitle).join("; ")}).
+            <Button variant="outline" size="xs" onClick={() => props.onClearDone(done)}>
+              Take {done.length === 1 ? "it" : "them"} out of Now
+            </Button>
+          </p>
+        ) : null}
+        {active.length === 0 ? (
           <p className="text-xs text-muted-foreground">
             Nothing is in Now. Drag the week's work into Now on the Plan tab.
           </p>

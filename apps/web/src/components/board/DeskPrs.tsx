@@ -9,7 +9,7 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
-import { chatStatus } from "./desk.logic";
+import { chatStatus, chatTitle } from "./desk.logic";
 import { DeskHeading, openExternal } from "./DeskParts";
 import {
   type DeskPr,
@@ -139,6 +139,7 @@ function PrRow(props: {
   const { pr } = props;
   const context = [pr.app, prFeature(pr), pr.sprint?.title].filter(Boolean).join(" · ");
   const stageLabel = PR_STAGES.find((stage) => stage.id === pr.stage)?.label;
+  const idleChats = pr.chats.filter((chat) => chatStatus(chat).rank === 4);
   return (
     <li className="flex flex-col gap-1 rounded-md border border-border bg-card px-2.5 py-2">
       <button
@@ -185,20 +186,33 @@ function PrRow(props: {
         {pr.stage === "unverified" && pr.reasons.length > 0 ? (
           <span className="text-2xs text-muted-foreground">{pr.reasons.join(" · ")}</span>
         ) : null}
-        {pr.chats.map((chat) => (
+        {pr.chats
+          .filter((chat) => chatStatus(chat).rank < 4)
+          .map((chat) => (
+            <button
+              key={`${chat.environmentId}:${chat.threadId}`}
+              type="button"
+              className="max-w-56 cursor-pointer"
+              onClick={() => props.onOpenChat(chat)}
+            >
+              <Badge variant={chatStatus(chat).tone} size="sm">
+                <span className="truncate">
+                  {chatStatus(chat).label} · {chatTitle(chat.title)}
+                </span>
+              </Badge>
+            </button>
+          ))}
+        {idleChats.length > 0 ? (
           <button
-            key={`${chat.environmentId}:${chat.threadId}`}
             type="button"
-            className="max-w-56 cursor-pointer"
-            onClick={() => props.onOpenChat(chat)}
+            className="cursor-pointer"
+            onClick={() => idleChats[0] && props.onOpenChat(idleChats[0])}
           >
-            <Badge variant={chatStatus(chat).tone} size="sm">
-              <span className="truncate">
-                {chatStatus(chat).label} · {chat.title}
-              </span>
+            <Badge variant="outline" size="sm">
+              {idleChats.length} idle chat{idleChats.length === 1 ? "" : "s"}
             </Badge>
           </button>
-        ))}
+        ) : null}
       </span>
     </li>
   );
