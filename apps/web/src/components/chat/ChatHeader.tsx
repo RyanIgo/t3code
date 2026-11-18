@@ -1,5 +1,5 @@
 import { showThreadInDocumentTitle } from "../../documentTitle";
-import { DeskBreadcrumb, DeskLinkChip } from "../board/DeskChat";
+import { DeskBreadcrumb, DeskLinkChip, DeskPinButton } from "../board/DeskChat";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -507,6 +507,7 @@ export const ChatHeader = memo(function ChatHeader({
         <ReviewWindowButton environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
       ) : null}
       {isServerThread ? <DeskLinkChip threadRef={activeThreadRef} /> : null}
+      {isServerThread ? <DeskPinButton threadRef={activeThreadRef} /> : null}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
     </div>
   );

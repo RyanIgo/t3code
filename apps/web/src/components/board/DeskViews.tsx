@@ -32,7 +32,7 @@ import {
   workKind,
 } from "./desk.logic";
 import { APP_DIRECTION, type DeskNotes, noteAt } from "./deskNotes.logic";
-import { saveDeskNote } from "./deskNotesStore";
+import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import {
   DeskHeading,
   formatDay,
@@ -45,6 +45,7 @@ import {
 import { type DeskField, fetchDeskDetail, setDeskField } from "./deskStore";
 import { ChatAboutButton } from "./DeskChat";
 import { PrPanel } from "./DeskPrs";
+import { type PinChoice, PinMenu } from "./DeskPins";
 import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
 import { DirectionPanel } from "./DeskDirection";
@@ -348,6 +349,20 @@ function ItemDetails(props: {
  * live T3 chat on the right, over the Desk so you keep your place. Opened on a chat alone, the
  * chat fills it. Alt+← / Alt+→ step through the list it was opened from.
  */
+/** Where the work window offers to pin a chat: Today, this item, its sprint, then every app. */
+function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoice[] {
+  const choices: PinChoice[] = [{ place: { kind: "today" }, label: "Today" }];
+  if (item?.url)
+    choices.push({ place: { kind: "item", url: item.url }, label: `This item (${deskRef(item)})` });
+  if (item?.sprint)
+    choices.push({
+      place: { kind: "sprint", sprint: item.sprint.title },
+      label: item.sprint.title,
+    });
+  for (const app of apps) choices.push({ place: { kind: "app", app }, label: app });
+  return choices;
+}
+
 export function DeskModal(props: {
   readonly item: DeskItem | null;
   /** Opened from a pull request: it shows first, with its merge state and next steps. */
@@ -368,6 +383,7 @@ export function DeskModal(props: {
   readonly onChat: (item: DeskItem) => void;
 }) {
   const { item } = props;
+  const deskNotes = useDeskNotes();
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
   const [showDraft, setShowDraft] = useState(props.draft !== null);
   const shown =
@@ -490,8 +506,7 @@ export function DeskModal(props: {
                 : "relative hidden min-h-0 min-w-0 flex-1 flex-col sm:flex"
             }
           >
-            {props.chats.length + (props.draft ? 1 : 0) > 1 ||
-            (item !== null && props.chats.length > 0) ? (
+            {props.chats.length > 0 || props.draft ? (
               <nav
                 aria-label="Chats"
                 className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
@@ -525,17 +540,21 @@ export function DeskModal(props: {
                     <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
                   </Button>
                 ))}
-                {item ? (
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    className="ms-auto"
-                    onClick={() => props.onChat(item)}
-                  >
-                    <PlusIcon />
-                    New chat
-                  </Button>
-                ) : null}
+                <span className="ms-auto flex shrink-0 items-center gap-1">
+                  {shown && !draft ? (
+                    <PinMenu
+                      chatKey={chatKeyOf(shown)}
+                      notes={deskNotes.notes}
+                      choices={pinChoices(item, props.view.apps ?? [])}
+                    />
+                  ) : null}
+                  {item ? (
+                    <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
+                      <PlusIcon />
+                      New chat
+                    </Button>
+                  ) : null}
+                </span>
               </nav>
             ) : null}
             <ChatEmbedContext value>
@@ -615,6 +634,8 @@ function WorkList(props: {
 /** One application: sprint goal, notes, features by stage (each opening its own view), work and chats. */
 export function AppView(props: {
   readonly app: string;
+  /** The chats pinned to this app. */
+  readonly pinned: ReactNode;
   readonly feature: string | null;
   readonly onChat: () => void;
   readonly items: ReadonlyArray<DeskItem>;
@@ -675,6 +696,7 @@ export function AppView(props: {
         ) : null}
       </header>
 
+      {feature ? null : props.pinned}
       {feature ? null : (
         <DirectionPanel
           app={app}

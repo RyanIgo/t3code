@@ -17,6 +17,8 @@ export function TodayView(props: {
   /** Across all apps: one row per app, the most urgent first. */
   readonly focus: ReadonlyArray<AppFocus>;
   readonly onPickApp: (app: string | null) => void;
+  /** The chats pinned to Today (or to the app Today is filtered to). */
+  readonly pinned: ReactNode;
   /** What finished or started asking since the user last caught up. */
   readonly catchup: Catchup;
   readonly caughtUpAt: number;
@@ -50,6 +52,7 @@ export function TodayView(props: {
           </Button>
         ) : null}
       </header>
+      <div className="px-4">{props.pinned}</div>
       <CatchupSection
         catchup={props.catchup}
         caughtUpAt={props.caughtUpAt}

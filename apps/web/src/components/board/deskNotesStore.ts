@@ -9,8 +9,10 @@ import {
   mergeDeskNotes,
   parseDeskNotes,
   type DeskChatLink,
+  type PinPlace,
   withLink,
   withNote,
+  withPin,
   withSheet,
 } from "./deskNotes.logic";
 import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
@@ -130,6 +132,21 @@ export function saveDeskLink(chatKey: string, link: Omit<DeskChatLink, "updatedA
       toastManager.add({
         type: "error",
         title: "Couldn't link the chat",
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+/** Pins a chat ("<environmentId>:<threadId>") to a place on the Board, or unpins it. */
+export function saveDeskPin(place: PinPlace, chatKey: string, pinned: boolean) {
+  const next = withPin(snapshot.notes, place, chatKey, pinned, new Date().toISOString());
+  publish({ ...snapshot, notes: next });
+  saving = saving
+    .then(() => push(next))
+    .catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: pinned ? "Couldn't pin the chat" : "Couldn't unpin the chat",
         description: error instanceof Error ? error.message : String(error),
       });
     });

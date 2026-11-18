@@ -12,6 +12,9 @@ import { type DeskChatContext, contextLabel, deskFragment, deskPlace } from "./d
 import { chatTitle } from "./desk.logic";
 import type { DeskChatLink } from "./deskNotes.logic";
 import { useDeskNotes } from "./deskNotesStore";
+import { type PinChoice, PinMenu } from "./DeskPins";
+import { isHostedStaticApp } from "../../hostedPairing";
+import { ALL_APPS } from "./deskNotes.logic";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import {
   WorkspaceBreadcrumbItem,
@@ -273,5 +276,34 @@ export function DeskLinkChip(props: { readonly threadRef: ScopedThreadRef }) {
       <LayoutDashboardIcon />
       <span className="truncate">Board: {link.about}</span>
     </Button>
+  );
+}
+
+/**
+ * In a chat's header (outside the Board, which has its own): pin this chat to Today, an app, its
+ * sprint or its item, so it's found on the Board instead of the chat list. Only on the fleet hub.
+ */
+export function DeskPinButton(props: { readonly threadRef: ScopedThreadRef }) {
+  const onBoard = useRouterState({ select: (state) => state.location.pathname === "/board" });
+  const notes = useDeskNotes();
+  const link = useDeskLink(props.threadRef);
+  // App names come from the small notes document (every app has a direction there), so an
+  // open chat never loads the Board's whole item list.
+  const apps = Object.keys(notes.notes.directions)
+    .filter((app) => app !== ALL_APPS)
+    .toSorted();
+  if (onBoard || !isHostedStaticApp() || apps.length === 0) return null;
+  const choices: PinChoice[] = [{ place: { kind: "today" }, label: "Today" }];
+  if (link?.itemUrl)
+    choices.push({ place: { kind: "item", url: link.itemUrl }, label: `Its item (${link.about})` });
+  if (link?.sprint)
+    choices.push({ place: { kind: "sprint", sprint: link.sprint }, label: link.sprint });
+  for (const app of apps) choices.push({ place: { kind: "app", app }, label: app });
+  return (
+    <PinMenu
+      chatKey={`${props.threadRef.environmentId}:${props.threadRef.threadId}`}
+      notes={notes.notes}
+      choices={choices}
+    />
   );
 }

@@ -49,9 +49,16 @@ import {
   type WorkKind,
 } from "./desk.logic";
 import { refreshDesk, setDeskField, useDesk } from "./deskStore";
-import { ALL_APPS, type DeskNotes, noteAt, PORTFOLIO_DIRECTION } from "./deskNotes.logic";
+import {
+  ALL_APPS,
+  type DeskNotes,
+  noteAt,
+  type PinPlace,
+  PORTFOLIO_DIRECTION,
+} from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
-import { saveDeskLink, useDeskNotes } from "./deskNotesStore";
+import { saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
+import { PinnedStrip } from "./DeskPins";
 import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, DeskHeading, STAGE_VARIANT } from "./DeskParts";
 import { BacklogView } from "./DeskBacklog";
@@ -92,6 +99,22 @@ const ALL = "*";
  * columns), Backlog for choosing what's next, Apps for where each application stands.
  */
 const deskUrl = () => `${window.location.origin}/board`;
+
+/** Where a chat started or linked from the Board is pinned: the place it came from, and its app. */
+function pinPlacesFor(context: DeskChatContext): PinPlace[] {
+  if (context.kind === "item") {
+    const places: PinPlace[] = [];
+    if (context.item.url) places.push({ kind: "item", url: context.item.url });
+    if (context.item.app) places.push({ kind: "app", app: context.item.app });
+    return places;
+  }
+  if (context.kind === "sprint") {
+    const places: PinPlace[] = [{ kind: "sprint", sprint: context.sprint.title }];
+    if (context.app) places.push({ kind: "app", app: context.app });
+    return places;
+  }
+  return [{ kind: "app", app: context.app }];
+}
 
 export function DeskPage(props: {
   readonly tab: DeskTab;
@@ -338,6 +361,9 @@ export function DeskPage(props: {
         `${project.ref.environmentId}:${created.threadId}`,
         contextLink(context, sprint),
       );
+      for (const place of pinPlacesFor(context)) {
+        saveDeskPin(place, `${project.ref.environmentId}:${created.threadId}`, true);
+      }
       setModal({
         itemId: context.kind === "item" ? context.item.itemId : null,
         chat: null,
@@ -359,6 +385,9 @@ export function DeskPage(props: {
     });
     store.setPrompt(ref, existing.trim() ? `${existing}\n\n${prompt}` : prompt);
     saveDeskLink(`${chat.environmentId}:${chat.threadId}`, contextLink(context, sprint));
+    for (const place of pinPlacesFor(context)) {
+      saveDeskPin(place, `${chat.environmentId}:${chat.threadId}`, true);
+    }
     setLauncher(null);
     setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
   };
@@ -581,6 +610,15 @@ export function DeskPage(props: {
       {mode === "today" ? (
         <TodayView
           app={app}
+          pinned={
+            <PinnedStrip
+              place={app ? { kind: "app", app } : { kind: "today" }}
+              notes={notes.notes}
+              chats={props.chats}
+              onOpenChat={openChat}
+              empty={`Nothing pinned ${app ? `to ${app}` : "to Today"} yet. Use Pin on a chat to keep it here.`}
+            />
+          }
           catchup={changesSince(
             caughtUpAt,
             items.filter((entry) => app === null || entry.app === app),
@@ -645,6 +683,15 @@ export function DeskPage(props: {
       ) : mode === "apps" && focusApp ? (
         <AppView
           app={focusApp.app}
+          pinned={
+            <PinnedStrip
+              place={{ kind: "app", app: focusApp.app }}
+              notes={notes.notes}
+              chats={props.chats}
+              onOpenChat={openChat}
+              empty={`Nothing pinned to ${focusApp.app} yet. Chats you start here are pinned automatically.`}
+            />
+          }
           feature={focusApp.feature}
           items={items}
           sprint={sprint}

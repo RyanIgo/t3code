@@ -5,7 +5,9 @@ import {
   mergeDeskNotes,
   noteAt,
   parseDeskNotes,
+  pinnedChats,
   withNote,
+  withPin,
 } from "./deskNotes.logic";
 
 describe("desk notes", () => {
@@ -73,6 +75,29 @@ describe("desk notes", () => {
     expect(noteAt(merged, { kind: "direction", app: "Precon", section: "goals" })?.by).toBe(
       "agent",
     );
+  });
+
+  it("pins chats to places, newest first, and an unpin on one device wins over an older pin", () => {
+    const precon = { kind: "app", app: "Precon" } as const;
+    const pinned = withPin(
+      withPin(EMPTY_DESK_NOTES, precon, "env:a", true, "2026-11-18T10:00:00Z"),
+      precon,
+      "env:b",
+      true,
+      "2026-11-18T11:00:00Z",
+    );
+    expect(pinnedChats(pinned, precon)).toEqual(["env:b", "env:a"]);
+    const unpinnedElsewhere = withPin(pinned, precon, "env:a", false, "2026-11-18T12:00:00Z");
+    const merged = parseDeskNotes(JSON.stringify(mergeDeskNotes(pinned, unpinnedElsewhere)));
+    expect(pinnedChats(merged, precon)).toEqual(["env:b"]);
+    expect(pinnedChats(merged, { kind: "today" })).toEqual([]);
+    expect(
+      parseDeskNotes(
+        JSON.stringify({
+          pins: { "item:javascript:x": { "env:c": { pinned: true, updatedAt: "x" } } },
+        }),
+      ).pins,
+    ).toEqual({});
   });
 
   it("reads a stored document, dropping malformed notes", () => {

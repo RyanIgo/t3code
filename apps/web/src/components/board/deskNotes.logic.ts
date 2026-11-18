@@ -38,6 +38,67 @@ export interface DeskNotes {
   readonly sheets: Readonly<Record<string, DeskSheet>>;
   /** Application name (or ALL_APPS for the whole portfolio) → direction section → its text. */
   readonly directions: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
+  /** Place on the Board (see pinPlace) → "<environmentId>:<threadId>" → whether it's pinned there. */
+  readonly pins: Readonly<Record<string, Readonly<Record<string, DeskPin>>>>;
+}
+
+/** A chat pinned to a place. Unpinning keeps the entry (pinned: false) so devices agree. */
+export interface DeskPin {
+  readonly pinned: boolean;
+  readonly updatedAt: string;
+}
+
+/** Where a chat can be pinned on the Board. */
+export type PinPlace =
+  | { readonly kind: "today" }
+  | { readonly kind: "app"; readonly app: string }
+  | { readonly kind: "sprint"; readonly sprint: string }
+  | { readonly kind: "item"; readonly url: string };
+
+export function pinPlace(place: PinPlace): string {
+  if (place.kind === "today") return "today";
+  if (place.kind === "app") return `app:${place.app}`;
+  if (place.kind === "sprint") return `sprint:${place.sprint}`;
+  return `item:${place.url}`;
+}
+
+/** The chats pinned to a place, most recently pinned first. */
+export function pinnedChats(notes: DeskNotes, place: PinPlace): string[] {
+  return Object.entries(notes.pins[pinPlace(place)] ?? {})
+    .filter(([, pin]) => pin.pinned)
+    .sort((a, b) => time(b[1]) - time(a[1]))
+    .map(([chatKey]) => chatKey);
+}
+
+export function withPin(
+  notes: DeskNotes,
+  place: PinPlace,
+  chatKey: string,
+  pinned: boolean,
+  at: string,
+): DeskNotes {
+  const key = pinPlace(place);
+  return {
+    ...notes,
+    pins: { ...notes.pins, [key]: { ...notes.pins[key], [chatKey]: { pinned, updatedAt: at } } },
+  };
+}
+
+function readPins(value: unknown): Record<string, Record<string, DeskPin>> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([place, chats]) => {
+      if (!/^(today|app:.+|sprint:.+|item:https:\/\/github\.com\/.+)$/.test(place)) return [];
+      if (typeof chats !== "object" || chats === null) return [];
+      const entries = Object.entries(chats).flatMap(([chatKey, raw]) => {
+        const pin = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+        if (!chatKey.includes(":") || typeof pin.pinned !== "boolean") return [];
+        if (typeof pin.updatedAt !== "string") return [];
+        return [[chatKey, { pinned: pin.pinned, updatedAt: pin.updatedAt }] as const];
+      });
+      return [[place, Object.fromEntries(entries)]];
+    }),
+  );
 }
 
 /** The directions key for what applies to every application. */
@@ -81,6 +142,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   links: {},
   sheets: {},
   directions: {},
+  pins: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -187,6 +249,7 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
           : {},
       ).map(([app, sections]) => [app, readNotes(sections)]),
     ),
+    pins: readPins(record.pins),
   };
 }
 
@@ -220,6 +283,12 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
       [...new Set([...Object.keys(local.directions), ...Object.keys(remote.directions)])].map(
         (app) => [app, mergeNotes(remote.directions[app] ?? {}, local.directions[app] ?? {})],
       ),
+    ),
+    pins: Object.fromEntries(
+      [...new Set([...Object.keys(local.pins), ...Object.keys(remote.pins)])].map((place) => [
+        place,
+        mergeNotes(remote.pins[place] ?? {}, local.pins[place] ?? {}),
+      ]),
     ),
   };
 }
