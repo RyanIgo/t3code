@@ -1,6 +1,6 @@
 ---
 name: dev-desk
-description: Keep the Dev Desk (the fleet hub's view of the "Rigo — Dev" GitHub project) current and readable. Use before starting work on a GitHub issue (read its lane, priority and initiative), after progress on it (update its plain-words line), when filing an issue, and when asked to fill in or tidy plain words for the Desk.
+description: Keep the Dev Desk (the fleet hub's view of the "Rigo — Dev" GitHub project) current and readable. Use before starting work on a GitHub issue (read its status, sprint and priority), after progress on it (update its plain-words line), when filing an issue, and when asked to fill in or tidy plain words for the Desk.
 ---
 
 # Dev Desk (T3 Code fleet fork)
@@ -58,12 +58,14 @@ node ~/.claude/skills/dev-desk/desk.mjs note Precon "Decided: leveling stays the
 - **Feature**: `<App> · <feature>` (e.g. `Precon · Bid intake`). Each feature has an issue titled
   `Feature: <name>` with its goal and **Stage** (Experiment → Testing → Production). Moving a
   feature's stage is Rigo's call; propose it, don't set it.
-- **Work type**: Feature work · Fix · Maintenance (security, upgrades, standards) · Research ·
-  Support · Tracking (feature records, initiative headers, recurring reports; hidden on the Desk).
+- **Work type**: Story (something a user will see) · Bug · Maintenance (security, upgrades,
+  standards) · Research · Support · Tracking (feature records, initiative headers, recurring
+  reports; hidden on the board). It is the colored tag on every card.
 - **Sprint**: two weeks. Early in a sprint the work is built; the back half is user feedback from
-  the test sheet and changes from it. Sprint budget: about 60% feature work, 20% maintenance,
-  20% fixes, research and support.
-- **Lane** (Now / Next / Later / Blocked) and **Priority** (P0–P3) as before.
+  the test sheet and changes from it. Sprint budget: about 60% stories, 20% maintenance, 20% bugs,
+  research and support. Work not in a sprint is the **Backlog**, ordered by **Priority** (P0–P3).
+- **Status**: Todo → In Progress → In Review → Done, the Sprint board's columns. **Lane** is only
+  used to flag **Blocked**.
 
 Existing parent / sub-issue links are kept; features are a field, not a parent.
 
@@ -80,7 +82,8 @@ decisions or resources needed from others. Side tasks, refactors and experiments
 
 ## User stories
 
-Items labeled `story` start with three sections above the original text; the Desk reads them:
+Story items (Work type Story) can start with three sections above the original text; the board
+reads them:
 
 ```markdown
 ## User story
@@ -100,21 +103,22 @@ Items labeled `story` start with three sections above the original text; the Des
 - The Desk's "Make test sheet" turns the criteria into hub test sheet rows. Read the results with the t3-artifacts script before ticking.
 - Keep criteria in plain words. Technical detail, performance numbers and root-cause notes go under Engineering.
 
-## Lanes and priority
+## Status, sprint and priority
 
-The project has **Lane** (Now / Next / Later / Blocked) beside **Priority** (P0–P3), Status,
-Size, App, Feature and Work type. Rigo sets lanes and sprints on the Desk; agents don't move
-items into or out of Now or a sprint. Before starting work on an issue, read its fields:
+Rigo puts work into sprints and sets priority on the board; agents don't add or remove items from
+a sprint. Before starting work on an issue, read its fields:
 
 ```sh
 gh project item-list 1 --owner cfevans --format json --limit 1000 \
-  --jq '.items[] | select(.content.url == "<issue url>") | {lane, priority, status, app, feature, "work type", sprint}'
+  --jq '.items[] | select(.content.url == "<issue url>") | {status, sprint, priority, lane, app, feature, "work type"}'
 ```
 
-- Not in the current sprint and not in Now: say so in one line and ask whether to go ahead
-  before a large change.
-- If you hit a blocker you can't clear, set the lane to **Blocked** and say on what in
-  "Where it stands": `gh project item-edit` with the Lane field, or tell Rigo to move it on the Desk.
+- Not in the current sprint: say so in one line and ask whether to go ahead before a large change.
+- Keep **Status** current: In Progress when you start, In Review when the PR or test sheet is
+  ready for Rigo. The board also moves a card forward when it sees an open PR or a working agent,
+  but the field is the record. Done is set by merging or closing, or by Rigo.
+- If you hit a blocker you can't clear, set Lane to **Blocked** (the card shows a Blocked flag) and
+  say on what in "Where it stands". Clear it when unblocked.
 
 ## Filling in plain words for existing issues
 

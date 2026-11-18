@@ -2,7 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   appRepos,
-  buildDeskColumns,
+  buildBacklog,
+  buildSprintBoard,
   chatsForApp,
   chatsForItem,
   chatStatus,
@@ -48,34 +49,50 @@ const pr = (number: number, state = "open") => ({
   state,
 });
 
-describe("buildDeskColumns", () => {
-  it("puts open work in its lane, unsorted work by priority, and folds PRs into their issue", () => {
-    const columns = buildDeskColumns(
+describe("sprint board and backlog", () => {
+  const sprint1 = { title: "Sprint 1", startDate: "2026-11-16", duration: 14 };
+  const sprint0 = { title: "Sprint 0", startDate: "2026-11-02", duration: 14 };
+
+  it("puts sprint work in its Status column, moved on by its PRs and agents", () => {
+    const board = buildSprintBoard(
       [
-        item({ itemId: "now", lane: "Now" }),
-        item({ itemId: "low", priority: "P3" }),
-        item({ itemId: "high", priority: "P0", pullRequests: [pr(5)] }),
-        item({ itemId: "pr5", kind: "pr", url: pr(5).url }),
-        item({ itemId: "lone-pr", kind: "pr", url: pr(6).url }),
-        item({ itemId: "closed", state: "closed", lane: "Now" }),
+        item({ itemId: "todo", sprint: sprint1, status: null }),
+        item({ itemId: "doing", sprint: sprint1, status: "In Progress", priority: "P0" }),
+        item({ itemId: "review", sprint: sprint1, status: "In Review", pullRequests: [pr(5)] }),
+        item({ itemId: "pr5", kind: "pr", url: pr(5).url, sprint: sprint1 }),
+        item({ itemId: "closed", sprint: sprint1, state: "closed", status: "In Progress" }),
+        item({ itemId: "other", sprint: sprint0 }),
+        item({ itemId: "pr-open", sprint: sprint1, status: "Todo", pullRequests: [pr(7)] }),
+        item({ itemId: "pr-draft", sprint: sprint1, pullRequests: [pr(8, "draft")] }),
+        item({ itemId: "agent", sprint: sprint1, priority: "P3" }),
       ],
+      sprint1,
       { app: null, query: "" },
+      (entry) => entry.itemId === "agent",
     );
-    const ids = (lane: keyof typeof columns) => columns[lane].map((entry) => entry.itemId);
-    expect(ids("Now")).toEqual(["now"]);
-    expect(ids("Unsorted")).toEqual(["high", "lone-pr", "low"]);
+    const ids = (status: keyof typeof board) => board[status].map((entry) => entry.itemId);
+    expect(ids("Todo")).toEqual(["todo"]);
+    expect(ids("In Progress")).toEqual(["doing", "pr-draft", "agent"]);
+    expect(ids("In Review").toSorted()).toEqual(["pr-open", "review"]);
+    expect(ids("Done")).toEqual(["closed"]);
   });
 
-  it("filters by application and by words in the plain summary, and hides tracking items", () => {
+  it("lists open work outside planned sprints by priority, filtered by app, kind and words", () => {
     const items = [
-      item({ itemId: "a", plain: { what: "Match Procore logins", why: null, where: null } }),
-      item({ itemId: "b", app: "Materials" }),
+      item({ itemId: "planned", sprint: sprint1 }),
+      item({ itemId: "carried", sprint: sprint0, priority: "P1" }),
+      item({ itemId: "bug", workType: "Fix", priority: "P0" }),
+      item({ itemId: "story", plain: { what: "Match Procore logins", why: null, where: null } }),
+      item({ itemId: "materials", app: "Materials" }),
       item({ itemId: "header", workType: "Tracking" }),
+      item({ itemId: "done", state: "closed" }),
     ];
-    expect(buildDeskColumns(items, { app: "Materials", query: "" }).Unsorted).toHaveLength(1);
-    expect(
-      buildDeskColumns(items, { app: null, query: "procore" }).Unsorted.map((i) => i.itemId),
-    ).toEqual(["a"]);
+    const planned = new Set(["Sprint 1"]);
+    const ids = (filter: Parameters<typeof buildBacklog>[2]) =>
+      buildBacklog(items, planned, filter).map((entry) => entry.itemId);
+    expect(ids({ app: "Precon", query: "", kind: null })).toEqual(["bug", "carried", "story"]);
+    expect(ids({ app: null, query: "", kind: "Bug" })).toEqual(["bug"]);
+    expect(ids({ app: null, query: "procore", kind: null })).toEqual(["story"]);
   });
 });
 

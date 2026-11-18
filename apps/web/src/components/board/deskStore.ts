@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { isHostedStaticApp } from "../../hostedPairing";
 import { toastManager } from "../ui/toast";
-import type { DeskDetail, DeskLane, DeskView } from "./desk.logic";
+import type { DeskDetail, DeskView } from "./desk.logic";
 
 /**
  * Fleet fork: the Dev Desk's data, from the fleet hub (`/fleet/desk`), which keeps a synced copy
@@ -78,9 +78,17 @@ export function refreshDesk() {
   return load("/fleet/desk/refresh", { method: "POST" });
 }
 
-export type DeskField = "Lane" | "Priority" | "Stage" | "Sprint" | "Work type" | "Feature";
+export type DeskField =
+  | "Status"
+  | "Lane"
+  | "Priority"
+  | "Stage"
+  | "Sprint"
+  | "Work type"
+  | "Feature";
 
 const FIELD_KEY = {
+  Status: "status",
   Lane: "lane",
   Priority: "priority",
   Stage: "stage",
@@ -120,11 +128,6 @@ export async function setDeskField(itemId: string, field: DeskField, value: stri
       description: error instanceof Error ? error.message : String(error),
     });
   }
-}
-
-/** Moves an item to a lane (null: no lane) on GitHub, showing it at once. */
-export function setDeskLane(itemId: string, lane: DeskLane | null) {
-  return setDeskField(itemId, "Lane", lane);
 }
 
 /** An item's description, comments, PRs and family, from the hub. */

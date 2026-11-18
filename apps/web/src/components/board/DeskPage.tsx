@@ -25,36 +25,40 @@ import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import type { CardChatState } from "./boardCards.logic";
 import { useBoard } from "./boardStore";
 import {
-  buildDeskColumns,
-  chatsForItem,
-  chatWaitsOnYou,
-  DESK_LANES,
-  type DeskItem,
-  type DeskLane,
-  deskRef,
-  deskTitle,
-  NOW_LIMIT,
-  summarizeApps,
-  groupWork,
-  sprintOverview,
   appRepos,
-  chatsForApp,
   type AppSummary,
-  currentSprint,
-  waitingOnYou,
+  buildBacklog,
+  buildSprintBoard,
+  chatsForApp,
+  chatsForItem,
   chatStatus,
   chatTitle,
+  chatWaitsOnYou,
+  currentSprint,
+  type DeskItem,
+  deskRef,
+  deskTitle,
+  groupWork,
+  plannedSprints,
+  SPRINT_STATUSES,
+  type SprintStatus,
+  sprintOverview,
+  sprintStatus,
+  summarizeApps,
+  waitingOnYou,
+  type WorkKind,
 } from "./desk.logic";
-import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
+import { refreshDesk, setDeskField, useDesk } from "./deskStore";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskLink, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import { DeskCard, STAGE_VARIANT } from "./DeskParts";
+import { DeskCard, DeskHeading, STAGE_VARIANT } from "./DeskParts";
+import { BacklogView } from "./DeskBacklog";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
 import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
 import { TodayView } from "./DeskToday";
-import { changesSince, focusByApp } from "./deskFocus.logic";
+import { changesSince, focusByApp, stalledItems } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -70,7 +74,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "today" | "plan" | "sprint" | "apps" | "prs";
+export type DeskTab = "today" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -80,20 +84,11 @@ const DeskFocusSchema = Schema.NullOr(
 );
 type DeskFocus = NonNullable<typeof DeskFocusSchema.Type>;
 const ALL = "*";
-const UNSORTED_SHOWN = 25;
-
-const LANE_HINT: Record<DeskLane | "Unsorted", string> = {
-  Now: "Being worked on this week",
-  Next: "Up after Now",
-  Later: "Wanted, not soon",
-  Blocked: "Waiting on someone or something",
-  Unsorted: "Open work with no lane yet, highest priority first",
-};
 
 /**
- * Fleet fork: the Dev Desk. All development work from the GitHub project in plain words: Lanes
- * for doing it, Apps for leading it (each application's features by stage, this sprint and its
- * 60 / 20 / 20 split), with what needs you on top. Lives on the fleet hub.
+ * Fleet fork: the board's planning tabs over one GitHub project. Every card is one work item;
+ * its PRs and agent chats are badges on it. Today is for deciding, Sprint for tracking (Status
+ * columns), Backlog for choosing what's next, Apps for where each application stands.
  */
 const deskUrl = () => `${window.location.origin}/board`;
 
@@ -166,7 +161,8 @@ export function DeskPage(props: {
   // When the user last said they were caught up; 0 means never (then: the last 8 hours).
   const [caughtUp, setCaughtUp] = useLocalStorage("t3-fleet:caught-up", 0, Schema.Number);
   const [query, setQuery] = useState("");
-  const [showAllUnsorted, setShowAllUnsorted] = useState(false);
+  const [showBumps, setShowBumps] = useState(false);
+  const [kind, setKind] = useState<WorkKind | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 6 } }),
@@ -195,10 +191,10 @@ export function DeskPage(props: {
         setStoredApp(target.app);
         setFocus({ app: target.app, feature: target.feature, view: target.view });
         setMode(
-          target.view === "board"
-            ? "plan"
-            : target.view === "sprint" || target.view === "prs"
-              ? target.view
+          target.view === "board" || target.view === "sprint"
+            ? "sprint"
+            : target.view === "prs"
+              ? "today"
               : "apps",
         );
       }
@@ -315,14 +311,15 @@ export function DeskPage(props: {
   }
 
   // One app filter for every tab; on Apps it picks the app page.
-  const chatsNeedingYou = (app === null ? props.chats : appThreads(app)).filter(chatWaitsOnYou);
+  const appChats = app === null ? props.chats : appThreads(app);
   const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
 
+  // Dropping a card in a Sprint column sets its Status on GitHub.
   const onDragEnd = (event: DragEndEvent) => {
-    const lane = event.over?.data.current?.lane as DeskLane | "Unsorted" | undefined;
+    const status = event.over?.data.current?.status as SprintStatus | undefined;
     const item = items.find((entry) => entry.itemId === event.active.id);
-    if (!item || !lane || (item.lane ?? "Unsorted") === lane) return;
-    void setDeskLane(item.itemId, lane === "Unsorted" ? null : lane);
+    if (!item || !status || sprintStatus(item, agentActive(item)) === status) return;
+    void setDeskField(item.itemId, "Status", status);
   };
 
   const startChat = async (context: DeskChatContext, project: DeskProjectChoice) => {
@@ -365,20 +362,33 @@ export function DeskPage(props: {
     setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
   };
 
-  const card = (item: DeskItem, draggable: boolean, sequence: ReadonlyArray<string> = []) => (
+  const prs = collectPrs(items, props.chats);
+  const prFor = (item: DeskItem) =>
+    prs.find(
+      (pr) =>
+        pr.item?.itemId === item.itemId || item.pullRequests.some((link) => link.url === pr.url),
+    ) ?? null;
+  const card = (
+    item: DeskItem,
+    draggable: boolean,
+    sequence: ReadonlyArray<string> = [],
+    action?: ReactNode,
+  ) => (
     <DeskCard
       key={item.itemId}
       item={item}
       chats={chatsFor(item)}
+      pr={prFor(item)}
       draggable={draggable}
       showApp={app === null}
       currentSprint={sprint?.title ?? null}
+      action={action}
       onOpenChat={openChat}
       onOpen={openItemIn(sequence)}
     />
   );
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
-  const prs = collectPrs(items, props.chats);
+  const agentActive = (entry: DeskItem) => chatsFor(entry).some((chat) => chat.working);
   // The PR shows first, with its own item (or the issue it closes) and its chat beside it.
   const openPr = (pr: DeskPr) =>
     setModal({
@@ -410,89 +420,35 @@ export function DeskPage(props: {
       ? { app, feature: focus?.app === app ? focus.feature : null }
       : null;
 
-  const lanes = (onlyApp: string | null) => {
-    const laneColumns = buildDeskColumns(items, { app: onlyApp ?? app, query });
-    const order = ["Unsorted" as const, ...DESK_LANES];
-    const sequence = order.flatMap((lane) => ids(laneColumns[lane]));
-    return (
-      <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-        <div className="flex min-h-0 flex-1 items-start gap-3 overflow-x-auto px-4 pb-4">
-          {order.map((lane) => {
-            const laneItems = laneColumns[lane];
-            const shown =
-              lane === "Unsorted" && !showAllUnsorted
-                ? laneItems.slice(0, UNSORTED_SHOWN)
-                : laneItems;
-            return (
-              <DeskColumn
-                key={lane}
-                lane={lane}
-                count={laneItems.length}
-                footer={
-                  shown.length < laneItems.length ? (
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="mx-2 mb-2"
-                      onClick={() => setShowAllUnsorted(true)}
-                    >
-                      Show {laneItems.length - shown.length} more
-                    </Button>
-                  ) : null
-                }
-              >
-                {shown.map((item) => card(item, true, sequence))}
-              </DeskColumn>
-            );
-          })}
-        </div>
-      </DndContext>
-    );
-  };
+  const upcoming = plannedSprints(view.sprints ?? [], nowMs);
+  const planned = new Set(upcoming.map((entry) => entry.title));
 
-  const sprintPanel = (pageApp: string | null) => {
-    // An app page, else the app chosen in the filter: every part of the sprint follows it.
-    const onlyApp = pageApp ?? app;
+  const sprintPanel = () => {
     if (!sprintShown) {
       return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
     }
-    const sequence = sprintOverview(
-      items,
-      sprintShown,
-      onlyApp ? [onlyApp] : apps,
-      onlyApp === null,
-    ).apps.flatMap((entry) => ids(entry.items));
+    const board = buildSprintBoard(items, sprintShown, { app, query }, agentActive);
+    const sequence = SPRINT_STATUSES.flatMap((status) => ids(board[status]));
     return (
       <SprintView
         view={view}
         sprint={sprintShown}
         nowMs={nowMs}
         notes={notes.notes}
-        app={onlyApp}
-        card={(entry) => card(entry, false, sequence)}
+        app={app}
         onSprint={setChosenSprint}
-        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app: onlyApp })}
-        prsPanel={prLens(
-          (pr) =>
-            pr.sprint?.title === sprintShown.title && (onlyApp === null || pr.app === onlyApp),
-          "app",
-        )}
-        linkedChats={withLinked(
-          linkedChats(
-            (link) =>
-              link.sprint === sprintShown.title &&
-              link.kind === "sprint" &&
-              (onlyApp === null || link.app === onlyApp),
-          ),
-          items
-            .filter(
-              (entry) =>
-                entry.sprint?.title === sprintShown.title &&
-                (onlyApp === null || entry.app === onlyApp),
-            )
-            .flatMap(chatsFor),
-        )}
-        onOpenChat={openChat}
+        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
+        board={
+          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {SPRINT_STATUSES.map((status) => (
+                <StatusColumn key={status} status={status} count={board[status].length}>
+                  {board[status].map((entry) => card(entry, true, sequence))}
+                </StatusColumn>
+              ))}
+            </div>
+          </DndContext>
+        }
       />
     );
   };
@@ -514,9 +470,25 @@ export function DeskPage(props: {
   const caughtUpAt = caughtUp > 0 ? caughtUp : nowMs - 8 * 3_600_000;
   const repoOf = (chat: CardChatState) =>
     chat.projectKey ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null) : null;
-  const nowItems = items.filter(
-    (entry) => entry.lane === "Now" && (app === null || entry.app === app),
+  const hasChat = (entry: DeskItem) => chatsFor(entry).length > 0;
+  const stalled = stalledItems(
+    items.filter((entry) => app === null || entry.app === app),
+    sprint,
+    hasChat,
   );
+  const stalledCard = (entry: DeskItem) =>
+    card(
+      entry,
+      false,
+      ids(stalled),
+      <Button
+        variant="outline"
+        size="xs"
+        onClick={() => setLauncher({ kind: "item", item: entry })}
+      >
+        Start agent
+      </Button>,
+    );
   return frame(
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
@@ -540,7 +512,7 @@ export function DeskPage(props: {
             </SelectPopup>
           </Select>
         </div>
-        {mode === "plan" ? (
+        {mode === "sprint" || mode === "backlog" ? (
           <div className="w-56 max-w-full">
             <Input
               size="sm"
@@ -629,9 +601,22 @@ export function DeskPage(props: {
             hasChat: (entry) => chatsFor(entry).length > 0,
           })}
           onPickApp={(name) => setStoredApp(name ?? ALL)}
-          needsYou={
+          answer={
             <NeedsYou
-              chats={chatsNeedingYou}
+              title="Answer an agent"
+              empty="No agent is waiting for an answer."
+              chats={appChats.filter((chat) => chat.needsYou)}
+              repoOf={repoOf}
+              items={[]}
+              onOpenChat={openChat}
+              onOpenItem={openItemIn([])}
+            />
+          }
+          review={
+            <NeedsYou
+              title="Review a result"
+              empty="No results waiting for you."
+              chats={appChats.filter((chat) => !chat.needsYou && chat.column === "done")}
               repoOf={repoOf}
               items={waiting}
               onOpenChat={openChat}
@@ -642,7 +627,7 @@ export function DeskPage(props: {
             (pr) =>
               (app === null || pr.app === app) &&
               (pr.stage === "ready" || pr.stage === "fix") &&
-              !isDependencyUpdate(pr),
+              (showBumps || !isDependencyUpdate(pr)),
             "app",
           )}
           bumps={
@@ -651,15 +636,10 @@ export function DeskPage(props: {
                 (app === null || pr.app === app) && isDependencyUpdate(pr) && pr.stage === "ready",
             ).length
           }
-          now={nowItems}
-          hasChat={(entry) => chatsFor(entry).length > 0}
-          card={(entry) => card(entry, false, ids(nowItems))}
-          onPrs={() => setMode("prs")}
-          onPlan={() => setMode("plan")}
-          onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
-          onClearDone={(finished) => {
-            for (const entry of finished) void setDeskLane(entry.itemId, null);
-          }}
+          showBumps={showBumps}
+          onToggleBumps={() => setShowBumps((value) => !value)}
+          stalled={stalled}
+          card={stalledCard}
         />
       ) : mode === "apps" && focusApp ? (
         <AppView
@@ -683,13 +663,16 @@ export function DeskPage(props: {
           onFeature={(feature) => setFocus({ app: focusApp.app, feature, view: "overview" })}
         />
       ) : mode === "sprint" ? (
-        sprintPanel(null)
-      ) : mode === "prs" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-6">
-          {prLens((pr) => app === null || pr.app === app)}
-        </div>
-      ) : mode === "plan" ? (
-        lanes(null)
+        sprintPanel()
+      ) : mode === "backlog" ? (
+        <BacklogView
+          items={buildBacklog(items, planned, { app, query, kind })}
+          kind={kind}
+          onKind={setKind}
+          sprints={upcoming.slice(0, 2)}
+          card={card}
+          onAddToSprint={(entry, title) => void setDeskField(entry.itemId, "Sprint", title)}
+        />
       ) : (
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 md:grid-cols-2 xl:grid-cols-3">
           {summaries.map((summary) => (
@@ -786,6 +769,8 @@ function AppScorecard(props: {
 }
 
 function NeedsYou(props: {
+  readonly title: string;
+  readonly empty: string;
   readonly chats: ReadonlyArray<CardChatState>;
   /** The chat's repo, so each row says where it is. */
   readonly repoOf: (chat: CardChatState) => string | null;
@@ -796,7 +781,12 @@ function NeedsYou(props: {
   const [expanded, setExpanded] = useState(false);
   const total = props.chats.length + props.items.length;
   if (total === 0) {
-    return <p className="px-4 pt-3 text-xs text-muted-foreground">Nothing is waiting on you.</p>;
+    return (
+      <section aria-label={props.title} className="flex flex-col gap-1">
+        <DeskHeading>{props.title} · 0</DeskHeading>
+        <p className="text-xs text-muted-foreground">{props.empty}</p>
+      </section>
+    );
   }
   const rows: ReactNode[] = [
     ...props.chats.map((chat) => (
@@ -833,13 +823,10 @@ function NeedsYou(props: {
     )),
   ];
   return (
-    <section
-      aria-label="Needs you"
-      className="mx-4 mt-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
-    >
-      <h2 className="mb-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-        Needs you · {total}
-      </h2>
+    <section aria-label={props.title} className="flex flex-col gap-1">
+      <DeskHeading>
+        {props.title} · {total}
+      </DeskHeading>
       <ul className="flex flex-col gap-1 text-sm">{expanded ? rows : rows.slice(0, 5)}</ul>
       {rows.length > 5 ? (
         <Button variant="ghost" size="xs" onClick={() => setExpanded((value) => !value)}>
@@ -850,42 +837,40 @@ function NeedsYou(props: {
   );
 }
 
-function DeskColumn(props: {
-  readonly lane: DeskLane | "Unsorted";
+const STATUS_HINT: Record<SprintStatus, string> = {
+  Todo: "Planned, not started",
+  "In Progress": "An agent or a person is on it",
+  "In Review": "A PR or a test sheet waits on you",
+  Done: "Merged or closed",
+};
+
+/** One Sprint column; dropping a card here sets its Status. */
+function StatusColumn(props: {
+  readonly status: SprintStatus;
   readonly count: number;
   readonly children: ReactNode;
-  readonly footer: ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({
-    id: `lane:${props.lane}`,
-    data: { lane: props.lane },
+    id: `status:${props.status}`,
+    data: { status: props.status },
   });
-  const overLimit = props.lane === "Now" && props.count > NOW_LIMIT;
   return (
     <section
       ref={setNodeRef}
-      aria-label={props.lane === "Unsorted" ? "Not sorted" : props.lane}
+      aria-label={props.status}
       className={cn(
-        "flex max-h-full w-72 max-w-[85vw] shrink-0 flex-col rounded-lg border border-border bg-muted/40",
+        "flex min-w-0 flex-col rounded-lg border border-border bg-muted/40",
         isOver && "border-ring",
       )}
     >
       <header className="flex items-center gap-2 px-3 pt-2.5 pb-0.5">
         <h2 className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
-          {props.lane === "Unsorted" ? "Not sorted" : props.lane}
+          {props.status === "Todo" ? "To do" : props.status}
         </h2>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {props.lane === "Now" ? `${props.count} / ${NOW_LIMIT}` : props.count}
-        </span>
-        {overLimit ? (
-          <Badge variant="warning" size="sm" className="ms-auto">
-            Too many
-          </Badge>
-        ) : null}
+        <span className="text-xs text-muted-foreground tabular-nums">{props.count}</span>
       </header>
-      <p className="px-3 pb-1.5 text-2xs text-muted-foreground">{LANE_HINT[props.lane]}</p>
-      <ol className="flex min-h-8 flex-col gap-2 overflow-y-auto px-2 pb-2">{props.children}</ol>
-      {props.footer}
+      <p className="px-3 pb-1.5 text-2xs text-muted-foreground">{STATUS_HINT[props.status]}</p>
+      <ol className="flex min-h-12 flex-col gap-2 px-2 pb-2">{props.children}</ol>
     </section>
   );
 }

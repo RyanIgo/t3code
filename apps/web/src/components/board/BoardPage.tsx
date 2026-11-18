@@ -37,8 +37,8 @@ import { FleetBoardPage } from "./FleetBoardPage";
 import { ProjectBoard } from "./ProjectBoard";
 import { useFleetBoardThreads } from "./useFleetBoardThreads";
 
-/** Desk tabs plan GitHub work; Chats shows the agents' chats (a list, or cards you arrange). */
-const BoardTab = Schema.Literals(["today", "plan", "sprint", "apps", "prs", "chats"]);
+/** Planning tabs over GitHub work, plus Chats for watching the agents (a list, or cards). */
+const BoardTab = Schema.Literals(["today", "sprint", "backlog", "apps", "chats"]);
 type BoardTab = typeof BoardTab.Type;
 const ChatsLayout = Schema.Literals(["list", "cards"]);
 /** The repo picker's "All repos" entry; never a real project key. */
@@ -49,10 +49,9 @@ type GroupBy = typeof GroupBy.Type;
 
 const TABS: ReadonlyArray<{ readonly id: BoardTab; readonly label: string }> = [
   { id: "today", label: "Today" },
-  { id: "plan", label: "Plan" },
   { id: "sprint", label: "Sprint" },
+  { id: "backlog", label: "Backlog" },
   { id: "apps", label: "Apps" },
-  { id: "prs", label: "PRs" },
   { id: "chats", label: "Chats" },
 ];
 const isTab = (value: unknown): value is BoardTab => TABS.some((tab) => tab.id === value);
@@ -117,10 +116,10 @@ export function BoardPage() {
         ? "sprint"
         : target.kind === "item"
           ? "today"
-          : target.view === "board"
-            ? "plan"
-            : target.view === "sprint" || target.view === "prs"
-              ? target.view
+          : target.view === "board" || target.view === "sprint"
+            ? "sprint"
+            : target.view === "prs"
+              ? "today"
               : "apps";
     writeLocalStorageValue("t3-fleet:tab", tab, "today" as BoardTab, BoardTab);
     return null;

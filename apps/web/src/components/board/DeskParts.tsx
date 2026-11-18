@@ -6,23 +6,22 @@ import { cn } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import type { CardChatState } from "./boardCards.logic";
 import {
   chatStatus,
-  chatWaitsOnYou,
-  DESK_LANES,
+  chatTitle,
   type DeskItem,
-  type DeskLane,
   deskRef,
   deskTitle,
   featureName,
+  sprintStatus,
   storyProgress,
-  chatTitle,
+  type WorkKind,
+  workKind,
 } from "./desk.logic";
 import type { DeskNote } from "./deskNotes.logic";
-import { setDeskLane } from "./deskStore";
+import type { DeskPr } from "./deskPrs.logic";
 
 /** Fleet fork: pieces the Dev Desk's views share (cards, notes, threads, small helpers). */
 export function openExternal(url: string) {
@@ -141,12 +140,65 @@ export function DeskHeading(props: { readonly children: ReactNode }) {
   );
 }
 
+const TAG_CLASS: Record<WorkKind, string> = {
+  Story: "bg-violet-600 text-white",
+  Bug: "bg-red-600 text-white",
+  Maintenance: "bg-sky-700 text-white",
+  Research: "bg-amber-600 text-white",
+  Support: "bg-zinc-500 text-white",
+};
+
+/** The card's type, as a solid colored tag (Work type on GitHub). */
+export function TypeTag(props: { readonly kind: WorkKind | null }) {
+  if (!props.kind) return null;
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-1.5 py-px text-2xs leading-4 font-semibold",
+        TAG_CLASS[props.kind],
+      )}
+    >
+      {props.kind}
+    </span>
+  );
+}
+
+/** What the item's agent is doing; PR trouble shows on the PR badge instead. */
+function agentState(chat: CardChatState): "asking" | "result" | "working" | "idle" {
+  if (chat.needsYou) return "asking";
+  if (chat.column === "done") return "result";
+  return chat.working ? "working" : "idle";
+}
+
+const AGENT_BADGE = {
+  asking: { label: "Agent needs you", variant: "warning" },
+  result: { label: "Agent: result ready", variant: "success" },
+  working: { label: "Agent working", variant: "info" },
+  idle: { label: "Agent idle", variant: "secondary" },
+} as const;
+
+const PR_BADGE = {
+  ready: { label: "PR ready to merge", variant: "success" },
+  fix: { label: "PR needs a fix", variant: "error" },
+  waiting: { label: "PR checks running", variant: "info" },
+  unverified: { label: "PR open", variant: "outline" },
+  draft: { label: "Draft PR", variant: "outline" },
+} as const;
+
+/**
+ * Fleet fork: one work item. Its type, where it belongs, its plain title, and badges only for
+ * what's worth knowing: criteria, its PR, its agent, blocked. The column it sits in is its status.
+ */
 export function DeskCard(props: {
   readonly item: DeskItem;
   readonly chats: ReadonlyArray<CardChatState>;
+  /** The item's open pull request, when it has one. */
+  readonly pr?: DeskPr | null;
   readonly draggable: boolean;
   readonly showApp: boolean;
   readonly currentSprint: string | null;
+  /** A button under the card (e.g. Add to sprint, Start a chat). */
+  readonly action?: ReactNode;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpen: (item: DeskItem) => void;
 }) {
@@ -155,9 +207,9 @@ export function DeskCard(props: {
     id: item.itemId,
     disabled: !props.draggable,
   });
-  const ref = deskRef(item);
-  const needsYou = props.chats.some(chatWaitsOnYou);
-  const working = props.chats.some((chat) => chat.working);
+  const agent = props.chats.toSorted((a, b) => chatStatus(a).rank - chatStatus(b).rank)[0];
+  const inCurrentSprint = item.sprint !== null && item.sprint.title === props.currentSprint;
+  const unfinished = sprintStatus(item) === "Todo" || sprintStatus(item) === "In Progress";
   return (
     <li
       ref={setNodeRef}
@@ -171,34 +223,22 @@ export function DeskCard(props: {
           onClick={() => props.onOpen(item)}
           className="flex cursor-pointer flex-col gap-1 text-left outline-hidden focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
         >
-          <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+          <span className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
+            <TypeTag kind={workKind(item)} />
             <span className="truncate">
               {[
                 props.showApp ? item.app : null,
                 item.feature ? featureName(item.feature) : null,
-                ref,
+                deskRef(item),
                 item.priority,
               ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>
-            {item.kind === "pr" ? <span>· PR</span> : null}
           </span>
           <span className="line-clamp-3 text-sm">{deskTitle(item)}</span>
-          {item.plain?.where ? (
-            <span className="line-clamp-2 text-xs text-muted-foreground">{item.plain.where}</span>
-          ) : null}
         </button>
         <span className="flex flex-wrap items-center gap-1">
-          {item.sprint && item.sprint.title === props.currentSprint ? (
-            <Badge variant="info" size="sm">
-              This sprint
-            </Badge>
-          ) : item.sprint ? (
-            <Badge variant="outline" size="sm">
-              {item.sprint.title}
-            </Badge>
-          ) : null}
           {storyProgress(item) ? (
             <Badge
               variant={
@@ -206,65 +246,40 @@ export function DeskCard(props: {
               }
               size="sm"
             >
-              Story · {storyProgress(item)}
+              {storyProgress(item)}
             </Badge>
           ) : null}
-          {item.workType && item.workType !== "Feature work" ? (
-            <Badge variant="secondary" size="sm">
-              {item.workType}
+          {props.pr ? (
+            <Badge variant={PR_BADGE[props.pr.stage].variant} size="sm">
+              {PR_BADGE[props.pr.stage].label}
             </Badge>
           ) : null}
-          {item.status && item.status !== "Todo" ? (
-            <Badge variant="outline" size="sm">
-              {item.status}
-            </Badge>
-          ) : null}
-          {item.pullRequests.map((pr) => (
-            <Badge
-              key={pr.url}
-              variant={
-                pr.state === "merged" ? "success" : pr.state === "closed" ? "secondary" : "outline"
-              }
-              size="sm"
-            >
-              PR #{pr.number}
-              {pr.state === "open" ? "" : ` · ${pr.state}`}
-            </Badge>
-          ))}
-          {props.chats.length > 0 ? (
+          {agent ? (
             <button
               type="button"
               className="cursor-pointer"
-              onClick={() => props.onOpenChat(props.chats[0] as CardChatState)}
+              onClick={() => props.onOpenChat(agent)}
             >
-              <Badge variant={needsYou ? "warning" : working ? "info" : "secondary"} size="sm">
-                {props.chats.length} chat{props.chats.length === 1 ? "" : "s"}
-                {needsYou ? " · needs you" : working ? " · working" : ""}
+              <Badge variant={AGENT_BADGE[agentState(agent)].variant} size="sm">
+                {AGENT_BADGE[agentState(agent)].label}
               </Badge>
             </button>
+          ) : inCurrentSprint && unfinished ? (
+            <Badge variant="outline" size="sm">
+              No agent yet
+            </Badge>
           ) : null}
-          <span className="ms-auto">
-            <Select
-              value={item.lane ?? "none"}
-              onValueChange={(value) => {
-                if (typeof value !== "string") return;
-                const lane = value === "none" ? null : (value as DeskLane);
-                if (lane !== item.lane) void setDeskLane(item.itemId, lane);
-              }}
-            >
-              <SelectTrigger aria-label={`Lane for ${deskTitle(item)}`} size="sm">
-                <SelectValue>{item.lane ?? "No lane"}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                {DESK_LANES.map((lane) => (
-                  <SelectItem key={lane} value={lane}>
-                    {lane}
-                  </SelectItem>
-                ))}
-                <SelectItem value="none">No lane</SelectItem>
-              </SelectPopup>
-            </Select>
-          </span>
+          {item.lane === "Blocked" ? (
+            <Badge variant="error" size="sm">
+              Blocked
+            </Badge>
+          ) : null}
+          {item.sprint && !inCurrentSprint ? (
+            <Badge variant="outline" size="sm">
+              {item.sprint.title}
+            </Badge>
+          ) : null}
+          {props.action ? <span className="ms-auto">{props.action}</span> : null}
         </span>
       </div>
     </li>

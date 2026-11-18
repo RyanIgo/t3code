@@ -8,11 +8,11 @@ import type { AppFocus, Catchup } from "./deskFocus.logic";
 import { DeskHeading } from "./DeskParts";
 
 /**
- * Fleet fork: the Desk's first tab, for deciding and unblocking. What waits on you, pull requests
- * to merge or send back, and this week's work split by whether an agent is on it.
+ * Fleet fork: the board's first tab, for deciding. Who's waiting for an answer, what result to
+ * look at, what can merge, and what in this sprint isn't moving. Empty means nothing waits on you.
  */
 export function TodayView(props: {
-  /** The app the Desk is filtered to, or null for all of them. */
+  /** The app the board is filtered to, or null for all of them. */
   readonly app: string | null;
   /** Across all apps: one row per app, the most urgent first. */
   readonly focus: ReadonlyArray<AppFocus>;
@@ -24,26 +24,17 @@ export function TodayView(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly repoOf: (chat: CardChatState) => string | null;
-  readonly needsYou: ReactNode;
+  readonly answer: ReactNode;
+  readonly review: ReactNode;
   readonly prs: ReactNode;
-  /** Version bumps ready to merge, kept off Today and listed on the PRs tab. */
+  /** Version bumps ready to merge, hidden unless asked for. */
   readonly bumps: number;
-  readonly now: ReadonlyArray<DeskItem>;
-  readonly hasChat: (item: DeskItem) => boolean;
+  readonly showBumps: boolean;
+  readonly onToggleBumps: () => void;
+  /** This sprint's unfinished work with no agent on it. */
+  readonly stalled: ReadonlyArray<DeskItem>;
   readonly card: (item: DeskItem) => ReactNode;
-  readonly onPrs: () => void;
-  readonly onPlan: () => void;
-  /** Starts (or links) a chat for an item with no agent on it. */
-  readonly onStartChat: (item: DeskItem) => void;
-  /** Moves finished work out of the Now lane. */
-  readonly onClearDone: (items: ReadonlyArray<DeskItem>) => void;
 }) {
-  const isDone = (item: DeskItem) =>
-    item.status === "Done" || (item.state !== "open" && item.state !== "draft");
-  const done = props.now.filter(isDone);
-  const active = props.now.filter((item) => !isDone(item));
-  const moving = active.filter(props.hasChat);
-  const idle = active.filter((item) => !props.hasChat(item));
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto pb-6">
       <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pt-3">
@@ -51,9 +42,7 @@ export function TodayView(props: {
           {props.app ? `Today in ${props.app}` : "Today across all applications"}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {props.app
-            ? "Only this application. "
-            : "Start with the top row: it has the most waiting on you. "}
+          {props.app ? "Only this application." : "What needs your answer or your click."}
         </span>
         {props.app ? (
           <Button variant="ghost" size="xs" onClick={() => props.onPickApp(null)}>
@@ -72,104 +61,38 @@ export function TodayView(props: {
       {props.app === null && props.focus.length > 0 ? (
         <FocusTable rows={props.focus} onPick={props.onPickApp} />
       ) : null}
-      {props.needsYou}
-      <section aria-label="Merge or send back" className="flex flex-col gap-2 px-4">
-        <div className="flex items-center gap-2">
-          <DeskHeading>Merge or send back</DeskHeading>
-          {props.bumps > 0 ? (
-            <Button variant="ghost" size="xs" onClick={props.onPrs}>
-              {props.bumps} version bump{props.bumps === 1 ? "" : "s"} also ready
-            </Button>
-          ) : null}
+      <div className="grid grid-cols-1 gap-5 px-4 lg:grid-cols-2">
+        <div className="flex min-w-0 flex-col gap-5">
+          {props.answer}
+          {props.review}
         </div>
-        {props.prs}
-      </section>
-      <section aria-label="This week" className="flex flex-col gap-2 px-4">
-        <div className="flex items-center gap-2">
-          <DeskHeading>This week (Now lane) · {active.length}</DeskHeading>
-          <Button variant="ghost" size="xs" onClick={props.onPlan}>
-            Change the plan
-          </Button>
-        </div>
-        {done.length > 0 ? (
-          <p className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            {done.length} finished item{done.length === 1 ? " is" : "s are"} still in Now (
-            {done.map(deskTitle).join("; ")}).
-            <Button variant="outline" size="xs" onClick={() => props.onClearDone(done)}>
-              Take {done.length === 1 ? "it" : "them"} out of Now
-            </Button>
-          </p>
-        ) : null}
-        {active.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Nothing is in Now. Drag the week's work into Now on the Plan tab.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Column
-              title="No agent on it"
-              hint="Start a chat, or move it out of Now"
-              items={idle}
-              card={props.card}
-              onStartChat={props.onStartChat}
-            />
-            <Column
-              title="Agents working"
-              hint="Has a chat; its status shows on the card"
-              items={moving}
-              card={props.card}
-            />
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function Column(props: {
-  readonly title: string;
-  readonly hint: string;
-  readonly items: ReadonlyArray<DeskItem>;
-  readonly card: (item: DeskItem) => ReactNode;
-  /** A Start a chat button under each card. */
-  readonly onStartChat?: (item: DeskItem) => void;
-}) {
-  const { onStartChat } = props;
-  return (
-    <section
-      aria-label={props.title}
-      className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-2"
-    >
-      <header className="px-1">
-        <DeskHeading>
-          {props.title} · {props.items.length}
-        </DeskHeading>
-        <p className="text-2xs text-muted-foreground">{props.hint}</p>
-      </header>
-      {props.items.length === 0 ? (
-        <p className="px-1 pb-1 text-xs text-muted-foreground">None.</p>
-      ) : (
-        <ol className="flex flex-col gap-2">
-          {props.items.map((item) =>
-            onStartChat ? (
-              <li key={item.itemId} className="flex flex-col gap-1">
-                <ol>{props.card(item)}</ol>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  className="self-end"
-                  onClick={() => onStartChat(item)}
-                >
-                  Start a chat
+        <div className="flex min-w-0 flex-col gap-5">
+          <section aria-label="Merge or send back" className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <DeskHeading>Merge or send back</DeskHeading>
+              {props.bumps > 0 ? (
+                <Button variant="ghost" size="xs" onClick={props.onToggleBumps}>
+                  {props.showBumps ? "Hide" : "Show"} {props.bumps} version bump
+                  {props.bumps === 1 ? "" : "s"}
                 </Button>
-              </li>
+              ) : null}
+            </div>
+            {props.prs}
+          </section>
+          <section aria-label="Stalled" className="flex flex-col gap-2">
+            <DeskHeading>Stalled · {props.stalled.length}</DeskHeading>
+            <p className="text-2xs text-muted-foreground">
+              In this sprint, not done, and no agent on it.
+            </p>
+            {props.stalled.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Everything in the sprint is moving.</p>
             ) : (
-              props.card(item)
-            ),
-          )}
-        </ol>
-      )}
-    </section>
+              <ol className="flex flex-col gap-2">{props.stalled.map(props.card)}</ol>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }
 

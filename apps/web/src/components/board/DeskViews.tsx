@@ -171,11 +171,11 @@ function ItemDetails(props: {
               options={(view.sprints ?? []).map((sprint) => sprint.title)}
             />
             <FieldMenu
-              label="Lane"
-              field="Lane"
+              label="Status"
+              field="Status"
               item={item}
-              value={item.lane}
-              options={options.Lane ?? []}
+              value={item.status}
+              options={options.Status ?? []}
             />
           </>
         )}
@@ -194,8 +194,24 @@ function ItemDetails(props: {
           options={options["Work type"] ?? []}
         />
       </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {item.lane === "Blocked" ? (
+          <Badge variant="error" size="sm">
+            Blocked
+          </Badge>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={() =>
+            void setDeskField(item.itemId, "Lane", item.lane === "Blocked" ? null : "Blocked")
+          }
+        >
+          {item.lane === "Blocked" ? "Unblock" : "Mark blocked"}
+        </Button>
+      </div>
       <p className="text-xs text-muted-foreground">
-        Status: {item.status ?? "none"} · Size: {item.size ?? "none"} · {item.state}
+        Size: {item.size ?? "none"} · {item.state}
         {detail?.author ? ` · opened by ${detail.author} ${when(detail.createdAt)}` : ""}
       </p>
 
@@ -742,12 +758,10 @@ export function SprintView(props: {
   readonly nowMs: number;
   readonly notes: DeskNotes;
   readonly app: string | null;
-  readonly card: (item: DeskItem) => ReactNode;
   readonly onSprint: (title: string) => void;
   readonly onChat: () => void;
-  readonly linkedChats: ReadonlyArray<CardChatState>;
-  readonly prsPanel: ReactNode;
-  readonly onOpenChat: (chat: CardChatState) => void;
+  /** The Status columns (To do, In progress, In review, Done). */
+  readonly board: ReactNode;
 }) {
   const { sprint, view } = props;
   const apps = props.app ? [props.app] : (view.apps ?? []);
@@ -812,64 +826,58 @@ export function SprintView(props: {
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        Open work: {percent(overview.mix.feature)}% features · {percent(overview.mix.maintenance)}%
-        maintenance · {percent(overview.mix.other)}% fixes, research & support (budget 60 / 20 /
-        20). Add work to a sprint from any item's Sprint menu.
+        Open work: {percent(overview.mix.feature)}% stories · {percent(overview.mix.maintenance)}%
+        maintenance · {percent(overview.mix.other)}% bugs, research & support (budget 60 / 20 / 20).
+        Drag a card to change its status; add work from the Backlog.
       </p>
-      <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {planned.map((app) => {
-          const work = overview.apps.find((entry) => entry.app === app);
-          const goalTarget = { kind: "sprintGoal", sprint: sprint.title, app } as const;
-          return (
-            <section
-              key={app}
-              aria-label={app}
-              className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3"
-            >
-              <header className="flex items-baseline gap-2">
-                <h2 className="text-sm font-semibold">{app}</h2>
-                <span className="text-xs text-muted-foreground">
-                  {work ? `${work.done} of ${work.items.length} done` : "Nothing planned"}
-                </span>
-              </header>
+      {props.app ? (
+        <NoteEditor
+          label={`${props.app} goal for ${sprint.title}`}
+          hint="One line: what this app should reach this sprint."
+          placeholder="What this app should reach by the end of the sprint."
+          note={noteAt(props.notes, { kind: "sprintGoal", sprint: sprint.title, app: props.app })}
+          rows={1}
+          onSave={(text) =>
+            props.app &&
+            saveDeskNote({ kind: "sprintGoal", sprint: sprint.title, app: props.app }, text)
+          }
+        />
+      ) : null}
+      {props.board}
+      <details className="rounded-lg border border-border bg-muted/40 p-3">
+        <summary className="cursor-pointer text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Goals and notes for {sprint.title}
+        </summary>
+        <div className="mt-3 flex flex-col gap-3">
+          {planned.map((app) => {
+            const goalTarget = { kind: "sprintGoal", sprint: sprint.title, app } as const;
+            return (
               <NoteEditor
-                label="Goal"
+                key={app}
+                label={`${app} goal`}
                 hint="One line: what this app should reach this sprint."
                 placeholder="What this app should reach by the end of the sprint."
                 note={noteAt(props.notes, goalTarget)}
                 rows={1}
                 onSave={(text) => saveDeskNote(goalTarget, text)}
               />
-              {work ? <ol className="flex flex-col gap-2">{work.items.map(props.card)}</ol> : null}
-            </section>
-          );
-        })}
-      </div>
-      {idleApps.length > 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Nothing in {sprint.title} for {idleApps.join(", ")}.
-        </p>
-      ) : null}
-      <section className="flex flex-col gap-1.5">
-        <DeskHeading>Pull requests in this sprint</DeskHeading>
-        {props.prsPanel}
-      </section>
-      <section className="flex flex-col gap-1.5">
-        <DeskHeading>Threads on this sprint · {props.linkedChats.length}</DeskHeading>
-        <ThreadList
-          threads={props.linkedChats}
-          onOpenChat={props.onOpenChat}
-          empty="No threads on this sprint's work yet. Use Chat about this sprint to start one."
-        />
-      </section>
-      <NoteEditor
-        label={`${sprint.title} notes`}
-        hint="What this sprint is for and what feedback said. Agents read it."
-        placeholder="Goal for the sprint, then testers' feedback as it comes in."
-        note={noteAt(props.notes, { kind: "sprintNotes", sprint: sprint.title })}
-        rows={3}
-        onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
-      />
+            );
+          })}
+          {idleApps.length > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Nothing in {sprint.title} for {idleApps.join(", ")}.
+            </p>
+          ) : null}
+          <NoteEditor
+            label={`${sprint.title} notes`}
+            hint="What this sprint is for and what feedback said. Agents read it."
+            placeholder="Goal for the sprint, then testers' feedback as it comes in."
+            note={noteAt(props.notes, { kind: "sprintNotes", sprint: sprint.title })}
+            rows={3}
+            onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
+          />
+        </div>
+      </details>
     </div>
   );
 }

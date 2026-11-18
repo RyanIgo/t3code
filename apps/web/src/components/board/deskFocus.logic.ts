@@ -3,7 +3,7 @@
  * per app with what waits on you, what can merge, and what has stalled. Pure logic only.
  */
 import type { CardChatState } from "./boardCards.logic";
-import { type DeskItem, type DeskSprint, sprintOverview } from "./desk.logic";
+import { type DeskItem, type DeskSprint, sprintOverview, sprintStatus } from "./desk.logic";
 import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
 
 export interface AppFocus {
@@ -13,7 +13,7 @@ export interface AppFocus {
   readonly prsToFix: number;
   /** Ready to merge, version bumps left out. */
   readonly prsReady: number;
-  /** Now-lane items with no chat on them. */
+  /** This sprint's unfinished work (To do or In progress) with no chat on it. */
   readonly noAgent: number;
   readonly blocked: number;
   readonly sprintDone: number;
@@ -21,6 +21,22 @@ export interface AppFocus {
 }
 
 const isOpen = (item: DeskItem) => item.state === "open" || item.state === "draft";
+
+/** This sprint's To do and In progress work with no agent on it. */
+export function stalledItems(
+  items: ReadonlyArray<DeskItem>,
+  sprint: DeskSprint | null,
+  hasChat: (item: DeskItem) => boolean,
+): DeskItem[] {
+  if (!sprint) return [];
+  return items.filter(
+    (item) =>
+      item.sprint?.title === sprint.title &&
+      item.workType !== "Tracking" &&
+      (sprintStatus(item) === "Todo" || sprintStatus(item) === "In Progress") &&
+      !hasChat(item),
+  );
+}
 
 /** One row per app that has anything to act on, the most urgent first. */
 export function focusByApp(input: {
@@ -42,8 +58,7 @@ export function focusByApp(input: {
       needsYou: input.needsYou(app),
       prsToFix: prs.filter((pr) => pr.stage === "fix").length,
       prsReady: prs.filter((pr) => pr.stage === "ready").length,
-      noAgent: items.filter((item) => item.lane === "Now" && isOpen(item) && !input.hasChat(item))
-        .length,
+      noAgent: stalledItems(items, input.sprint, input.hasChat).length,
       blocked: items.filter((item) => item.lane === "Blocked" && isOpen(item)).length,
       sprintDone: progress.done,
       sprintTotal: progress.total,

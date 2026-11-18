@@ -10,7 +10,15 @@ const KEEP_CLOSED_DAYS = 14;
 export const LANES = ["Now", "Next", "Later", "Blocked"];
 const DETAIL_TTL_MS = 60_000;
 /** Fields the Desk may change: single selects by option name, Sprint by iteration title. */
-const EDITABLE_FIELDS = new Set(["Lane", "Priority", "Stage", "Sprint", "Work type", "Feature"]);
+const EDITABLE_FIELDS = new Set([
+  "Status",
+  "Lane",
+  "Priority",
+  "Stage",
+  "Sprint",
+  "Work type",
+  "Feature",
+]);
 
 const DETAIL_QUERY = `query($id: ID!) { node(id: $id) { ... on ProjectV2Item { content {
   __typename
@@ -480,6 +488,7 @@ export function createDesk({ dataRoot, project, token, log }) {
         );
       }
       const key = {
+        Status: "status",
         Lane: "lane",
         Priority: "priority",
         Stage: "stage",

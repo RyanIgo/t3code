@@ -1,15 +1,12 @@
 /**
  * Fleet fork: the Dev Desk. Development work from the GitHub project the hub syncs: by
- * application and feature, in lanes and sprints, in plain words, beside the T3 chats doing it.
+ * application and feature, in sprints by status, in plain words, beside the T3 chats doing it.
  * Features are issues titled "Feature: …" with Work type "Tracking"; their Stage is the
  * feature's (Experiment → Testing → Production). Pure logic only.
  */
 import type { CardChatState } from "./boardCards.logic";
 
 export type DeskLane = "Now" | "Next" | "Later" | "Blocked";
-export const DESK_LANES: ReadonlyArray<DeskLane> = ["Now", "Next", "Later", "Blocked"];
-/** More than this in Now and it stops meaning "now". */
-export const NOW_LIMIT = 5;
 
 export interface DeskPlainWords {
   readonly what: string | null;
@@ -151,20 +148,83 @@ function matches(item: DeskItem, filter: DeskFilter): boolean {
     .some((text) => String(text).toLowerCase().includes(query));
 }
 
-export type DeskColumns = Record<DeskLane | "Unsorted", DeskItem[]>;
+/** The kinds of work a card can be, from the project's Work type field. */
+export type WorkKind = "Story" | "Bug" | "Maintenance" | "Research" | "Support";
+const WORK_KINDS: ReadonlyArray<WorkKind> = ["Story", "Bug", "Maintenance", "Research", "Support"];
 
-/** Open work by lane; "Unsorted" is open work with no lane yet, highest priority first. */
-export function buildDeskColumns(items: ReadonlyArray<DeskItem>, filter: DeskFilter): DeskColumns {
-  const columns: DeskColumns = { Now: [], Next: [], Later: [], Blocked: [], Unsorted: [] };
-  for (const item of visibleItems(items)) {
-    if (!isOpen(item) || !matches(item, filter)) continue;
-    columns[item.lane ?? "Unsorted"].push(item);
-  }
-  for (const column of Object.values(columns)) column.sort(byPriority);
-  return columns;
+/** An item's kind; reads the field's former names ("Feature work", "Fix") from older syncs. */
+export function workKind(item: Pick<DeskItem, "workType">): WorkKind | null {
+  const name =
+    item.workType === "Feature work" ? "Story" : item.workType === "Fix" ? "Bug" : item.workType;
+  return WORK_KINDS.find((kind) => kind === name) ?? null;
 }
 
-/** The T3 chats working on an item: linked through its PRs or a board card's links. */
+/** The Sprint board's columns: the project's Status options. */
+export const SPRINT_STATUSES = ["Todo", "In Progress", "In Review", "Done"] as const;
+export type SprintStatus = (typeof SPRINT_STATUSES)[number];
+
+/**
+ * Where an item sits on the Sprint board: its Status, moved forward by what's happening when the
+ * field lags. An open PR means In Review; a draft PR or an active agent means In Progress.
+ */
+export function sprintStatus(item: DeskItem, agentActive = false): SprintStatus {
+  if (!isOpen(item) || item.status === "Done") return "Done";
+  const set = SPRINT_STATUSES.indexOf(
+    item.status === "In Progress" || item.status === "In Review" ? item.status : "Todo",
+  );
+  const prs = item.pullRequests.filter((pr) => pr.state === "open" || pr.state === "draft");
+  const seen = prs.some((pr) => pr.state === "open") ? 2 : prs.length > 0 || agentActive ? 1 : 0;
+  return SPRINT_STATUSES[Math.max(set, seen)] ?? "Todo";
+}
+
+/** One sprint's work by Status, highest priority first in each column. */
+export function buildSprintBoard(
+  items: ReadonlyArray<DeskItem>,
+  sprint: DeskSprint,
+  filter: DeskFilter,
+  agentActive: (item: DeskItem) => boolean = () => false,
+): Record<SprintStatus, DeskItem[]> {
+  const board: Record<SprintStatus, DeskItem[]> = {
+    Todo: [],
+    "In Progress": [],
+    "In Review": [],
+    Done: [],
+  };
+  for (const item of visibleItems(items)) {
+    if (item.sprint?.title !== sprint.title || !matches(item, filter)) continue;
+    board[sprintStatus(item, agentActive(item))].push(item);
+  }
+  for (const column of Object.values(board)) column.sort(byPriority);
+  return board;
+}
+
+/**
+ * Open work not planned into the current or a later sprint (work from an ended sprint comes
+ * back here), highest priority first.
+ */
+export function buildBacklog(
+  items: ReadonlyArray<DeskItem>,
+  plannedSprints: ReadonlySet<string>,
+  filter: DeskFilter & { readonly kind: WorkKind | null },
+): DeskItem[] {
+  return visibleItems(items)
+    .filter(
+      (item) =>
+        isOpen(item) &&
+        !(item.sprint && plannedSprints.has(item.sprint.title)) &&
+        (filter.kind === null || workKind(item) === filter.kind) &&
+        matches(item, filter),
+    )
+    .sort(byPriority);
+}
+
+/** The current sprint and the ones after it, for "planned" and "Add to sprint". */
+export function plannedSprints(sprints: ReadonlyArray<DeskSprint>, now: number): DeskSprint[] {
+  return [...sprints]
+    .filter((sprint) => Date.parse(sprint.startDate) + sprint.duration * 86_400_000 > now)
+    .sort((a, b) => Date.parse(a.startDate) - Date.parse(b.startDate));
+}
+
 export function chatsForItem(
   item: DeskItem,
   chats: ReadonlyArray<CardChatState>,
@@ -268,10 +328,10 @@ export function summarizeApps(
         blocked: mine.filter((item) => item.lane === "Blocked").sort(byPriority),
         sprintItems,
         mix: {
-          feature: sprintItems.filter((item) => item.workType === "Feature work").length,
-          maintenance: sprintItems.filter((item) => item.workType === "Maintenance").length,
+          feature: sprintItems.filter((item) => workKind(item) === "Story").length,
+          maintenance: sprintItems.filter((item) => workKind(item) === "Maintenance").length,
           other: sprintItems.filter(
-            (item) => item.workType !== "Feature work" && item.workType !== "Maintenance",
+            (item) => workKind(item) !== "Story" && workKind(item) !== "Maintenance",
           ).length,
         },
       },
@@ -459,11 +519,10 @@ export function sprintOverview(
     total: mine.length,
     done: mine.filter(finished).length,
     mix: {
-      feature: open.filter((item) => item.workType === "Feature work").length,
-      maintenance: open.filter((item) => item.workType === "Maintenance").length,
-      other: open.filter(
-        (item) => item.workType !== "Feature work" && item.workType !== "Maintenance",
-      ).length,
+      feature: open.filter((item) => workKind(item) === "Story").length,
+      maintenance: open.filter((item) => workKind(item) === "Maintenance").length,
+      other: open.filter((item) => workKind(item) !== "Story" && workKind(item) !== "Maintenance")
+        .length,
     },
     apps: byApp,
   };

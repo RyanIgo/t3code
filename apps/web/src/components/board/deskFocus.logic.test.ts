@@ -54,12 +54,11 @@ describe("focus by app", () => {
     const rows = focusByApp({
       apps: ["Precon", "Materials", "Quiet"],
       items: [
-        item({ itemId: "a", lane: "Now" }),
-        item({ itemId: "b", lane: "Now" }),
-        item({ itemId: "c", lane: "Now", state: "closed" }),
+        item({ itemId: "a", sprint, status: "In Progress" }),
+        item({ itemId: "b", sprint }),
+        item({ itemId: "c", sprint, state: "closed" }),
         item({ itemId: "d", lane: "Blocked", app: "Materials" }),
-        item({ itemId: "e", sprint, status: "Done" }),
-        item({ itemId: "f", sprint }),
+        item({ itemId: "e", sprint, status: "Done", workType: "Tracking" }),
       ],
       prs: [pr({}), pr({ title: "Bump zod from 3 to 4" }), pr({ app: "Materials", stage: "fix" })],
       sprint,
@@ -71,7 +70,7 @@ describe("focus by app", () => {
       prsReady: 1,
       noAgent: 1,
       sprintDone: 1,
-      sprintTotal: 2,
+      sprintTotal: 3,
     });
     expect(rows[0]).toMatchObject({ needsYou: 1, prsToFix: 1, blocked: 1 });
   });
