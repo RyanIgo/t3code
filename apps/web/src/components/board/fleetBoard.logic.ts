@@ -15,7 +15,7 @@ export const FLEET_BOARD_COLUMNS: ReadonlyArray<{
   readonly id: FleetBoardColumn;
   readonly label: string;
 }> = [
-  { id: "needs", label: "Needs me" },
+  { id: "needs", label: "Asking you" },
   { id: "running", label: "Running" },
   { id: "queued", label: "Queued · idle" },
   { id: "done", label: "Done · unreviewed" },

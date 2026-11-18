@@ -115,17 +115,25 @@ describe("PR lens", () => {
     expect(prs.find((entry) => entry.number === 4)?.app).toBe("Precon");
   });
 
-  it("groups by app, sprint or chat with ready PRs first", () => {
+  it("groups by app, sprint or chat with ready PRs first and version bumps last", () => {
     const items = [
       item({ itemId: "p1", kind: "pr", number: 1, url: pr(1), mergeable: "mergeable", sprint }),
       item({ itemId: "p2", kind: "pr", number: 2, url: pr(2), mergeable: "conflicting" }),
+      item({
+        itemId: "p3",
+        kind: "pr",
+        number: 3,
+        url: pr(3),
+        title: "Bump zod from 3.25 to 4.6",
+        mergeable: "conflicting",
+      }),
     ];
     const prs = collectPrs(items, [
       chat("a", [{ url: pr(2), label: "app#2", state: "open", checks: null, mergeability: null }]),
     ]);
     expect(
       groupPrs(prs, "app").map((group) => [group.label, group.prs.map((entry) => entry.number)]),
-    ).toEqual([["Precon", [2, 1]]]);
+    ).toEqual([["Precon", [2, 1, 3]]]);
     expect(groupPrs(prs, "sprint").map((group) => group.label)).toEqual(["Sprint 1", "No sprint"]);
     expect(groupPrs(prs, "chat").map((group) => group.label)).toEqual(["a", "No chat"]);
   });

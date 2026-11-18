@@ -354,34 +354,6 @@ export function listInitiatives(document: BoardDocument): string[] {
   return [...byKey.values()].toSorted((a, b) => a.localeCompare(b));
 }
 
-/** Cards across every project, grouped by category, for the at-a-glance views. */
-export function buildCategoryView(
-  document: BoardDocument,
-  chats: ReadonlyArray<CardChatState>,
-): Record<CardCategory | "none", PlacedCard[]> {
-  const view: Record<CardCategory | "none", PlacedCard[]> = {
-    critical: [],
-    short: [],
-    long: [],
-    maintenance: [],
-    experiment: [],
-    none: [],
-  };
-  const stageRank = new Map(CARD_STAGES.map((stage, index) => [stage.id, index]));
-  for (const placed of placeCards(document, chats)) {
-    view[placed.card.category ?? "none"].push(placed);
-  }
-  for (const list of Object.values(view)) {
-    list.sort(
-      (a, b) =>
-        Number(b.needsYou) - Number(a.needsYou) ||
-        (stageRank.get(a.stage) ?? 0) - (stageRank.get(b.stage) ?? 0) ||
-        a.card.order - b.card.order,
-    );
-  }
-  return view;
-}
-
 /** The order value that puts a card at `index` in a list (between its new neighbours). */
 export function orderAt(list: ReadonlyArray<{ readonly card: BoardCard }>, index: number): number {
   const before = list[index - 1]?.card.order;

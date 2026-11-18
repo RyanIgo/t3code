@@ -420,8 +420,14 @@ export function sprintOverview(
   items: ReadonlyArray<DeskItem>,
   sprint: DeskSprint,
   apps: ReadonlyArray<string>,
+  /** Count items with no application; off when the Desk is filtered to one app. */
+  withUnassigned = true,
 ): SprintOverview {
-  const mine = visibleItems(items).filter((item) => item.sprint?.title === sprint.title);
+  const mine = visibleItems(items).filter(
+    (item) =>
+      item.sprint?.title === sprint.title &&
+      (item.app === null ? withUnassigned : apps.includes(item.app)),
+  );
   const finished = (item: DeskItem) => !isOpen(item) || item.status === "Done";
   const byApp = [...apps, null].flatMap((app) => {
     const of = mine.filter((item) => item.app === app);

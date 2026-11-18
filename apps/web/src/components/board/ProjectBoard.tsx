@@ -226,7 +226,7 @@ function BoardList(props: {
 
 const CATEGORY_LABEL = new Map(CARD_CATEGORIES.map((category) => [category.id, category.label]));
 
-export function BoardCardTile(props: {
+function BoardCardTile(props: {
   readonly placed: PlacedCard;
   readonly stage: CardStage;
   readonly machineLabel: (environmentId: string) => string | null;

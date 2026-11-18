@@ -235,6 +235,7 @@ it("groups an app's work by sprint, blocked, open and recently done, and sums a 
     ["Precon", 2, 1],
     ["Materials", 1, 0],
   ]);
+  expect(sprintOverview(items, sprint, ["Precon"], false)).toMatchObject({ total: 2, done: 1 });
 });
 
 it("names a chat's status, needing the user first", () => {

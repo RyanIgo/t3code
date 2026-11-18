@@ -2,7 +2,7 @@
 // Screenshot a page of the live review server (fleet/dev-review.sh) in a browser profile that
 // persists between runs, so dismissed notices and machine pairings stay put.
 //
-//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>]
+//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>] [--tall]
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -30,7 +30,7 @@ const url = /^https?:/.test(target) ? target : new URL(target, base).toString();
 
 const context = await chromium.launchPersistentContext(NodePath.join(state, "browser"), {
   headless: true,
-  viewport: { width: 1440, height: 900 },
+  viewport: { width: 1440, height: args.includes("--tall") ? 2600 : 900 },
 });
 try {
   const page = context.pages()[0] ?? (await context.newPage());
@@ -39,13 +39,14 @@ try {
   let failure = null;
   try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90_000 });
-    for (let i = 2; i < args.length; i += 2) {
-      const [flag, value] = [args[i], args[i + 1]];
+    const steps = args.slice(2).filter((arg) => arg !== "--tall");
+    for (let i = 0; i < steps.length; i += 2) {
+      const [flag, value] = [steps[i], steps[i + 1]];
       if (flag === "--wait") await page.getByText(value).first().waitFor({ timeout: 60_000 });
       if (flag === "--click") {
         const named = page
-          .getByRole("button", { name: value })
-          .or(page.getByRole("link", { name: value }));
+          .getByRole("button", { name: value, exact: true })
+          .or(page.getByRole("link", { name: value, exact: true }));
         await named.first().click({ timeout: 30_000 });
         await page.waitForTimeout(500);
       }

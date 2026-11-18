@@ -21,7 +21,6 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { SidebarInset } from "../ui/sidebar";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import type { CardChatState } from "./boardCards.logic";
 import { useBoard } from "./boardStore";
@@ -58,7 +57,8 @@ import {
 } from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
-import { collectPrs, type DeskPr, type PrGrouping } from "./deskPrs.logic";
+import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
+import { TodayView } from "./DeskToday";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -73,7 +73,8 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
-const DeskMode = Schema.Literals(["lanes", "apps", "sprint", "prs"]);
+/** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
+export type DeskTab = "today" | "plan" | "sprint" | "apps" | "prs";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -82,7 +83,6 @@ const DeskFocusSchema = Schema.NullOr(
   }),
 );
 type DeskFocus = NonNullable<typeof DeskFocusSchema.Type>;
-type DeskMode = typeof DeskMode.Type;
 const ALL = "*";
 const UNSORTED_SHOWN = 25;
 
@@ -102,6 +102,8 @@ const LANE_HINT: Record<DeskLane | "Unsorted", string> = {
 const deskUrl = () => `${window.location.origin}/board`;
 
 export function DeskPage(props: {
+  readonly tab: DeskTab;
+  readonly onTab: (tab: DeskTab) => void;
   readonly switcher: ReactNode;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly projectName: (projectKey: string) => string | null;
@@ -114,7 +116,7 @@ export function DeskPage(props: {
     const target = readDeskFragment(window.location.hash);
     if (target === null) return null;
     if (target.kind === "app") {
-      writeLocalStorageValue("t3-fleet:desk-mode", "apps", "apps" as DeskMode, DeskMode);
+      writeLocalStorageValue("t3-fleet:desk-app", target.app, ALL, Schema.String);
       writeLocalStorageValue(
         "t3-fleet:desk-focus",
         { app: target.app, feature: target.feature, view: target.view },
@@ -122,7 +124,6 @@ export function DeskPage(props: {
         DeskFocusSchema,
       );
     } else if (target.kind === "sprint") {
-      writeLocalStorageValue("t3-fleet:desk-mode", "sprint", "apps" as DeskMode, DeskMode);
       writeLocalStorageValue("t3-fleet:desk-app", target.app ?? ALL, ALL, Schema.String);
     }
     window.history.replaceState(
@@ -137,7 +138,8 @@ export function DeskPage(props: {
   const desk = useDesk();
   const notes = useDeskNotes();
   const board = useBoard();
-  const [mode, setMode] = useLocalStorage("t3-fleet:desk-mode", "apps" as DeskMode, DeskMode);
+  const mode = props.tab;
+  const setMode = props.onTab;
   const [focus, setFocus] = useLocalStorage(
     "t3-fleet:desk-focus",
     null as DeskFocus | null,
@@ -190,8 +192,15 @@ export function DeskPage(props: {
         setChosenSprint(target.sprint);
         setStoredApp(target.app ?? ALL);
       } else {
-        setMode("apps");
+        setStoredApp(target.app);
         setFocus({ app: target.app, feature: target.feature, view: target.view });
+        setMode(
+          target.view === "board"
+            ? "plan"
+            : target.view === "sprint" || target.view === "prs"
+              ? target.view
+              : "apps",
+        );
       }
       window.history.replaceState(
         window.history.state,
@@ -247,7 +256,6 @@ export function DeskPage(props: {
 
   const header = (
     <WorkspacePageHeader electron={isElectron} className="border-b border-border">
-      <h1 className="hidden shrink-0 text-sm font-medium sm:block">Desk</h1>
       {props.switcher}
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
         {desk.error ??
@@ -306,12 +314,9 @@ export function DeskPage(props: {
     );
   }
 
-  // The app filter only applies where it's shown (not on Apps, which has its own app pages).
-  const needsApp = mode === "apps" ? null : app;
-  const chatsNeedingYou = (needsApp === null ? props.chats : appThreads(needsApp)).filter(
-    chatWaitsOnYou,
-  );
-  const waiting = waitingOnYou(items).filter((item) => !needsApp || item.app === needsApp);
+  // One app filter for every tab; on Apps it picks the app page.
+  const chatsNeedingYou = (app === null ? props.chats : appThreads(app)).filter(chatWaitsOnYou);
+  const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
 
   const onDragEnd = (event: DragEndEvent) => {
     const lane = event.over?.data.current?.lane as DeskLane | "Unsorted" | undefined;
@@ -366,7 +371,7 @@ export function DeskPage(props: {
       item={item}
       chats={chatsFor(item)}
       draggable={draggable}
-      showApp={app === null && focus === null}
+      showApp={app === null}
       currentSprint={sprint?.title ?? null}
       onOpenChat={openChat}
       onOpen={openItemIn(sequence)}
@@ -401,7 +406,10 @@ export function DeskPage(props: {
       ? (items.find((entry) => entry.url === modal.itemUrl) ?? null)
       : null;
   const sprintShown = view.sprints?.find((entry) => entry.title === chosenSprint) ?? sprint;
-  const focusApp = focus && apps.includes(focus.app) ? focus : null;
+  const focusApp =
+    mode === "apps" && app !== null
+      ? { app, feature: focus?.app === app ? focus.feature : null }
+      : null;
 
   const lanes = (onlyApp: string | null) => {
     const laneColumns = buildDeskColumns(items, { app: onlyApp ?? app, query });
@@ -449,9 +457,12 @@ export function DeskPage(props: {
     if (!sprintShown) {
       return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
     }
-    const sequence = sprintOverview(items, sprintShown, onlyApp ? [onlyApp] : apps).apps.flatMap(
-      (entry) => ids(entry.items),
-    );
+    const sequence = sprintOverview(
+      items,
+      sprintShown,
+      onlyApp ? [onlyApp] : apps,
+      onlyApp === null,
+    ).apps.flatMap((entry) => ids(entry.items));
     return (
       <SprintView
         view={view}
@@ -504,60 +515,44 @@ export function DeskPage(props: {
     ids([...summary.sprintItems, ...summary.blocked]),
   );
 
+  const nowItems = items.filter(
+    (entry) => entry.lane === "Now" && (app === null || entry.app === app),
+  );
   return frame(
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
-        <ToggleGroup
-          aria-label="Desk view"
-          value={[mode]}
-          onValueChange={(next) => {
-            if (
-              next[0] === "lanes" ||
-              next[0] === "apps" ||
-              next[0] === "sprint" ||
-              next[0] === "prs"
-            ) {
-              setMode(next[0]);
-            }
-          }}
-        >
-          <Toggle value="apps">Apps</Toggle>
-          <Toggle value="sprint">Sprint</Toggle>
-          <Toggle value="prs">PRs</Toggle>
-          <Toggle value="lanes">Lanes</Toggle>
-        </ToggleGroup>
-        {mode !== "apps" ? (
-          <div className="w-64 max-w-full">
-            <Select
-              value={app ?? ALL}
-              onValueChange={(value) => {
-                if (typeof value === "string") setStoredApp(value);
-              }}
-            >
-              <SelectTrigger aria-label="Application" size="sm">
-                <SelectValue>{app ?? "All applications"}</SelectValue>
-              </SelectTrigger>
-              <SelectPopup>
-                <SelectItem value={ALL}>All applications</SelectItem>
-                {apps.map((name) => (
-                  <SelectItem key={name} value={name}>
-                    {name}
-                  </SelectItem>
-                ))}
-              </SelectPopup>
-            </Select>
+        <div className="w-64 max-w-full">
+          <Select
+            value={app ?? ALL}
+            onValueChange={(value) => {
+              if (typeof value === "string") setStoredApp(value);
+            }}
+          >
+            <SelectTrigger aria-label="Application" size="sm">
+              <SelectValue>{app ?? "All applications"}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value={ALL}>All applications</SelectItem>
+              {apps.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+        {mode === "plan" ? (
+          <div className="w-56 max-w-full">
+            <Input
+              size="sm"
+              type="search"
+              aria-label="Search work"
+              placeholder="Search work…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
           </div>
         ) : null}
-        <div className="w-56 max-w-full">
-          <Input
-            size="sm"
-            type="search"
-            aria-label="Search work"
-            placeholder="Search work…"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </div>
         {sprint ? (
           <span className="text-xs text-muted-foreground">
             {sprint.title}: {formatDay(sprint.startDate)} –{" "}
@@ -565,37 +560,6 @@ export function DeskPage(props: {
           </span>
         ) : null}
       </div>
-      {mode === "apps" ? (
-        <nav aria-label="Applications" className="flex shrink-0 gap-1 overflow-x-auto px-4 pt-2">
-          <Button
-            variant={focusApp ? "ghost" : "secondary"}
-            size="xs"
-            onClick={() => setFocus(null)}
-          >
-            All apps
-          </Button>
-          {apps.map((name) => (
-            <Button
-              key={name}
-              variant={focusApp?.app === name ? "secondary" : "ghost"}
-              size="xs"
-              onClick={() =>
-                setFocus({ app: name, feature: null, view: focusApp?.view ?? "overview" })
-              }
-            >
-              {name}
-            </Button>
-          ))}
-        </nav>
-      ) : null}
-      {mode !== "apps" || focusApp === null ? (
-        <NeedsYou
-          chats={chatsNeedingYou}
-          items={waiting}
-          onOpenChat={openChat}
-          onOpenItem={openItemIn(ids(waiting))}
-        />
-      ) : null}
       {modal && (modal.itemUrl === undefined || modalItem) ? (
         <DeskModal
           key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}`}
@@ -639,11 +603,39 @@ export function DeskPage(props: {
           onClose={() => setLauncher(null)}
         />
       ) : null}
-      {mode === "apps" && focusApp ? (
+      {mode === "today" ? (
+        <TodayView
+          needsYou={
+            <NeedsYou
+              chats={chatsNeedingYou}
+              items={waiting}
+              onOpenChat={openChat}
+              onOpenItem={openItemIn(ids(waiting))}
+            />
+          }
+          prs={prLens(
+            (pr) =>
+              (app === null || pr.app === app) &&
+              (pr.stage === "ready" || pr.stage === "fix") &&
+              !isDependencyUpdate(pr),
+            "app",
+          )}
+          bumps={
+            prs.filter(
+              (pr) =>
+                (app === null || pr.app === app) && isDependencyUpdate(pr) && pr.stage === "ready",
+            ).length
+          }
+          now={nowItems}
+          hasChat={(entry) => chatsFor(entry).length > 0}
+          card={(entry) => card(entry, false, ids(nowItems))}
+          onPrs={() => setMode("prs")}
+          onPlan={() => setMode("plan")}
+        />
+      ) : mode === "apps" && focusApp ? (
         <AppView
           app={focusApp.app}
           feature={focusApp.feature}
-          subview={focusApp.view}
           items={items}
           sprint={sprint}
           notes={notes.notes}
@@ -653,18 +645,13 @@ export function DeskPage(props: {
             setLauncher({
               kind: "app",
               app: focusApp.app,
-              view: focusApp.view,
+              view: "overview",
               feature: focusApp.feature,
             })
           }
-          board={lanes(focusApp.app)}
-          sprintPanel={sprintPanel(focusApp.app)}
-          prsPanel={prLens((pr) => pr.app === focusApp.app, "sprint")}
           onOpenItem={openItemIn(appSequence)}
           onOpenChat={openChat}
-          onFeature={(feature) => setFocus({ ...focusApp, feature, view: "overview" })}
-          onSubview={(next) => setFocus({ ...focusApp, feature: null, view: next })}
-          onBack={() => setFocus(null)}
+          onFeature={(feature) => setFocus({ app: focusApp.app, feature, view: "overview" })}
         />
       ) : mode === "sprint" ? (
         sprintPanel(null)
@@ -672,7 +659,7 @@ export function DeskPage(props: {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-6">
           {prLens((pr) => app === null || pr.app === app)}
         </div>
-      ) : mode === "lanes" ? (
+      ) : mode === "plan" ? (
         lanes(null)
       ) : (
         <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-4 pt-3 pb-4 xl:grid-cols-2">

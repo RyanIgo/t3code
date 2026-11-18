@@ -27,7 +27,6 @@ import {
   type FleetBoardTone,
 } from "./fleetBoard.logic";
 import { type BoardThread, useFleetBoardThreads } from "./useFleetBoardThreads";
-import { CommandPanel } from "../command/CommandPanel";
 import { isOrchestratorTitle } from "../command/fleetOrchestrator";
 
 /** Chats that need you, run, or finished always show; idle chats fold after this many per project. */
@@ -117,7 +116,6 @@ export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode 
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
-          <h1 className="shrink-0 text-sm font-medium">Board</h1>
           {props.viewSwitcher}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
             {enabledEnvironments.map((environment) => (
@@ -175,9 +173,6 @@ export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode 
           </div>
         </WorkspacePageHeader>
 
-        <div className="shrink-0 px-4 pt-3 empty:hidden">
-          <CommandPanel layout="board" />
-        </div>
         {rows.length === 0 ? (
           <Empty className="flex-1">
             <EmptyHeader>

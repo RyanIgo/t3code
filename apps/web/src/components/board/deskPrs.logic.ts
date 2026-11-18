@@ -179,6 +179,10 @@ export function collectPrs(
   return [...prs.values()].map((pr) => ({ ...pr, ...stageOf(pr) }));
 }
 
+/** A bot's version bump (Dependabot, Renovate): mergeable in bulk, so listed after real work. */
+export const isDependencyUpdate = (pr: Pick<DeskPr, "title">) =>
+  /^(bump |build\(deps|chore\(deps|update dependency )/i.test(pr.title);
+
 export type PrGrouping = "app" | "sprint" | "chat";
 
 export interface PrGroup {
@@ -196,6 +200,9 @@ const STAGE_RANK: Record<PrStage, number> = {
 };
 
 /** PRs grouped by app, sprint or chat; within a group, ready first. A PR shows under each of its chats. */
+const readyWork = (prs: ReadonlyArray<DeskPr>) =>
+  prs.filter((pr) => pr.stage === "ready" && !isDependencyUpdate(pr)).length;
+
 export function groupPrs(prs: ReadonlyArray<DeskPr>, by: PrGrouping): PrGroup[] {
   const groups = new Map<string, { label: string; prs: DeskPr[] }>();
   const add = (key: string, label: string, pr: DeskPr) => {
@@ -217,6 +224,7 @@ export function groupPrs(prs: ReadonlyArray<DeskPr>, by: PrGrouping): PrGroup[] 
       label: group.label,
       prs: group.prs.sort(
         (a, b) =>
+          Number(isDependencyUpdate(a)) - Number(isDependencyUpdate(b)) ||
           STAGE_RANK[a.stage] - STAGE_RANK[b.stage] ||
           a.repo.localeCompare(b.repo) ||
           a.number - b.number,
@@ -225,8 +233,7 @@ export function groupPrs(prs: ReadonlyArray<DeskPr>, by: PrGrouping): PrGroup[] 
     .sort(
       (a, b) =>
         Number(a.key === "") - Number(b.key === "") ||
-        b.prs.filter((pr) => pr.stage === "ready").length -
-          a.prs.filter((pr) => pr.stage === "ready").length ||
+        readyWork(b.prs) - readyWork(a.prs) ||
         a.label.localeCompare(b.label),
     );
 }

@@ -59,7 +59,7 @@ export function PrLens(props: {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {PR_STAGES.map((stage) => (
+        {PR_STAGES.filter((stage) => counts[stage.id] > 0 || only === stage.id).map((stage) => (
           <Button
             key={stage.id}
             variant={only === stage.id ? "secondary" : "ghost"}

@@ -150,7 +150,14 @@ export function buildChatPrompt(input: {
     );
     if (item.plain?.where) lines.push(`Where it stands: ${item.plain.where}`);
   } else if (context.kind === "sprint") {
-    const overview = sprintOverview(items, context.sprint, context.app ? [context.app] : []);
+    const overview = sprintOverview(
+      items,
+      context.sprint,
+      context.app
+        ? [context.app]
+        : [...new Set(items.flatMap((item) => (item.app ? [item.app] : [])))],
+      context.app === null,
+    );
     const all = context.app
       ? (overview.apps[0]?.items ?? [])
       : items.filter(

@@ -584,11 +584,6 @@ function WorkList(props: {
 export function AppView(props: {
   readonly app: string;
   readonly feature: string | null;
-  readonly subview: "overview" | "board" | "sprint" | "prs";
-  readonly board: ReactNode;
-  readonly sprintPanel: ReactNode;
-  readonly prsPanel: ReactNode;
-  readonly onSubview: (view: "overview" | "board" | "sprint" | "prs") => void;
   readonly onChat: () => void;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sprint: DeskSprint | null;
@@ -598,7 +593,6 @@ export function AppView(props: {
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onFeature: (feature: string | null) => void;
-  readonly onBack: () => void;
 }) {
   const { app, items, sprint } = props;
   const features = [
@@ -618,50 +612,15 @@ export function AppView(props: {
   const goalTarget = sprint ? ({ kind: "sprintGoal", sprint: sprint.title, app } as const) : null;
   const tabs = (
     <nav className="flex flex-wrap items-center gap-2 text-sm">
-      <Button
-        variant="ghost"
-        size="xs"
-        onClick={feature ? () => props.onFeature(null) : props.onBack}
-      >
-        <ArrowLeftIcon />
-        {feature ? app : "All apps"}
-      </Button>
-      {feature ? null : (
-        <ToggleGroup
-          aria-label={`${app} view`}
-          value={[props.subview]}
-          onValueChange={(value) => {
-            const next = value[0];
-            if (next === "overview" || next === "board" || next === "sprint" || next === "prs") {
-              props.onSubview(next);
-            }
-          }}
-        >
-          <Toggle value="overview">Overview</Toggle>
-          <Toggle value="board">Board</Toggle>
-          <Toggle value="sprint">Sprint</Toggle>
-        </ToggleGroup>
-      )}
+      {feature ? (
+        <Button variant="ghost" size="xs" onClick={() => props.onFeature(null)}>
+          <ArrowLeftIcon />
+          {app}
+        </Button>
+      ) : null}
       <ChatAboutButton onClick={props.onChat} />
     </nav>
   );
-  if (!feature && props.subview !== "overview") {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col gap-3 pt-3">
-        <div className="flex flex-col gap-1 px-4">
-          {tabs}
-          <h2 className="text-lg font-semibold">{app}</h2>
-        </div>
-        {props.subview === "board" ? (
-          props.board
-        ) : props.subview === "prs" ? (
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">{props.prsPanel}</div>
-        ) : (
-          props.sprintPanel
-        )}
-      </div>
-    );
-  }
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6">
       {tabs}
@@ -700,7 +659,7 @@ export function AppView(props: {
               hint="Goals, decisions, conventions, what not to touch. Agents read this before working here."
               placeholder="- Who uses it and what they need&#10;- Decisions made&#10;- What not to touch"
               note={props.notes.apps[app] ?? null}
-              rows={8}
+              rows={5}
               onSave={(text) => saveDeskNote({ kind: "app", app }, text)}
             />
           </div>
@@ -782,7 +741,7 @@ export function SprintView(props: {
 }) {
   const { sprint, view } = props;
   const apps = props.app ? [props.app] : (view.apps ?? []);
-  const overview = sprintOverview(view.items, sprint, apps);
+  const overview = sprintOverview(view.items, sprint, apps, props.app === null);
   const start = Date.parse(`${sprint.startDate}T00:00:00`);
   const end = start + sprint.duration * DAY;
   const daysLeft = Math.max(0, Math.ceil((end - props.nowMs) / DAY));
