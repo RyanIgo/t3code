@@ -119,11 +119,19 @@ sandboxed, so a page can't read the machines' sign-ins the hub keeps.
 
 ### Dev Desk: development work in plain words
 
-Board → **Desk** on the hub shows every open item of one GitHub project (issues and PRs) by
-lane — Not sorted, Now (at most 5), Next, Later, Blocked — with what needs you on top and the T3
-chats working on each item. Drag a card or use its lane menu to move it; that sets the item's
-**Lane** field on GitHub, which stays the record. Agents keep a plain-words section on each issue
-(the `dev-desk` skill), which the Desk shows instead of the GitHub title.
+The hub's Board (`/board`) plans the work of one GitHub project (issues and PRs) in one row of
+tabs, all narrowed by one application filter:
+
+- **Today**: what to decide first. Across all apps it starts with a where-to-focus table; then
+  what waits on you, PRs to merge or send back, and the Now lane split by whether an agent is on it.
+- **Plan**: lanes (Not sorted, Now at most 5, Next, Later, Blocked). Drag a card or use its lane
+  menu; that sets the item's **Lane** field on GitHub, which stays the record.
+- **Sprint**, **Apps** (an application's goal, notes for agents, features and work), **PRs**.
+- **Chats**: the machines' T3 chats as a list or as cards you arrange.
+
+Opening an item, PR or chat keeps your place: it opens in a window with its chat beside it.
+Agents keep a plain-words section on each issue (the `dev-desk` skill), which the Board shows
+instead of the GitHub title, and stories carry acceptance criteria the Board turns into test sheets.
 
 The hub syncs the project every 5 minutes. Give it a project and a GitHub token, on the hub:
 

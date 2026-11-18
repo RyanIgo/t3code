@@ -645,6 +645,7 @@ export function DeskPage(props: {
           card={(entry) => card(entry, false, ids(nowItems))}
           onPrs={() => setMode("prs")}
           onPlan={() => setMode("plan")}
+          onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
           onClearDone={(finished) => {
             for (const entry of finished) void setDeskLane(entry.itemId, null);
           }}

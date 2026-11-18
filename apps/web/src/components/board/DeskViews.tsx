@@ -752,6 +752,13 @@ export function SprintView(props: {
   const { sprint, view } = props;
   const apps = props.app ? [props.app] : (view.apps ?? []);
   const overview = sprintOverview(view.items, sprint, apps, props.app === null);
+  // Apps with work or a goal this sprint get a card; the rest are named in one line.
+  const planned = apps.filter(
+    (app) =>
+      overview.apps.some((entry) => entry.app === app) ||
+      noteAt(props.notes, { kind: "sprintGoal", sprint: sprint.title, app })?.text,
+  );
+  const idleApps = apps.filter((app) => !planned.includes(app));
   const start = Date.parse(`${sprint.startDate}T00:00:00`);
   const end = start + sprint.duration * DAY;
   const daysLeft = Math.max(0, Math.ceil((end - props.nowMs) / DAY));
@@ -809,28 +816,8 @@ export function SprintView(props: {
         maintenance · {percent(overview.mix.other)}% fixes, research & support (budget 60 / 20 /
         20). Add work to a sprint from any item's Sprint menu.
       </p>
-      <section className="flex flex-col gap-1.5">
-        <DeskHeading>Pull requests in this sprint</DeskHeading>
-        {props.prsPanel}
-      </section>
-      <section className="flex flex-col gap-1.5">
-        <DeskHeading>Threads on this sprint · {props.linkedChats.length}</DeskHeading>
-        <ThreadList
-          threads={props.linkedChats}
-          onOpenChat={props.onOpenChat}
-          empty="No threads on this sprint's work yet. Use Chat about this sprint to start one."
-        />
-      </section>
-      <NoteEditor
-        label={`${sprint.title} notes`}
-        hint="What this sprint is for and what feedback said. Agents read it."
-        placeholder="Goal for the sprint, then testers' feedback as it comes in."
-        note={noteAt(props.notes, { kind: "sprintNotes", sprint: sprint.title })}
-        rows={3}
-        onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
-      />
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-        {apps.map((app) => {
+        {planned.map((app) => {
           const work = overview.apps.find((entry) => entry.app === app);
           const goalTarget = { kind: "sprintGoal", sprint: sprint.title, app } as const;
           return (
@@ -858,6 +845,31 @@ export function SprintView(props: {
           );
         })}
       </div>
+      {idleApps.length > 0 ? (
+        <p className="text-xs text-muted-foreground">
+          Nothing in {sprint.title} for {idleApps.join(", ")}.
+        </p>
+      ) : null}
+      <section className="flex flex-col gap-1.5">
+        <DeskHeading>Pull requests in this sprint</DeskHeading>
+        {props.prsPanel}
+      </section>
+      <section className="flex flex-col gap-1.5">
+        <DeskHeading>Threads on this sprint · {props.linkedChats.length}</DeskHeading>
+        <ThreadList
+          threads={props.linkedChats}
+          onOpenChat={props.onOpenChat}
+          empty="No threads on this sprint's work yet. Use Chat about this sprint to start one."
+        />
+      </section>
+      <NoteEditor
+        label={`${sprint.title} notes`}
+        hint="What this sprint is for and what feedback said. Agents read it."
+        placeholder="Goal for the sprint, then testers' feedback as it comes in."
+        note={noteAt(props.notes, { kind: "sprintNotes", sprint: sprint.title })}
+        rows={3}
+        onSave={(text) => saveDeskNote({ kind: "sprintNotes", sprint: sprint.title }, text)}
+      />
     </div>
   );
 }

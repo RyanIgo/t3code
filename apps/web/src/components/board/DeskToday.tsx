@@ -25,6 +25,8 @@ export function TodayView(props: {
   readonly card: (item: DeskItem) => ReactNode;
   readonly onPrs: () => void;
   readonly onPlan: () => void;
+  /** Starts (or links) a chat for an item with no agent on it. */
+  readonly onStartChat: (item: DeskItem) => void;
   /** Moves finished work out of the Now lane. */
   readonly onClearDone: (items: ReadonlyArray<DeskItem>) => void;
 }) {
@@ -90,9 +92,10 @@ export function TodayView(props: {
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             <Column
               title="No agent on it"
-              hint="Start a chat from the card, or move it out of Now"
+              hint="Start a chat, or move it out of Now"
               items={idle}
               card={props.card}
+              onStartChat={props.onStartChat}
             />
             <Column
               title="Agents working"
@@ -112,7 +115,10 @@ function Column(props: {
   readonly hint: string;
   readonly items: ReadonlyArray<DeskItem>;
   readonly card: (item: DeskItem) => ReactNode;
+  /** A Start a chat button under each card. */
+  readonly onStartChat?: (item: DeskItem) => void;
 }) {
+  const { onStartChat } = props;
   return (
     <section
       aria-label={props.title}
@@ -127,7 +133,25 @@ function Column(props: {
       {props.items.length === 0 ? (
         <p className="px-1 pb-1 text-xs text-muted-foreground">None.</p>
       ) : (
-        <ol className="flex flex-col gap-2">{props.items.map(props.card)}</ol>
+        <ol className="flex flex-col gap-2">
+          {props.items.map((item) =>
+            onStartChat ? (
+              <li key={item.itemId} className="flex flex-col gap-1">
+                <ol>{props.card(item)}</ol>
+                <Button
+                  variant="outline"
+                  size="xs"
+                  className="self-end"
+                  onClick={() => onStartChat(item)}
+                >
+                  Start a chat
+                </Button>
+              </li>
+            ) : (
+              props.card(item)
+            ),
+          )}
+        </ol>
       )}
     </section>
   );
