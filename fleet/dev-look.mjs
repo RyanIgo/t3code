@@ -2,7 +2,7 @@
 // Screenshot a page of the live review server (fleet/dev-review.sh) in a browser profile that
 // persists between runs, so dismissed notices and machine pairings stay put.
 //
-//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>] [--tall]
+//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>] [--text <click this text>] [--tall]
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -43,6 +43,10 @@ try {
     for (let i = 0; i < steps.length; i += 2) {
       const [flag, value] = [steps[i], steps[i + 1]];
       if (flag === "--wait") await page.getByText(value).first().waitFor({ timeout: 60_000 });
+      if (flag === "--text") {
+        await page.getByText(value).first().click({ timeout: 30_000 });
+        await page.waitForTimeout(500);
+      }
       if (flag === "--click") {
         const named = page
           .getByRole("button", { name: value, exact: true })

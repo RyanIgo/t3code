@@ -41,6 +41,8 @@ import {
 } from "./DeskParts";
 import { type DeskField, fetchDeskDetail, setDeskField } from "./deskStore";
 import { ChatAboutButton } from "./DeskChat";
+import { PrPanel } from "./DeskPrs";
+import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
 
 const NONE = "__none__";
@@ -147,6 +149,8 @@ function ItemDetails(props: {
         ) : null}
       </header>
 
+      <StorySection item={item} />
+
       <div className="grid grid-cols-2 gap-3">
         {isFeature ? (
           <FieldMenu
@@ -204,8 +208,6 @@ function ItemDetails(props: {
           ) : null}
         </section>
       ) : null}
-
-      <StorySection item={item} />
 
       {error ? (
         <p className="text-sm text-destructive">Couldn't load the details: {error}</p>
@@ -335,6 +337,8 @@ function ItemDetails(props: {
  */
 export function DeskModal(props: {
   readonly item: DeskItem | null;
+  /** Opened from a pull request: it shows first, with its merge state and next steps. */
+  readonly pr?: DeskPr | null;
   readonly chat: CardChatState | null;
   readonly chats: ReadonlyArray<CardChatState>;
   /** A new chat started from the Desk, not sent yet: shown as a draft until it is. */
@@ -358,7 +362,7 @@ export function DeskModal(props: {
     chosen ??
     props.chats[0] ??
     null;
-  const [pane, setPane] = useState<"details" | "chat">(item ? "details" : "chat");
+  const [pane, setPane] = useState<"details" | "chat">(item || props.pr ? "details" : "chat");
   const index = item ? props.sequence.indexOf(item.itemId) : -1;
   const previous = index > 0 ? props.sequence[index - 1] : undefined;
   const next = index !== -1 ? props.sequence[index + 1] : undefined;
@@ -440,7 +444,7 @@ export function DeskModal(props: {
           </Button>
         </header>
         <div className="flex min-h-0 flex-1">
-          {item ? (
+          {item || props.pr ? (
             <aside
               className={
                 pane === "details"
@@ -448,12 +452,15 @@ export function DeskModal(props: {
                   : "hidden min-h-0 w-[30rem] shrink-0 flex-col overflow-y-auto border-e border-border sm:flex"
               }
             >
-              <ItemDetails
-                key={item.itemId}
-                item={item}
-                view={props.view}
-                onOpenItem={props.onOpenItem}
-              />
+              {props.pr ? <PrPanel pr={props.pr} chat={shown ?? null} /> : null}
+              {item ? (
+                <ItemDetails
+                  key={item.itemId}
+                  item={item}
+                  view={props.view}
+                  onOpenItem={props.onOpenItem}
+                />
+              ) : null}
             </aside>
           ) : null}
           <section

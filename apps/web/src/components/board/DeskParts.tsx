@@ -205,7 +205,7 @@ export function DeskCard(props: {
               }
               size="sm"
             >
-              {storyProgress(item)}
+              Story · {storyProgress(item)}
             </Badge>
           ) : null}
           {item.workType && item.workType !== "Feature work" ? (

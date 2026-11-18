@@ -30,6 +30,8 @@ import { addCards, useBoard } from "./boardStore";
 import { CardModal } from "./CardModal";
 import { DeskPage, type DeskTab } from "./DeskPage";
 import { readDeskFragment } from "./deskChat.logic";
+import { appRepos } from "./desk.logic";
+import { useDesk } from "./deskStore";
 import { resolveFleetBoardCard } from "./fleetBoard.logic";
 import { FleetBoardPage } from "./FleetBoardPage";
 import { ProjectBoard } from "./ProjectBoard";
@@ -129,6 +131,11 @@ export function BoardPage() {
     "list" as typeof ChatsLayout.Type,
     ChatsLayout,
   );
+  // The Desk's app filter also narrows the chat list, so a tab change keeps the same app.
+  const desk = useDesk();
+  const [storedDeskApp, setDeskApp] = useLocalStorage("t3-fleet:desk-app", "*", Schema.String);
+  const deskItems = desk.view?.items ?? [];
+  const deskApp = (desk.view?.apps ?? []).includes(storedDeskApp) ? storedDeskApp : null;
   const switcher = (
     <div className="flex shrink-0 items-center gap-2">
       <ToggleGroup
@@ -162,7 +169,11 @@ export function BoardPage() {
   );
   if (tab === "chats") {
     return layout === "list" ? (
-      <FleetBoardPage viewSwitcher={switcher} />
+      <FleetBoardPage
+        viewSwitcher={switcher}
+        onlyRepos={deskApp ? { app: deskApp, repos: appRepos(deskItems, deskApp) } : null}
+        onShowAll={() => setDeskApp("*")}
+      />
     ) : (
       <CardsPage switcher={switcher} />
     );

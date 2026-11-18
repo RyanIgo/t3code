@@ -12,6 +12,7 @@ import { cn } from "../../lib/utils";
 import { useEnvironments } from "../../state/environments";
 import { environmentSummaries } from "../../state/presentation";
 import { connectionPhaseDotClassName } from "../ConnectionStatusDot";
+import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Label } from "../ui/label";
 import { ScrollArea } from "../ui/scroll-area";
@@ -56,7 +57,12 @@ const COLUMN_HEADER_TEXT: Record<(typeof FLEET_BOARD_COLUMNS)[number]["id"], str
 };
 
 /** The chats-by-status view; the Board page shows it as "Activity". */
-export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode }) {
+export function FleetBoardPage(props: {
+  readonly viewSwitcher?: React.ReactNode;
+  /** The Desk's app filter: only chats in these repos (by repo name), or every chat. */
+  readonly onlyRepos?: { readonly app: string; readonly repos: ReadonlySet<string> } | null;
+  readonly onShowAll?: () => void;
+}) {
   const navigate = useNavigate();
   const [showSettled, setShowSettled] = useState(false);
   const [expandedIdle, setExpandedIdle] = useState<ReadonlySet<string>>(() => new Set());
@@ -100,8 +106,13 @@ export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode 
         ? { sidebarAutoSettleAfterDays: 3, sidebarAutoSettleOnMerge: true }
         : { sidebarAutoSettleAfterDays: null, sidebarAutoSettleOnMerge: false },
     );
+  const only = props.onlyRepos ?? null;
   const { rows, totals } = buildFleetBoard(
-    groups,
+    only
+      ? groups.filter((group) =>
+          only.repos.has(group.displayName.split("/").pop() ?? group.displayName),
+        )
+      : groups,
     boardThreads.filter((thread) => !isOrchestratorTitle(thread.title)),
   );
 
@@ -117,6 +128,11 @@ export function FleetBoardPage(props: { readonly viewSwitcher?: React.ReactNode 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden bg-background">
         <WorkspacePageHeader electron={isElectron} className="border-b border-border">
           {props.viewSwitcher}
+          {only ? (
+            <Button variant="outline" size="xs" onClick={props.onShowAll}>
+              {only.app} only · show all
+            </Button>
+          ) : null}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
             {enabledEnvironments.map((environment) => (
               <Tooltip key={environment.environmentId}>

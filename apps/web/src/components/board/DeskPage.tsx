@@ -47,18 +47,12 @@ import { refreshDesk, setDeskLane, useDesk } from "./deskStore";
 import { type DeskNotes, noteAt } from "./deskNotes.logic";
 import { saveDeskLink, saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import {
-  DeskCard,
-  formatDay,
-  NoteEditor,
-  openExternal,
-  STAGE_VARIANT,
-  ThreadList,
-} from "./DeskParts";
+import { DeskCard, NoteEditor, STAGE_VARIANT, ThreadList } from "./DeskParts";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
 import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
 import { TodayView } from "./DeskToday";
+import { focusByApp } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -154,6 +148,8 @@ export function DeskPage(props: {
       readonly environmentId: EnvironmentId;
     };
     readonly sequence: ReadonlyArray<string>;
+    /** Opened from a pull request (shown first in the window). */
+    readonly pr?: DeskPr;
     /** Set by a deep link before the Desk's data loads; resolved to the item once it has. */
     readonly itemUrl?: string;
   } | null>(
@@ -379,19 +375,18 @@ export function DeskPage(props: {
   );
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
   const prs = collectPrs(items, props.chats);
-  const openPr = (pr: DeskPr) => {
-    if (pr.item) {
-      setModal({
-        itemId: pr.item.itemId,
-        chat: pr.chats[0] ?? null,
-        sequence: prs.flatMap((entry) => (entry.item ? [entry.item.itemId] : [])),
-      });
-    } else if (pr.chats[0]) {
-      openChat(pr.chats[0]);
-    } else {
-      openExternal(pr.url);
-    }
-  };
+  // The PR shows first, with its own item (or the issue it closes) and its chat beside it.
+  const openPr = (pr: DeskPr) =>
+    setModal({
+      // The issue the PR closes carries the plan (story, sprint, lane); the PR's own item doesn't.
+      itemId:
+        items.find((entry) => entry.pullRequests.some((link) => link.url === pr.url))?.itemId ??
+        pr.item?.itemId ??
+        null,
+      chat: pr.chats[0] ?? null,
+      sequence: [],
+      pr,
+    });
   const prLens = (keep: (pr: DeskPr) => boolean, grouping?: PrGrouping) => (
     <PrLens
       prs={prs.filter(keep)}
@@ -553,19 +548,22 @@ export function DeskPage(props: {
             />
           </div>
         ) : null}
-        {sprint ? (
-          <span className="text-xs text-muted-foreground">
-            {sprint.title}: {formatDay(sprint.startDate)} –{" "}
-            {formatDay(sprint.startDate, sprint.duration - 1)}
-          </span>
-        ) : null}
       </div>
       {modal && (modal.itemUrl === undefined || modalItem) ? (
         <DeskModal
-          key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}`}
+          key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}:${modal.pr?.url ?? ""}`}
           item={modalItem}
+          pr={modal.pr ?? null}
           chat={modal.chat}
-          chats={modalItem ? chatsFor(modalItem) : modal.chat ? [modal.chat] : []}
+          chats={
+            modalItem
+              ? withLinked(chatsFor(modalItem), modal.pr?.chats ?? [])
+              : modal.pr
+                ? modal.pr.chats
+                : modal.chat
+                  ? [modal.chat]
+                  : []
+          }
           draft={modal.draft ?? null}
           view={view}
           sequence={modal.sequence}
@@ -605,9 +603,26 @@ export function DeskPage(props: {
       ) : null}
       {mode === "today" ? (
         <TodayView
+          app={app}
+          focus={focusByApp({
+            apps,
+            items,
+            prs,
+            sprint,
+            needsYou: (name) =>
+              appThreads(name).filter(chatWaitsOnYou).length +
+              waitingOnYou(items).filter((entry) => entry.app === name).length,
+            hasChat: (entry) => chatsFor(entry).length > 0,
+          })}
+          onPickApp={(name) => setStoredApp(name ?? ALL)}
           needsYou={
             <NeedsYou
               chats={chatsNeedingYou}
+              repoOf={(chat) =>
+                chat.projectKey
+                  ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null)
+                  : null
+              }
               items={waiting}
               onOpenChat={openChat}
               onOpenItem={openItemIn(ids(waiting))}
@@ -836,6 +851,8 @@ function AppScorecard(props: {
 
 function NeedsYou(props: {
   readonly chats: ReadonlyArray<CardChatState>;
+  /** The chat's repo, so each row says where it is. */
+  readonly repoOf: (chat: CardChatState) => string | null;
   readonly items: ReadonlyArray<DeskItem>;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
@@ -858,6 +875,9 @@ function NeedsYou(props: {
         >
           {chat.title}
         </button>
+        {props.repoOf(chat) ? (
+          <span className="shrink-0 text-2xs text-muted-foreground">{props.repoOf(chat)}</span>
+        ) : null}
       </li>
     )),
     ...props.items.map((item) => (
