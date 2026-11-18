@@ -792,7 +792,17 @@ function NeedsYou(props: {
     ...props.chats.map((chat) => (
       <li key={`chat:${chat.environmentId}:${chat.threadId}`} className="flex items-center gap-2">
         <Badge variant="warning" size="sm">
-          {chat.needsYou ? "Chat" : chat.column === "done" ? "Result" : "Checks"}
+          {chat.asking === "subagent approval"
+            ? "Subagent approval"
+            : chat.asking === "approval"
+              ? "Approval"
+              : chat.asking === "question"
+                ? "Question"
+                : chat.needsYou
+                  ? "Chat"
+                  : chat.column === "done"
+                    ? "Result"
+                    : "Checks"}
         </Badge>
         <button
           type="button"

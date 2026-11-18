@@ -261,7 +261,9 @@ export function DeskCard(props: {
               onClick={() => props.onOpenChat(agent)}
             >
               <Badge variant={AGENT_BADGE[agentState(agent)].variant} size="sm">
-                {AGENT_BADGE[agentState(agent)].label}
+                {agent.asking === "subagent approval"
+                  ? "Subagent needs approval"
+                  : AGENT_BADGE[agentState(agent)].label}
               </Badge>
             </button>
           ) : inCurrentSprint && unfinished ? (

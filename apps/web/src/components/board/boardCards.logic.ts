@@ -92,6 +92,8 @@ export interface CardChatState {
   /** The chat's column on the "needs me" board (fleetBoard.logic). */
   readonly column: FleetBoardColumn;
   readonly needsYou: boolean;
+  /** What the chat (or one of its subagents) asks for, when it waits on the user. */
+  readonly asking?: "approval" | "question" | "subagent approval" | null;
   readonly working: boolean;
   readonly hasPullRequest: boolean;
   readonly pullRequestNumber: number | null;

@@ -86,6 +86,16 @@ function useCardChats(includeSettled: boolean): CardChatState[] {
         projectKey: projectKeyByRef.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
         column: resolved.column,
         needsYou: resolved.column === "needs",
+        asking:
+          resolved.column !== "needs"
+            ? null
+            : thread.hasPendingApprovals
+              ? "approval"
+              : thread.pendingSubagentRequest === "approval"
+                ? "subagent approval"
+                : thread.hasPendingUserInput
+                  ? "question"
+                  : null,
         working: resolved.tone === "working",
         hasPullRequest: Boolean(thread.linkedPullRequest),
         pullRequestNumber: thread.linkedPullRequest?.number ?? null,

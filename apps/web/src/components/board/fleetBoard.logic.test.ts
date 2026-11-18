@@ -76,6 +76,13 @@ describe("resolveFleetBoardCard", () => {
       column: "needs",
       nextStep: "Answer a question",
     });
+    expect(
+      resolveFleetBoardCard(thread({ id: "c", pendingSubagentRequest: "approval" })),
+    ).toMatchObject({
+      column: "needs",
+      tone: "attention",
+      nextStep: "Approve a subagent's request",
+    });
   });
 
   it("only shows Plan ready when the sidebar would", () => {

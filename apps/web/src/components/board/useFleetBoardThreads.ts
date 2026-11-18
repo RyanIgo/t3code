@@ -5,16 +5,23 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { useDelegatedUnderParent, useQuietThreadShells } from "../../state/entities";
 import type { SidebarThreadSummary } from "../../types";
 import { useUiStateStore } from "../../uiStateStore";
-import { filterSidebarV2VisibleThreads, resolveThreadLastVisitedAt } from "../Sidebar.logic";
+import {
+  filterSidebarV2VisibleThreads,
+  resolveSidebarThreadStatus,
+  resolveThreadLastVisitedAt,
+} from "../Sidebar.logic";
 import { minuteTickToMs, resolveFleetBoardCard } from "./fleetBoard.logic";
 
 export type BoardThread = Omit<SidebarThreadSummary, "lastVisitedAt"> & {
   readonly lastVisitedAt: string | null | undefined;
 };
 
+const ASKING = new Set(["approval", "input"]);
+
 /**
  * The threads the board shows: the sidebar's visible threads, without settled and
- * snoozed ones unless `showSettled`, with this device's last visit folded in.
+ * snoozed ones unless `showSettled` or they're asking for something, with this device's last
+ * visit folded in.
  */
 export function useFleetBoardThreads(showSettled: boolean): {
   readonly threads: BoardThread[];
@@ -34,7 +41,9 @@ export function useFleetBoardThreads(showSettled: boolean): {
     .filter(
       (thread) =>
         showSettled ||
-        (thread.settledOverride !== "settled" && !effectiveSnoozed(thread, { now: nowIso })),
+        (thread.settledOverride !== "settled" && !effectiveSnoozed(thread, { now: nowIso })) ||
+        // An approval or question (its own or a subagent's) shows even on a settled or snoozed chat.
+        ASKING.has(resolveSidebarThreadStatus(thread)),
     )
     .map((thread) => ({
       ...thread,

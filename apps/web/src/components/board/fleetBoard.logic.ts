@@ -77,7 +77,13 @@ export function resolveFleetBoardCard<T extends FleetBoardThreadInput>(
 
   switch (status) {
     case "approval":
-      return card(thread, "needs", "attention", "Approve a pending request", thread.updatedAt);
+      return card(
+        thread,
+        "needs",
+        "attention",
+        thread.hasPendingApprovals ? "Approve a pending request" : "Approve a subagent's request",
+        thread.updatedAt,
+      );
     case "input":
       return card(thread, "needs", "attention", "Answer a question", thread.updatedAt);
     case "request": {
