@@ -38,7 +38,7 @@ import { ProjectBoard } from "./ProjectBoard";
 import { useFleetBoardThreads } from "./useFleetBoardThreads";
 
 /** Planning tabs over GitHub work, plus Chats for watching the agents (a list, or cards). */
-const BoardTab = Schema.Literals(["today", "sprint", "backlog", "apps", "chats"]);
+const BoardTab = Schema.Literals(["now", "today", "sprint", "backlog", "apps", "chats"]);
 type BoardTab = typeof BoardTab.Type;
 const ChatsLayout = Schema.Literals(["list", "cards"]);
 /** The repo picker's "All repos" entry; never a real project key. */
@@ -48,6 +48,7 @@ const GroupBy = Schema.Literals(["repo", "initiative"]);
 type GroupBy = typeof GroupBy.Type;
 
 const TABS: ReadonlyArray<{ readonly id: BoardTab; readonly label: string }> = [
+  { id: "now", label: "Now" },
   { id: "today", label: "Today" },
   { id: "sprint", label: "Sprint" },
   { id: "backlog", label: "Backlog" },
@@ -131,10 +132,10 @@ export function BoardPage() {
             : target.view === "prs"
               ? "today"
               : "apps";
-    writeLocalStorageValue("t3-fleet:tab", tab, "today" as BoardTab, BoardTab);
+    writeLocalStorageValue("t3-fleet:tab", tab, "now" as BoardTab, BoardTab);
     return null;
   });
-  const [tab, setTab] = useLocalStorage("t3-fleet:tab", "today" as BoardTab, BoardTab);
+  const [tab, setTab] = useLocalStorage("t3-fleet:tab", "now" as BoardTab, BoardTab);
   const [layout, setLayout] = useLocalStorage(
     "t3-fleet:chats-layout",
     "list" as typeof ChatsLayout.Type,

@@ -66,6 +66,7 @@ import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
 import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
 import { TodayView } from "./DeskToday";
+import { NowView } from "./DeskNow";
 import { changesSince, focusByApp, stalledItems } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
@@ -82,7 +83,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "today" | "sprint" | "backlog" | "apps";
+export type DeskTab = "now" | "today" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -500,6 +501,14 @@ export function DeskPage(props: {
   const caughtUpAt = caughtUp > 0 ? caughtUp : nowMs - 8 * 3_600_000;
   const repoOf = (chat: CardChatState) =>
     chat.projectKey ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null) : null;
+  const repoApp = new Map<string, string>();
+  for (const name of apps) {
+    for (const repo of appRepos(items, name)) if (!repoApp.has(repo)) repoApp.set(repo, name);
+  }
+  const appOf = (chat: CardChatState) => {
+    const repo = repoOf(chat);
+    return repo ? (repoApp.get(repo) ?? repo) : null;
+  };
   const hasChat = (entry: DeskItem) => chatsFor(entry).length > 0;
   const stalled = stalledItems(
     items.filter((entry) => app === null || entry.app === app),
@@ -607,7 +616,27 @@ export function DeskPage(props: {
           onClose={() => setLauncher(null)}
         />
       ) : null}
-      {mode === "today" ? (
+      {mode === "now" ? (
+        <NowView
+          app={app}
+          nowMs={nowMs}
+          chats={appChats}
+          waiting={waiting}
+          prs={prs.filter((pr) => app === null || pr.app === app)}
+          appOf={appOf}
+          pinned={
+            <PinnedStrip
+              place={app ? { kind: "app", app } : { kind: "today" }}
+              notes={notes.notes}
+              chats={props.chats}
+              onOpenChat={openChat}
+            />
+          }
+          onOpenChat={openChat}
+          onOpenItem={openItemIn(ids(waiting))}
+          onOpenPr={openPr}
+        />
+      ) : mode === "today" ? (
         <TodayView
           app={app}
           pinned={
