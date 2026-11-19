@@ -561,7 +561,10 @@ export function DeskPage(props: {
           : [],
       ),
     );
-    const sequence = SPRINT_STATUSES.flatMap((status) => ids(board[status]));
+    // Previous / next steps through what's still moving; a Done card opens on its own.
+    const sequence = SPRINT_STATUSES.filter((status) => status !== "Done").flatMap((status) =>
+      ids(board[status]),
+    );
     return (
       <SprintView
         view={view}
@@ -631,7 +634,11 @@ export function DeskPage(props: {
             (focusApp.feature === null || entry.feature === focusApp.feature),
           sprint,
         );
-        return ids([...work.sprint, ...work.blocked, ...work.open, ...work.done]);
+        return ids(
+          [...work.sprint, ...work.blocked, ...work.open].filter(
+            (entry) => entry.state === "open" || entry.state === "draft",
+          ),
+        );
       })()
     : [];
   const summaries = summarizeApps(items, app ? [app] : apps, sprint);
