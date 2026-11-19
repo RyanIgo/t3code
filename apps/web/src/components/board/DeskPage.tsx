@@ -142,18 +142,13 @@ function launcherApp(context: DeskChatContext): string | null {
   return context.kind === "today" ? null : context.app;
 }
 
+/** Where a chat started from the Desk is pinned: its own place only. App strips are for planners. */
 function pinPlacesFor(context: DeskChatContext): PinPlace[] {
   if (context.kind === "today") return [{ kind: "today" }];
-  if (context.kind === "item") {
-    const places: PinPlace[] = [];
-    if (context.item.url) places.push({ kind: "item", url: context.item.url });
-    if (context.item.app) places.push({ kind: "app", app: context.item.app });
-    return places;
-  }
+  if (context.kind === "item")
+    return context.item.url ? [{ kind: "item", url: context.item.url }] : [];
   if (context.kind === "sprint") {
-    const places: PinPlace[] = [{ kind: "sprint", sprint: context.sprint.title, app: context.app }];
-    if (context.app) places.push({ kind: "app", app: context.app });
-    return places;
+    return [{ kind: "sprint", sprint: context.sprint.title, app: context.app }];
   }
   return [{ kind: "app", app: context.app }];
 }
