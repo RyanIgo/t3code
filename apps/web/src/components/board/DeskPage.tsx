@@ -157,6 +157,8 @@ export function DeskPage(props: {
   readonly onTab: (tab: DeskTab) => void;
   readonly switcher: ReactNode;
   readonly chats: ReadonlyArray<CardChatState>;
+  /** Every chat, settled ones too: a pinned chat stays on its strip after it settles. */
+  readonly pinnable: ReadonlyArray<CardChatState>;
   readonly projectName: (projectKey: string) => string | null;
   readonly projects: ReadonlyArray<DeskProjectChoice>;
 }) {
@@ -188,7 +190,7 @@ export function DeskPage(props: {
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
   const notes = useDeskNotes();
-  useDatedTodayChats(notes.notes, props.chats);
+  useDatedTodayChats(notes.notes, props.pinnable);
   const board = useBoard();
   const mode = props.tab;
   const setMode = props.onTab;
@@ -442,7 +444,7 @@ export function DeskPage(props: {
     <TodayChatBar
       day={today}
       notes={notes.notes}
-      chats={props.chats}
+      chats={props.pinnable}
       onOpenChat={openChat}
       onStart={() => setLauncher({ kind: "today", day: today })}
     />
@@ -533,7 +535,7 @@ export function DeskPage(props: {
                 hint="Whole-app chats, such as the planner"
                 place={{ kind: "app", app }}
                 notes={notes.notes}
-                chats={props.chats}
+                chats={props.pinnable}
                 onOpenChat={openChat}
                 empty={`Nothing pinned to ${app} yet. Pin the app's planner chat to see it here.`}
               />
@@ -544,7 +546,7 @@ export function DeskPage(props: {
               hint="This sprint's work: development, bug fixes, features"
               place={{ kind: "sprint", sprint: sprintShown.title, app }}
               notes={notes.notes}
-              chats={props.chats}
+              chats={props.pinnable}
               onOpenChat={openChat}
               empty={`Nothing pinned to this sprint yet. Use Chat about this sprint, or Pin on a chat.`}
             />
@@ -714,7 +716,7 @@ export function DeskPage(props: {
               <PinnedStrip
                 place={{ kind: "today" }}
                 notes={notes.notes}
-                chats={props.chats}
+                chats={props.pinnable}
                 onOpenChat={openChat}
               />
             </div>
@@ -732,7 +734,7 @@ export function DeskPage(props: {
               <PinnedStrip
                 place={app ? { kind: "app", app } : { kind: "today" }}
                 notes={notes.notes}
-                chats={props.chats}
+                chats={props.pinnable}
                 onOpenChat={openChat}
                 empty={`Nothing pinned ${app ? `to ${app}` : "to Today"} yet. Use Pin on a chat to keep it here.`}
               />
@@ -806,7 +808,7 @@ export function DeskPage(props: {
             <PinnedStrip
               place={{ kind: "app", app: focusApp.app }}
               notes={notes.notes}
-              chats={props.chats}
+              chats={props.pinnable}
               onOpenChat={openChat}
               empty={`Nothing pinned to ${focusApp.app} yet. Chats you start here are pinned automatically.`}
             />

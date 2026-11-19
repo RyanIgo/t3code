@@ -218,6 +218,7 @@ function DeskView(props: {
       onTab={props.onTab}
       switcher={props.switcher}
       chats={useCardChats(false)}
+      pinnable={useCardChats(true)}
       projectName={(key) => projectNames.get(key) ?? null}
       projects={projects}
     />
