@@ -2,7 +2,7 @@
 // Screenshot a page of the live review server (fleet/dev-review.sh) in a browser profile that
 // persists between runs, so dismissed notices and machine pairings stay put.
 //
-//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>] [--text <click this text>] [--menu <menu checkbox>] [--tall]
+//   node fleet/dev-look.mjs <path or url> <out.png> [--click "<button or link name>"]... [--wait <text>] [--text <click this text>] [--menu <menu checkbox>] [--tall] [--phone | --tablet]
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
@@ -28,9 +28,18 @@ const base = NodeFS.existsSync(NodePath.join(state, "url"))
   : "http://localhost:5740";
 const url = /^https?:/.test(target) ? target : new URL(target, base).toString();
 
+// --phone is an iPhone 15 (390×844), --tablet an iPad in portrait (820×1180), both touch.
+const phone = args.includes("--phone");
+const tablet = args.includes("--tablet");
+const size = phone
+  ? { width: 390, height: 844 }
+  : tablet
+    ? { width: 820, height: 1180 }
+    : { width: 1440, height: 900 };
 const context = await chromium.launchPersistentContext(NodePath.join(state, "browser"), {
   headless: true,
-  viewport: { width: 1440, height: args.includes("--tall") ? 2600 : 900 },
+  viewport: { width: size.width, height: args.includes("--tall") ? 2600 : size.height },
+  ...(phone || tablet ? { isMobile: true, hasTouch: true } : {}),
 });
 try {
   const page = context.pages()[0] ?? (await context.newPage());
@@ -64,7 +73,7 @@ try {
   } catch (error) {
     failure = error.message.split("\n")[0];
   }
-  await page.waitForTimeout(800);
+  await page.waitForTimeout(phone || tablet ? 5000 : 800);
   await page.screenshot({ path: out });
   console.log(`Saved ${out}${errors.length ? `\nPage errors:\n${errors.join("\n")}` : ""}`);
   if (failure) {
