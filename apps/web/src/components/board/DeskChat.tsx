@@ -187,7 +187,8 @@ function useDeskLink(threadRef: ScopedThreadRef): DeskChatLink | null {
   return notes.notes.links[`${threadRef.environmentId}:${threadRef.threadId}`] ?? null;
 }
 
-function useOpenDesk() {
+/** Opens a place on the Desk from anywhere: on the Board by its fragment, elsewhere by navigating. */
+export function useOpenDesk() {
   const navigate = useNavigate();
   const onBoard = useRouterState({ select: (state) => state.location.pathname === "/board" });
   return (fragment: string) => {

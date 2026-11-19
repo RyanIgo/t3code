@@ -6,7 +6,6 @@ import { isElectron } from "../../env";
 import { useLocalStorage, writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { useSidebarProjectGroups } from "../../hooks/useSidebarProjectGroups";
 import { environmentSummaries } from "../../state/presentation";
-import { isOrchestratorTitle } from "../command/fleetOrchestrator";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../ui/empty";
 import { Label } from "../ui/label";
@@ -17,8 +16,6 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import { WorkspacePageHeader } from "../WorkspacePageHeader";
 import {
   type BoardScope,
-  type CardChatState,
-  type CardPullRequestState,
   buildBoardLists,
   CARD_STAGES,
   type PlacedCard,
@@ -32,10 +29,9 @@ import { DeskPage, type DeskTab } from "./DeskPage";
 import { readDeskFragment } from "./deskChat.logic";
 import { appRepos } from "./desk.logic";
 import { useDesk } from "./deskStore";
-import { resolveFleetBoardCard } from "./fleetBoard.logic";
 import { FleetBoardPage } from "./FleetBoardPage";
 import { ProjectBoard } from "./ProjectBoard";
-import { useFleetBoardThreads } from "./useFleetBoardThreads";
+import { useCardChats } from "./useCardChats";
 
 /** Planning tabs over GitHub work, plus Chats for watching the agents (a list, or cards). */
 const BoardTab = Schema.Literals(["now", "today", "sprint", "backlog", "apps", "chats"]);
@@ -56,65 +52,6 @@ const TABS: ReadonlyArray<{ readonly id: BoardTab; readonly label: string }> = [
   { id: "chats", label: "Chats" },
 ];
 const isTab = (value: unknown): value is BoardTab => TABS.some((tab) => tab.id === value);
-
-function pullRequestState(
-  snapshot: { state: string; isDraft: boolean; mergedAt?: string | null | undefined } | null,
-): CardPullRequestState {
-  if (snapshot === null) return "unknown";
-  if (snapshot.mergedAt || snapshot.state === "merged") return "merged";
-  if (snapshot.state === "open") return snapshot.isDraft ? "draft" : "open";
-  return "closed";
-}
-
-/** Every chat the board can place, with the project (sidebar group) it belongs to. */
-function useCardChats(includeSettled: boolean): CardChatState[] {
-  const groups = useSidebarProjectGroups();
-  const { threads } = useFleetBoardThreads(includeSettled);
-  const projectKeyByRef = new Map<string, string>();
-  for (const group of groups) {
-    for (const ref of group.memberProjectRefs) {
-      projectKeyByRef.set(`${ref.environmentId}:${ref.projectId}`, group.projectKey);
-    }
-  }
-  return threads
-    .filter((thread) => !isOrchestratorTitle(thread.title))
-    .map((thread) => {
-      const resolved = resolveFleetBoardCard(thread);
-      return {
-        environmentId: thread.environmentId,
-        threadId: thread.id,
-        title: thread.title,
-        projectKey: projectKeyByRef.get(`${thread.environmentId}:${thread.projectId}`) ?? null,
-        column: resolved.column,
-        needsYou: resolved.column === "needs",
-        asking:
-          resolved.column !== "needs"
-            ? null
-            : thread.hasPendingApprovals
-              ? "approval"
-              : thread.pendingSubagentRequest === "approval"
-                ? "subagent approval"
-                : thread.hasPendingUserInput
-                  ? "question"
-                  : null,
-        working: resolved.tone === "working",
-        hasPullRequest: Boolean(thread.linkedPullRequest),
-        pullRequestNumber: thread.linkedPullRequest?.number ?? null,
-        pullRequests: (thread.pullRequests ?? [])
-          .filter((link) => link.source !== "stack-dismissed")
-          .map((link) => ({
-            url: link.url,
-            label: `${link.repository.split("/").pop() ?? link.repository}#${link.number}`,
-            state: pullRequestState(link.snapshot),
-            checks: link.snapshot?.checksState ?? null,
-            mergeability: link.snapshot?.mergeability ?? null,
-          })),
-        since: resolved.since ?? thread.updatedAt,
-        worktree: thread.worktreePath ?? null,
-        branch: thread.branch ?? null,
-      };
-    });
-}
 
 export function BoardPage() {
   // A `#desk=…` link opens its place on the Desk, whichever tab was last used.
