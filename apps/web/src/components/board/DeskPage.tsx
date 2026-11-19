@@ -786,6 +786,8 @@ export function DeskPage(props: {
                 sprints={plannedSprints(view.sprints ?? [], nowMs).map((entry) => entry.title)}
                 chats={props.chats}
                 onOpenChat={openChat}
+                onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+                currentSprint={sprint?.title ?? null}
                 onSort={() =>
                   setLauncher({
                     kind: "inbox",

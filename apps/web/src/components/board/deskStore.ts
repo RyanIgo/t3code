@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { isHostedStaticApp } from "../../hostedPairing";
 import { toastManager } from "../ui/toast";
-import type { DeskDetail, DeskView } from "./desk.logic";
+import type { DeskDetail, DeskItem, DeskView } from "./desk.logic";
 
 /**
  * Fleet fork: the Dev Desk's data, from the fleet hub (`/fleet/desk`), which keeps a synced copy
@@ -167,8 +167,13 @@ export async function createDeskItem(input: {
     "/fleet/desk/items",
     input,
   );
-  void load();
+  await load();
   return item;
+}
+
+/** An item the Desk has loaded, by its URL (e.g. one just filed). */
+export function findDeskItem(url: string): DeskItem | null {
+  return snapshot.view?.items.find((entry) => entry.url === url) ?? null;
 }
 
 /** Adds a comment to an issue or PR, by its URL. */

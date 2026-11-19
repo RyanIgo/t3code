@@ -24,7 +24,7 @@ import {
 } from "./deskNotes.logic";
 import { saveInboxNote } from "./deskNotesStore";
 import { DeskHeading, openExternal } from "./DeskParts";
-import { commentOnDeskItem, createDeskItem, uploadPicture } from "./deskStore";
+import { commentOnDeskItem, createDeskItem, findDeskItem, uploadPicture } from "./deskStore";
 
 const NONE = "__none__";
 const TYPES = ["Bug", "Story", "Maintenance", "Research", "Support"] as const;
@@ -366,6 +366,10 @@ export function InboxStrip(props: {
   /** Open chats a note can also be sent to. */
   readonly chats: ReadonlyArray<CardChatState>;
   readonly onOpenChat: (chat: CardChatState) => void;
+  /** Starts a new chat on an item (the launcher asks for the machine). */
+  readonly onStartChat: (item: DeskItem) => void;
+  /** The sprint running now, for Expedite. */
+  readonly currentSprint: string | null;
   /** Starts a triage chat that proposes a route for each new note. */
   readonly onSort: () => void;
 }) {
@@ -401,6 +405,8 @@ export function InboxStrip(props: {
               sprints={props.sprints}
               chats={props.chats}
               onOpenChat={props.onOpenChat}
+              onStartChat={props.onStartChat}
+              currentSprint={props.currentSprint}
             />
           ))}
         </ul>
@@ -443,17 +449,33 @@ function InboxCard(props: {
   readonly sprints: ReadonlyArray<string>;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onStartChat: (item: DeskItem) => void;
+  readonly currentSprint: string | null;
 }) {
   const { note } = props;
   const [editing, setEditing] = useState<InboxProposal | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const long = note.text.length > 400 || note.text.split("\n").length > 6;
-  const run = async (proposal: InboxProposal) => {
+  const run = async (proposal: InboxProposal, startChat = false) => {
     setBusy(true);
     try {
-      saveInboxNote(await file(note, proposal, props.chats, props.onOpenChat));
+      const filed = await file(note, proposal, props.chats, props.onOpenChat);
+      saveInboxNote(filed);
       setEditing(null);
+      if (startChat) {
+        // The item it was filed as (or added to), so a new chat can start on it right away.
+        const url = proposal.action === "comment" ? proposal.itemUrl : filed.result?.url;
+        const item = url
+          ? (findDeskItem(url) ?? props.items.find((entry) => entry.url === url) ?? null)
+          : null;
+        if (item) props.onStartChat(item);
+        else
+          toastManager.add({
+            type: "warning",
+            title: "Filed. Refresh the Board to start a chat on it.",
+          });
+      }
     } catch (error) {
       toastManager.add({
         type: "error",
@@ -527,6 +549,27 @@ function InboxCard(props: {
             <Button size="xs" disabled={busy} onClick={() => void run(editing)}>
               {busy ? "Filing…" : "File it"}
             </Button>
+            {editing.action === "new" || editing.action === "comment" ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                onClick={() => void run(editing, true)}
+              >
+                File and start a chat
+              </Button>
+            ) : null}
+            {editing.action === "new" && props.currentSprint ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() =>
+                  setEditing({ ...editing, sprint: props.currentSprint, priority: "P1" })
+                }
+              >
+                Expedite ({props.currentSprint}, P1)
+              </Button>
+            ) : null}
             <Button size="xs" variant="ghost" onClick={() => setEditing(null)}>
               Cancel
             </Button>
@@ -540,6 +583,17 @@ function InboxCard(props: {
                 onClick={() => note.proposal && void run(note.proposal)}
               >
                 {busy ? "Filing…" : "Approve"}
+              </Button>
+            ) : null}
+            {note.proposal &&
+            (note.proposal.action === "new" || note.proposal.action === "comment") ? (
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={busy}
+                onClick={() => note.proposal && void run(note.proposal, true)}
+              >
+                Approve and start a chat
               </Button>
             ) : null}
             <Button
