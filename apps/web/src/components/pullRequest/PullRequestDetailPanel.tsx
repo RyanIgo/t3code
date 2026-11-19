@@ -1,3 +1,4 @@
+import { sheetsForPullRequest, uncheckedRows, useHubSheets } from "../board/deskSheets";
 import { projectChangeRequestUrl } from "@t3tools/client-runtime/change-request-links";
 import { normalizeThreadPullRequestKey } from "@t3tools/client-runtime/thread-pull-requests";
 import { changeRequestReferenceAutolinker } from "@t3tools/client-runtime/pull-request-markdown";
@@ -614,6 +615,8 @@ export function PullRequestDetailPanel({
     reportFailure: false,
   });
   const [pendingAction, setPendingAction] = useState<PullRequestAction | null>(null);
+  // Fleet fork: the hub test sheet for this PR, so merging waits for Rigo's checks too.
+  const hubSheets = useHubSheets();
   const actionPending = pendingAction !== null;
   const newThread = useNewThreadHandler();
   const { environments } = useEnvironments();
@@ -1193,6 +1196,41 @@ export function PullRequestDetailPanel({
   };
   const showsApproveWorkflows =
     workflowApprovalsRequired > 0 && !checksStale && can("approve-workflows");
+  const testSheet = sheetsForPullRequest(hubSheets, detail?.number)[0] ?? null;
+  const unfinished = [
+    ...(checksState === "pending" ? ["its checks are still running"] : []),
+    ...(checksState === "failing" ? ["its checks are failing"] : []),
+    ...(testSheet && uncheckedRows(testSheet.counts) > 0
+      ? [`the test sheet has ${uncheckedRows(testSheet.counts)} checks not done`]
+      : []),
+    ...(testSheet && testSheet.counts.fail + testSheet.counts.blocked > 0
+      ? [`the test sheet has ${testSheet.counts.fail + testSheet.counts.blocked} failed or blocked`]
+      : []),
+  ];
+  // Merging now skips whatever isn't finished; auto-merge waits for required checks, not for
+  // the test sheet. Either asks first when something is unfinished.
+  const guardedPerform: typeof perform = async (action, method, updateMethod) => {
+    const asks =
+      action === "merge"
+        ? unfinished
+        : action === "enable-auto-merge"
+          ? unfinished.filter((reason) => reason.startsWith("the test sheet"))
+          : [];
+    if (asks.length > 0) {
+      const confirmed = await readLocalApi()?.dialogs.confirm(
+        [
+          `${action === "merge" ? "Merge" : "Turn on auto-merge for"} #${detail?.number ?? ""} anyway?`,
+          `Not finished: ${asks.join("; ")}.`,
+        ].join("\n"),
+        { variant: "destructive" },
+      );
+      if (!confirmed) return false;
+    }
+    return perform(action, method, updateMethod);
+  };
+  const testSheetSummary = testSheet
+    ? `test sheet ${testSheet.counts.pass + testSheet.counts.fail + testSheet.counts.skip + testSheet.counts.blocked} of ${testSheet.counts.total} checked${testSheet.counts.fail ? `, ${testSheet.counts.fail} failed` : ""}`
+    : null;
   const checksSummary = checksStale
     ? checksState === null
       ? "No checks reported"
@@ -1339,7 +1377,7 @@ export function PullRequestDetailPanel({
                 selectedMergeMethodLabel={selectedMergeMethodLabel}
                 statePresentation={statePresentation}
                 pendingAction={pendingAction}
-                perform={perform}
+                perform={guardedPerform}
                 resolveConflicts={resolveConflictsControl}
               />
               {checkoutControl}
@@ -1385,7 +1423,7 @@ export function PullRequestDetailPanel({
                 onMaintainerEditsSaved={refreshDetail}
                 confirmDeleteBranch={confirmDeleteBranch}
                 pendingAction={pendingAction}
-                perform={perform}
+                perform={guardedPerform}
                 openOnHostText={openOnHostText}
                 copyReference={copyReference}
               />
@@ -1603,7 +1641,7 @@ export function PullRequestDetailPanel({
                       <CircleDotIcon aria-hidden className="size-3.5" />
                     )
                   }
-                  label={checksSummary}
+                  label={[checksSummary, testSheetSummary].filter(Boolean).join(" · ")}
                 />
               )
             ) : tab === "timeline" ? (

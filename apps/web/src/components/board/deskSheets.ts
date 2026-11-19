@@ -162,3 +162,16 @@ export function itemForSheet(
   }
   return null;
 }
+
+/** The sheets that test a pull request: those whose title names its number, newest first. */
+export function sheetsForPullRequest(
+  sheets: ReadonlyArray<SheetSummary>,
+  number: number | null | undefined,
+): SheetSummary[] {
+  if (number == null) return [];
+  return sheets
+    .filter((sheet) =>
+      [...sheet.title.matchAll(/#(\d+)/g)].some((match) => Number(match[1]) === number),
+    )
+    .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+}
