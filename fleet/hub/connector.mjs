@@ -93,7 +93,15 @@ function jsonFile(path, empty) {
   };
 }
 
-export function createConnector({ dataRoot, owners, readSetting, desk, readNotes, log }) {
+export function createConnector({
+  dataRoot,
+  owners,
+  readSetting,
+  desk,
+  readNotes,
+  changeNotes,
+  log,
+}) {
   const clients = jsonFile(NodePath.join(dataRoot, "connector-clients.json"), {});
   const tokens = jsonFile(NodePath.join(dataRoot, "connector-tokens.json"), {});
   const pending = new Map(); // login transactions and auth codes, in memory only
@@ -400,7 +408,7 @@ export function createConnector({ dataRoot, owners, readSetting, desk, readNotes
     return reply(400, { error: "unsupported_grant_type" });
   }
 
-  const tools = createTools({ desk, readNotes });
+  const tools = createTools({ desk, readNotes, changeNotes });
 
   async function mcp(message, login) {
     const { id, method, params } = message ?? {};
@@ -601,7 +609,7 @@ function line(item) {
   return `- ${refOf(item)}: ${titleOf(item)} (${bits}) ${item.url ?? ""}`.trim();
 }
 
-function createTools({ desk, readNotes }) {
+function createTools({ desk, readNotes, changeNotes }) {
   const view = () => {
     const v = desk.view();
     if (!v.configured) throw new Error("The Desk isn't connected to GitHub on the hub.");
@@ -914,6 +922,75 @@ function createTools({ desk, readNotes }) {
         out.push("");
       }
       return out.join("\n").trim() || "Nothing planned in the current sprint.";
+    },
+  );
+
+  add(
+    "capture_note",
+    "Save a quick note to Rigo's Dev Desk inbox: a request, complaint or idea someone raised by email, in a meeting or in passing. It waits on the Board until it's sorted into an item (nothing is filed on GitHub here). Use it whenever Rigo says to note, remember or log something for the Desk.",
+    {
+      properties: {
+        text: { type: "string", description: "What was asked or reported, in plain words." },
+        who: { type: "string", description: "Who raised it." },
+        source: { type: "string", enum: ["In person", "Email", "Teams", "Call", "Other"] },
+        app: { type: "string", description: "The application it's about, if known." },
+      },
+      required: ["text"],
+    },
+    async ({ text, who, source, app }) => {
+      if (typeof text !== "string" || !text.trim()) throw new Error("The note is empty.");
+      const id = Math.random().toString(36).slice(2, 12);
+      await changeNotes((doc, at) => {
+        doc.inbox = { ...doc.inbox };
+        doc.inbox[id] = {
+          id,
+          text: text.trim().slice(0, 4000),
+          source: ["In person", "Email", "Teams", "Call", "Other"].includes(source)
+            ? source
+            : "Other",
+          who: typeof who === "string" && who.trim() ? who.trim().slice(0, 120) : null,
+          app: app ? appArg(view(), app) : null,
+          createdAt: at,
+          updatedAt: at,
+          state: "new",
+          proposal: null,
+          result: null,
+        };
+      });
+      return `Saved to Rigo's inbox (${id}). It's on the Board under Now → Inbox until it's sorted.`;
+    },
+    false,
+  );
+
+  add(
+    "inbox",
+    "Rigo's Dev Desk inbox: quick notes still to sort, each with its proposed route if a triage chat has suggested one, and the last notes sorted with what they became.",
+    { properties: {} },
+    async () => {
+      const notes = Object.values((await readNotes())?.inbox ?? {});
+      const open = notes
+        .filter((note) => note.state === "new" || note.state === "proposed")
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const done = notes
+        .filter((note) => note.state === "filed" || note.state === "planner")
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 10);
+      const line = (note) =>
+        `- ${[note.who, note.source, note.createdAt.slice(0, 10)].filter(Boolean).join(" · ")}: ${note.text.replace(/\s+/g, " ")}`;
+      return [
+        `## To sort · ${open.length}`,
+        ...open.map((note) =>
+          note.proposal
+            ? `${line(note)}\n  Proposed: ${note.proposal.action} (${note.proposal.reason})`
+            : line(note),
+        ),
+        "",
+        `## Sorted recently`,
+        ...done.map(
+          (note) =>
+            `${line(note)}\n  Became: ${note.result?.label ?? note.state}${note.result?.url ? ` ${note.result.url}` : ""}`,
+        ),
+      ].join("\n");
     },
   );
 

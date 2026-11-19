@@ -25,13 +25,16 @@ export type DeskChatContext =
   | { readonly kind: "sprint"; readonly sprint: DeskSprint; readonly app: string | null }
   | { readonly kind: "item"; readonly item: DeskItem }
   /** The day's planning chat: what to work on first, across every app. */
-  | { readonly kind: "today"; readonly day: string };
+  | { readonly kind: "today"; readonly day: string }
+  /** A triage chat that proposes where each inbox note goes. */
+  | { readonly kind: "inbox"; readonly count: number };
 
 const SNAPSHOT_LIMIT = 12;
 
 /** One line naming what the chat is about, e.g. "Precon · Board" or "Sprint 1 · Precon". */
 export function contextLabel(context: DeskChatContext): string {
   if (context.kind === "today") return todayChatTitle(context.day);
+  if (context.kind === "inbox") return "Sort the inbox";
   if (context.kind === "item")
     return `${deskRef(context.item) ?? "Item"}: ${deskTitle(context.item)}`;
   if (context.kind === "sprint") {
@@ -46,7 +49,7 @@ export function contextLabel(context: DeskChatContext): string {
 /** The app a context belongs to, for picking a project and linking the chat. */
 function contextApp(context: DeskChatContext): string | null {
   if (context.kind === "item") return context.item.app;
-  if (context.kind === "today") return null;
+  if (context.kind === "today" || context.kind === "inbox") return null;
   return context.app;
 }
 
@@ -55,7 +58,7 @@ export function contextLink(
   sprint: DeskSprint | null,
 ): Omit<DeskChatLink, "updatedAt"> {
   return {
-    kind: context.kind,
+    kind: context.kind === "inbox" ? "app" : context.kind,
     view: context.kind === "app" ? context.view : null,
     feature: context.kind === "app" ? context.feature : null,
     app: contextApp(context),
@@ -165,6 +168,7 @@ export function buildChatPrompt(input: {
   const contextCommand = `node ~/.claude/skills/dev-desk/desk.mjs context ${JSON.stringify(app ?? "")}`;
 
   if (context.kind === "today") return todayPrompt(input, context.day);
+  if (context.kind === "inbox") return inboxPrompt();
 
   if (context.kind === "item") {
     const item = context.item;
@@ -247,6 +251,25 @@ export function buildChatPrompt(input: {
     );
   }
   return lines.join("\n");
+}
+
+/** The triage chat's opening message: propose a route for each new inbox note, file nothing. */
+function inboxPrompt(): string {
+  const desk = "node ~/.claude/skills/dev-desk/desk.mjs";
+  return [
+    "Sort my Dev Desk inbox: quick notes I took from email, meetings and hallway asks.",
+    "",
+    `1. Run \`${desk} inbox\` to list the notes waiting for triage.`,
+    `2. For each note, find where it belongs. Read the app's direction and open work (\`${desk} context <app>\`) and search existing issues (\`gh issue list --repo <owner/repo> --search "<words>" --state all\`) so nothing is filed twice.`,
+    "3. Propose one route per note, then move on. Don't file, comment or change anything on GitHub yourself: I approve each one on the Board.",
+    `   - Adds to an existing item: \`${desk} propose <id> comment --item <issue or PR url> --reason "<why>"\``,
+    `   - A new item: \`${desk} propose <id> new --repo <owner/repo> --app "<app>" --type Bug|Story|Maintenance|Research|Support --priority P0|P1|P2|P3 --title "<plain title, what changes for the people who use it>" --reason "<why>"\``,
+    `   - Bigger than one item (a goal, a change of direction): \`${desk} propose <id> planner --app "<app>" --reason "<why>"\``,
+    `   - Not development work: \`${desk} propose <id> dismiss --reason "<why>"\``,
+    "4. Priority follows the app's direction and goals: P0 only for something broken for people now or blocking a goal date.",
+    "",
+    "Then give me a short table: note · route · why, and flag any note you weren't sure about.",
+  ].join("\n");
 }
 
 const PRIORITY_RANK: Record<string, number> = { P0: 0, P1: 1 };

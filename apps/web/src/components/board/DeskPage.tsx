@@ -67,6 +67,7 @@ import { saveDeskFocus, saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNo
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
+import { InboxStrip, QuickNoteButton } from "./DeskInbox";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
@@ -139,12 +140,13 @@ function useDatedTodayChats(notes: DeskNotes, chats: ReadonlyArray<CardChatState
 
 function launcherApp(context: DeskChatContext): string | null {
   if (context.kind === "item") return context.item.app;
-  return context.kind === "today" ? null : context.app;
+  return context.kind === "today" || context.kind === "inbox" ? null : context.app;
 }
 
 /** Where a chat started from the Desk is pinned: its own place only. App strips are for planners. */
 function pinPlacesFor(context: DeskChatContext): PinPlace[] {
   if (context.kind === "today") return [{ kind: "today" }];
+  if (context.kind === "inbox") return [];
   if (context.kind === "item")
     return context.item.url ? [{ kind: "item", url: context.item.url }] : [];
   if (context.kind === "sprint") {
@@ -337,6 +339,7 @@ export function DeskPage(props: {
               })}`
             : "")}
       </span>
+      {view?.configured ? <QuickNoteButton apps={view.apps ?? []} /> : null}
       {view?.configured ? (
         <Button
           variant="ghost"
@@ -423,7 +426,7 @@ export function DeskPage(props: {
           }
         }
       }
-      saveDeskLink(key, contextLink(context, sprint));
+      if (context.kind !== "inbox") saveDeskLink(key, contextLink(context, sprint));
       if (context.kind === "item" && context.item.url) {
         saveDeskFocus(context.item.url, created.threadId);
       }
@@ -776,6 +779,18 @@ export function DeskPage(props: {
           appOf={appOf}
           pinned={
             <div className="flex flex-col gap-3">
+              <InboxStrip
+                notes={notes.notes}
+                items={items}
+                apps={apps}
+                onSort={() =>
+                  setLauncher({
+                    kind: "inbox",
+                    count: Object.values(notes.notes.inbox).filter((note) => note.state === "new")
+                      .length,
+                  })
+                }
+              />
               {todayBar}
               <PinnedStrip
                 place={{ kind: "today" }}

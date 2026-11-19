@@ -636,6 +636,48 @@ async function handleDesk(pathname, req, res) {
     }
     return true;
   }
+  // Filing from the inbox: a new issue on the project, or a comment on an existing one.
+  if (pathname === "/fleet/desk/items" && req.method === "POST") {
+    const body = JSON.parse(await readBody(req));
+    try {
+      const repos = new Set(
+        desk
+          .view()
+          .items.map((entry) => entry.repo)
+          .filter(Boolean),
+      );
+      if (!repos.has(body?.repo)) throw new Error(`Not a project repo: ${body?.repo}`);
+      if (typeof body?.title !== "string" || !body.title.trim())
+        throw new Error("A title is needed.");
+      const fields = Object.fromEntries(
+        Object.entries(body?.fields ?? {}).filter(
+          ([name, value]) =>
+            ["App", "Work type", "Priority", "Status", "Sprint"].includes(name) &&
+            typeof value === "string",
+        ),
+      );
+      send(res, 200, {
+        item: await desk.createItem({
+          repo: body.repo,
+          title: body.title.trim().slice(0, 200),
+          body: typeof body.body === "string" ? body.body.slice(0, 60_000) : "",
+          fields,
+        }),
+      });
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
+  if (pathname === "/fleet/desk/comment" && req.method === "POST") {
+    const body = JSON.parse(await readBody(req));
+    try {
+      send(res, 200, await desk.addComment(body?.url, body?.body));
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
   const fieldEdit = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)\/fields$/);
   if (fieldEdit && req.method === "POST") {
     const body = JSON.parse(await readBody(req));
@@ -704,6 +746,23 @@ const connector = createConnector({
   owners: OWNERS,
   readSetting,
   desk,
+  // The connector's writes (inbox notes) go through the same queue and version as the Board's.
+  changeNotes: (change) => {
+    const run = writeQueue.then(async () => {
+      const current = await readDocument("desknotes");
+      const doc = current.document ? JSON.parse(current.document) : { schemaVersion: 1 };
+      change(doc, new Date().toISOString());
+      await writeDocument("desknotes", {
+        version: current.version + 1,
+        updatedAt: new Date().toISOString(),
+        updatedBy: "connector",
+        document: JSON.stringify(doc),
+      });
+    });
+    // A failed write mustn't stop the queue for the Board's saves.
+    writeQueue = run.catch(() => undefined);
+    return run;
+  },
   readNotes: async () => {
     const record = await readDocument("desknotes");
     try {

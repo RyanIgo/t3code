@@ -122,6 +122,17 @@ describe("desk notes", () => {
           "https://github.com/o/r/issues/2": { id: "../../etc", updatedAt: "x" },
           "https://evil.example/1": { id: "5c33d70fbd29", updatedAt: "x" },
         },
+        inbox: {
+          note1: {
+            text: "Maddy: leads missing addresses",
+            source: "In person",
+            createdAt: "x",
+            updatedAt: "x",
+            state: "proposed",
+            proposal: { action: "comment", itemUrl: "https://evil.example/1", reason: "r" },
+          },
+          bad: { text: "", createdAt: "x", updatedAt: "x" },
+        },
         links: {
           "env:a": { kind: "today", day: "2026-11-19", about: "Today", updatedAt: "x" },
           "env:b": { kind: "today", day: "Nov 19", titled: "yes", about: "Today", updatedAt: "x" },
@@ -129,6 +140,8 @@ describe("desk notes", () => {
       }),
     );
     expect(notes.links["env:a"]).toMatchObject({ kind: "today", day: "2026-11-19" });
+    expect(Object.keys(notes.inbox)).toEqual(["note1"]);
+    expect(notes.inbox.note1?.proposal).toMatchObject({ action: "comment", itemUrl: null });
     expect(notes.links["env:b"]?.day).toBeUndefined();
     expect(notes.links["env:b"]?.titled).toBeUndefined();
     expect(Object.keys(notes.apps)).toEqual(["Precon"]);

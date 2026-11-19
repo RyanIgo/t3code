@@ -15,6 +15,8 @@ import {
   withNote,
   withPin,
   withFocus,
+  type InboxNote,
+  withInboxNote,
   withNextStep,
   withSheet,
 } from "./deskNotes.logic";
@@ -166,6 +168,11 @@ function save(next: DeskNotes, failure: string) {
         description: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+/** Adds or updates an inbox note (a quick note from email, a meeting or a hallway ask). */
+export function saveInboxNote(note: InboxNote) {
+  save(withInboxNote(snapshot.notes, note), "Couldn't save the note");
 }
 
 /** Puts a chat (thread id) on an item, leaving whatever it was on; null takes the item's chat off. */

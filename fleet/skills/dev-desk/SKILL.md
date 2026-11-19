@@ -69,6 +69,26 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
   delegate_task), and names the chat after its item ("#229 Compliance: …"). When it moves a
   chat to other work, it tells the chat, and the chat runs `focus` itself.
 
+## Rigo's inbox
+
+Rigo jots quick notes from email, meetings and hallway asks into an inbox on the Desk. A triage
+chat proposes where each goes; Rigo approves each one on the Board, which files it.
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs inbox                                   # notes waiting to be sorted
+node ~/.claude/skills/dev-desk/desk.mjs propose <id> comment --item <url> --reason "<why>"
+node ~/.claude/skills/dev-desk/desk.mjs propose <id> new --repo <owner/repo> --app "<app>" --type Bug --priority P2 --title "<plain title>" --reason "<why>"
+node ~/.claude/skills/dev-desk/desk.mjs propose <id> planner --app "<app>" --reason "<why>"
+node ~/.claude/skills/dev-desk/desk.mjs propose <id> dismiss --reason "<why>"
+node ~/.claude/skills/dev-desk/desk.mjs capture "<what Rigo was told>" --who Maddy --source "In person" --app "BizDev Leads"
+```
+
+- **Triage proposes, never files.** Search existing issues first so nothing is filed twice;
+  prefer adding to an open item over a new one.
+- **Planners** see notes sent to them under "From Rigo's inbox" in `context`; turn each into
+  goals or items as fits the app's direction, and tell Rigo what you did.
+- Use `capture` when Rigo mentions a request in a chat that isn't about the current work.
+
 ## How the work is organized
 
 **Application → Feature → Work item.** Every item on the project carries:

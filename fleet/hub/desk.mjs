@@ -491,6 +491,44 @@ export function createDesk({ dataRoot, project, token, log }) {
       }
       return item;
     },
+    /** Adds a comment to an issue or pull request, by its URL. */
+    async addComment(url, body) {
+      if (!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(issues|pull)\/\d+$/.test(String(url))) {
+        throw new Error("Expected an issue or pull request URL.");
+      }
+      if (typeof body !== "string" || !body.trim()) throw new Error("The comment is empty.");
+      const found = await graphql(
+        `
+          query ($url: URI!) {
+            resource(url: $url) {
+              ... on Issue {
+                id
+              }
+              ... on PullRequest {
+                id
+              }
+            }
+          }
+        `,
+        { url },
+      );
+      if (!found.resource?.id) throw new Error("That issue or pull request wasn't found.");
+      const added = await graphql(
+        `
+          mutation ($subject: ID!, $body: String!) {
+            addComment(input: { subjectId: $subject, body: $body }) {
+              commentEdge {
+                node {
+                  url
+                }
+              }
+            }
+          }
+        `,
+        { subject: found.resource.id, body: body.slice(0, 60_000) },
+      );
+      return { url: added.addComment.commentEdge.node.url };
+    },
     /** Sets (or clears, with null) an item's Lane on GitHub, then in the cache. */
     async setLane(itemId, lane) {
       return this.setField(itemId, "Lane", lane);

@@ -141,3 +141,40 @@ export async function fetchDeskDetail(itemId: string): Promise<DeskDetail> {
   if (!response.ok || !body) throw new Error(body?.error ?? `The hub answered ${response.status}.`);
   return body;
 }
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const result = (await response.json().catch(() => null)) as (T & { error?: string }) | null;
+  if (!response.ok || result === null) {
+    throw new Error(result?.error ?? `The hub answered ${response.status}.`);
+  }
+  return result;
+}
+
+/** Files a new issue on the project with its fields, then refreshes the Desk. */
+export async function createDeskItem(input: {
+  readonly repo: string;
+  readonly title: string;
+  readonly body: string;
+  readonly fields: Readonly<Record<string, string>>;
+}): Promise<{ readonly url: string; readonly number: number }> {
+  const { item } = await post<{ item: { url: string; number: number } }>(
+    "/fleet/desk/items",
+    input,
+  );
+  void load();
+  return item;
+}
+
+/** Adds a comment to an issue or PR, by its URL. */
+export async function commentOnDeskItem(
+  url: string,
+  body: string,
+): Promise<{ readonly url: string }> {
+  return post<{ url: string }>("/fleet/desk/comment", { url, body });
+}

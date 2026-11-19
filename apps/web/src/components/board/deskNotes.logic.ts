@@ -46,6 +46,45 @@ export interface DeskNotes {
   readonly pins: Readonly<Record<string, Readonly<Record<string, DeskPin>>>>;
   /** A chat's thread id → the items it worked on, and its next step. Agents know only their thread id. */
   readonly work: Readonly<Record<string, DeskChatWork>>;
+  /** Quick notes from email, meetings and hallway asks, waiting to be sorted into the work. */
+  readonly inbox: Readonly<Record<string, InboxNote>>;
+}
+
+export const INBOX_SOURCES = ["In person", "Email", "Teams", "Call", "Other"] as const;
+export type InboxSource = (typeof INBOX_SOURCES)[number];
+const INBOX_ACTIONS = ["comment", "new", "planner", "dismiss"] as const;
+export type InboxAction = (typeof INBOX_ACTIONS)[number];
+
+/** Where a triage agent (or Rigo) thinks a note belongs. Nothing happens until it's approved. */
+export interface InboxProposal {
+  readonly action: InboxAction;
+  /** For "comment": the item the note adds to. */
+  readonly itemUrl: string | null;
+  /** For "new": where it's filed and how. */
+  readonly repo: string | null;
+  readonly app: string | null;
+  readonly type: string | null;
+  readonly priority: string | null;
+  readonly title: string | null;
+  /** One plain sentence on why. */
+  readonly reason: string;
+}
+
+export interface InboxNote {
+  readonly id: string;
+  readonly text: string;
+  readonly source: InboxSource;
+  /** Who raised it. */
+  readonly who: string | null;
+  /** The app it's about, when Rigo said. */
+  readonly app: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  /** "new" waits for triage; "proposed" waits for Rigo; the rest are sorted. */
+  readonly state: "new" | "proposed" | "filed" | "planner" | "dismissed";
+  readonly proposal: InboxProposal | null;
+  /** What it became: the issue or comment, or the planner it went to. */
+  readonly result: { readonly url: string | null; readonly label: string } | null;
 }
 
 /** One stretch of a chat working on an item; `until` is null while it's still on it. */
@@ -191,6 +230,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   directions: {},
   pins: {},
   work: {},
+  inbox: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -306,7 +346,80 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
     ),
     pins: readPins(record.pins),
     work: readWork(record.work),
+    inbox: readInbox(record.inbox),
   };
+}
+
+const githubUrl = (value: unknown) =>
+  typeof value === "string" && /^https:\/\/github\.com\//.test(value) ? value : null;
+const short = (value: unknown, max: number) =>
+  typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+
+function readProposal(value: unknown): InboxProposal | null {
+  if (typeof value !== "object" || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  const action = INBOX_ACTIONS.find((entry) => entry === raw.action);
+  if (!action) return null;
+  return {
+    action,
+    itemUrl: githubUrl(raw.itemUrl),
+    repo: typeof raw.repo === "string" && /^[\w.-]+\/[\w.-]+$/.test(raw.repo) ? raw.repo : null,
+    app: short(raw.app, 120),
+    type: short(raw.type, 40),
+    priority: short(raw.priority, 10),
+    title: short(raw.title, 200),
+    reason: short(raw.reason, 500) ?? "",
+  };
+}
+
+function readInbox(value: unknown): Record<string, InboxNote> {
+  if (typeof value !== "object" || value === null) return {};
+  const states = ["new", "proposed", "filed", "planner", "dismissed"] as const;
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, raw]) => {
+      if (typeof raw !== "object" || raw === null || !/^[\w-]{4,40}$/.test(id)) return [];
+      const note = raw as Record<string, unknown>;
+      const text = short(note.text, 4000);
+      if (!text || typeof note.createdAt !== "string" || typeof note.updatedAt !== "string") {
+        return [];
+      }
+      const result =
+        typeof note.result === "object" && note.result !== null
+          ? (note.result as Record<string, unknown>)
+          : null;
+      return [
+        [
+          id,
+          {
+            id,
+            text,
+            source: INBOX_SOURCES.find((entry) => entry === note.source) ?? "Other",
+            who: short(note.who, 120),
+            app: short(note.app, 120),
+            createdAt: note.createdAt,
+            updatedAt: note.updatedAt,
+            state: states.find((entry) => entry === note.state) ?? "new",
+            proposal: readProposal(note.proposal),
+            result: result
+              ? { url: githubUrl(result.url), label: short(result.label, 200) ?? "" }
+              : null,
+          },
+        ],
+      ];
+    }),
+  );
+}
+
+/** Adds or replaces an inbox note. */
+export function withInboxNote(notes: DeskNotes, note: InboxNote): DeskNotes {
+  return { ...notes, inbox: { ...notes.inbox, [note.id]: note } };
+}
+
+/** Notes still to sort: waiting for triage, then waiting for Rigo, oldest first. */
+export function inboxToSort(notes: DeskNotes): InboxNote[] {
+  return Object.values(notes.inbox)
+    .filter((note) => note.state === "new" || note.state === "proposed")
+    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 const MAX_SPANS = 50;
@@ -384,6 +497,7 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
       ]),
     ),
     work: mergeNotes(remote.work, local.work),
+    inbox: mergeNotes(remote.inbox, local.inbox),
   };
 }
 

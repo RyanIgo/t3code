@@ -125,6 +125,17 @@ async function context(given) {
   }
   lines.push("\n## Notes for agents");
   lines.push(notes.apps?.[app]?.text || "None yet.");
+  const forPlanner = Object.values(notes.inbox ?? {}).filter(
+    (entry) => entry.state === "planner" && (entry.proposal?.app ?? entry.app) === app,
+  );
+  if (forPlanner.length > 0) {
+    lines.push("\n## From Rigo's inbox, for this app's planner");
+    for (const entry of forPlanner) {
+      lines.push(
+        `- ${[entry.who, entry.source, entry.createdAt.slice(0, 10)].filter(Boolean).join(" · ")}: ${entry.text.replace(/\s+/g, " ")}`,
+      );
+    }
+  }
   if (features.length > 0) {
     lines.push("\n## Features");
     for (const feature of features) {
@@ -249,12 +260,112 @@ async function nextStep(text) {
   console.log(value ? `Next step: ${value}` : "Next step cleared.");
 }
 
+/** Reads `--name value` flags after the positional arguments. */
+function flags(list) {
+  const out = {};
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index]?.startsWith("--")) out[list[index].slice(2)] = list[index + 1] ?? "";
+  }
+  return out;
+}
+
+/** `inbox`: the notes waiting to be sorted (new ones first), with their ids. */
+async function inbox() {
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const notes = Object.values(doc.inbox ?? {})
+    .filter((note) => note.state === "new" || note.state === "proposed")
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (notes.length === 0) {
+    console.log("The inbox is empty.");
+    return;
+  }
+  for (const note of notes) {
+    console.log(
+      `## ${note.id} (${note.state}) · ${[note.who, note.source, note.createdAt.slice(0, 10), note.app].filter(Boolean).join(" · ")}`,
+    );
+    console.log(note.text);
+    if (note.proposal)
+      console.log(
+        `Proposed: ${note.proposal.action} ${note.proposal.itemUrl ?? note.proposal.title ?? ""} (${note.proposal.reason})`,
+      );
+    console.log("");
+  }
+}
+
+/** `propose <id> <comment|new|planner|dismiss> [--item url] [--repo o/r] [--app a] [--type t] [--priority p] [--title t] --reason r` */
+async function propose(id, action, options) {
+  const actions = ["comment", "new", "planner", "dismiss"];
+  if (!id || !actions.includes(action)) {
+    fail(
+      `Usage: node desk.mjs propose <note id> <${actions.join("|")}> [--item <url>] [--repo <owner/repo>] [--app "<app>"] [--type <type>] [--priority <P0-P3>] [--title "<title>"] --reason "<why>"`,
+    );
+  }
+  const given = flags(options);
+  if (action === "comment" && !/^https:\/\/github\.com\//.test(given.item ?? ""))
+    fail("comment needs --item <issue or PR url>.");
+  if (action === "new" && (!given.repo || !given.title)) fail("new needs --repo and --title.");
+  let found = false;
+  await changeNotes((doc, at) => {
+    const note = doc.inbox?.[id];
+    if (!note) return;
+    found = true;
+    doc.inbox[id] = {
+      ...note,
+      state: "proposed",
+      proposal: {
+        action,
+        itemUrl: given.item ?? null,
+        repo: given.repo ?? null,
+        app: given.app ?? note.app ?? null,
+        type: given.type ?? null,
+        priority: given.priority ?? null,
+        title: given.title ?? null,
+        reason: given.reason ?? "",
+      },
+      updatedAt: at,
+    };
+  });
+  if (!found) fail(`No inbox note ${id}.`);
+  console.log(`Proposed for ${id}: ${action}. Rigo approves it on the Board (Now → Inbox).`);
+}
+
+/** `capture "<text>" [--who name] [--source "In person|Email|Teams|Call|Other"] [--app "<app>"]`: a new inbox note. */
+async function capture(text, options) {
+  if (!text?.trim())
+    fail(
+      'Usage: node desk.mjs capture "<what was asked or reported>" [--who <name>] [--source Email] [--app "<app>"]',
+    );
+  const given = flags(options);
+  const id = Math.random().toString(36).slice(2, 12);
+  await changeNotes((doc, at) => {
+    doc.inbox ??= {};
+    doc.inbox[id] = {
+      id,
+      text: text.trim().slice(0, 4000),
+      source: ["In person", "Email", "Teams", "Call", "Other"].includes(given.source)
+        ? given.source
+        : "Other",
+      who: given.who ?? null,
+      app: given.app ?? null,
+      createdAt: at,
+      updatedAt: at,
+      state: "new",
+      proposal: null,
+      result: null,
+    };
+  });
+  console.log(`Saved to Rigo's inbox as ${id}.`);
+}
+
 const [command, first, ...rest] = process.argv.slice(2);
 if (command === "context") await context(first);
 else if (command === "note") await note(first, rest.join(" "));
 else if (command === "focus") await focus(first, rest);
 else if (command === "next") await nextStep([first, ...rest].join(" "));
+else if (command === "inbox") await inbox();
+else if (command === "propose") await propose(first, rest[0], rest.slice(1));
+else if (command === "capture") await capture(first, rest);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>"',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>"',
   );
