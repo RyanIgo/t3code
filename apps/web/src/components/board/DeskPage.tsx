@@ -52,6 +52,7 @@ import { refreshDesk, setDeskField, useDesk } from "./deskStore";
 import {
   ALL_APPS,
   dayKey,
+  focusedThreads,
   type DeskNotes,
   noteAt,
   type PinPlace,
@@ -297,9 +298,14 @@ export function DeskPage(props: {
       ...linked.filter((chat) => !seen.has(`${chat.environmentId}:${chat.threadId}`)),
     ];
   };
+  const chatRepo = (chat: CardChatState) =>
+    chat.projectKey ? (props.projectName(chat.projectKey)?.split("/").pop() ?? null) : null;
   const chatsFor = (item: DeskItem) =>
     withLinked(
-      chatsForItem(item, props.chats, linksByChat),
+      chatsForItem(item, props.chats, linksByChat, {
+        focused: focusedThreads(notes.notes, item.url),
+        repoOf: chatRepo,
+      }),
       linkedChats((link) => link.itemUrl !== null && link.itemUrl === item.url),
     );
   const appThreads = (name: string) =>

@@ -199,10 +199,16 @@ function thisThread() {
   return threadId;
 }
 
-/** `focus <issue or PR url | owner/repo#n | repo#n>`: this chat is now on that item. */
-async function focus(given) {
-  if (!given) fail("Usage: node desk.mjs focus <issue url | owner/repo#n | repo#n>");
-  const threadId = thisThread();
+/**
+ * `focus <issue or PR url | owner/repo#n | repo#n> [--thread <id>]`: this chat (or, for a planner,
+ * a chat it started) is now on that item.
+ */
+async function focus(given, options) {
+  if (!given)
+    fail("Usage: node desk.mjs focus <issue url | owner/repo#n | repo#n> [--thread <thread id>]");
+  const flag = options.indexOf("--thread");
+  const threadId = flag === -1 ? thisThread() : options[flag + 1];
+  if (!threadId || !/^[\w-]{8,64}$/.test(threadId)) fail("--thread needs the chat's thread id.");
   const desk = (await call("/fleet/desk")).body;
   const match = given.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
   const item = (desk?.items ?? []).find((entry) =>
@@ -227,7 +233,9 @@ async function focus(given) {
       updatedAt: at,
     };
   });
-  console.log(`This chat is now on ${item.repo}#${item.number}: ${item.title}`);
+  console.log(
+    `${flag === -1 ? "This chat" : `Chat ${threadId.slice(0, 8)}`} is now on ${item.repo}#${item.number}: ${item.title}`,
+  );
 }
 
 /** `next "<text>"`: the one line this chat's panel shows as its next step. */
@@ -244,9 +252,9 @@ async function nextStep(text) {
 const [command, first, ...rest] = process.argv.slice(2);
 if (command === "context") await context(first);
 else if (command === "note") await note(first, rest.join(" "));
-else if (command === "focus") await focus(first);
+else if (command === "focus") await focus(first, rest);
 else if (command === "next") await nextStep([first, ...rest].join(" "));
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> | next "<text>"',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>"',
   );

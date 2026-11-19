@@ -64,8 +64,10 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
   step, or what you're waiting on and from whom. Clear it (`next ""`) when the item is done.
 - If Rigo or a planner moved you to another item (a message saying "You're now on …"), finish or
   park what you were doing, run `focus` with the new item, and say where the old one stands.
-- A planner that starts or reassigns work chats asks each chat to run `focus`; it doesn't edit
-  other chats' records itself.
+- A planner that starts work chats records each one right away with
+  `focus <item> --thread <the new chat's thread id>` (from create_threads, t3_thread_launch or
+  delegate_task), and names the chat after its item ("#229 Compliance: …"). When it moves a
+  chat to other work, it tells the chat, and the chat runs `focus` itself.
 
 ## How the work is organized
 

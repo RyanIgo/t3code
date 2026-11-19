@@ -235,15 +235,36 @@ export function chatsForItem(
   item: DeskItem,
   chats: ReadonlyArray<CardChatState>,
   linksByChat: ReadonlyMap<string, ReadonlyArray<string>>,
+  more: {
+    /** Threads recorded as on this item (desk.mjs focus, or moved on the Desk). */
+    readonly focused?: ReadonlySet<string>;
+    /** The repo a chat works in, by name without the owner, for "#<n> …" titles. */
+    readonly repoOf?: (chat: CardChatState) => string | null;
+  } = {},
 ): CardChatState[] {
   const urls = new Set([item.url, ...item.pullRequests.map((pr) => pr.url)].filter(Boolean));
-  return chats.filter(
-    (chat) =>
-      chat.pullRequests.some((pr) => urls.has(pr.url)) ||
-      (linksByChat.get(`${chat.environmentId}:${chat.threadId}`) ?? []).some((url) =>
-        urls.has(url),
-      ),
-  );
+  const repo = item.repo?.split("/").pop() ?? null;
+  // A planner names the chats it starts after their item: "#<number> <what>".
+  const titled = (chat: CardChatState) =>
+    item.number !== null &&
+    repo !== null &&
+    chat.title.match(/^#(\d+)\b/)?.[1] === String(item.number) &&
+    more.repoOf?.(chat) === repo;
+  return chats
+    .filter(
+      (chat) =>
+        more.focused?.has(chat.threadId) ||
+        chat.pullRequests.some((pr) => urls.has(pr.url)) ||
+        (linksByChat.get(`${chat.environmentId}:${chat.threadId}`) ?? []).some((url) =>
+          urls.has(url),
+        ) ||
+        titled(chat),
+    )
+    .toSorted(
+      (a, b) =>
+        Number(more.focused?.has(b.threadId) ?? false) -
+        Number(more.focused?.has(a.threadId) ?? false),
+    );
 }
 
 /** The sprint running on `now`, else the next one to start. */

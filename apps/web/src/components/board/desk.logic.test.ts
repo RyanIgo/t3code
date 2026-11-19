@@ -121,6 +121,18 @@ it("finds an item's chats through its PRs or a board card's links", () => {
     new Map([["env:by-card", [target.url as string]]]),
   );
   expect(found.map((entry) => entry.threadId)).toEqual(["by-pr", "by-card"]);
+  const titledChat = { ...chat("by-title", null), title: "#5 Compliance: prove it" };
+  const otherRepo = { ...titledChat, threadId: "other-repo", projectKey: "q" };
+  const more = chatsForItem(
+    { ...target, number: 5, repo: "o/r" },
+    [chat("other", null), titledChat, otherRepo, chat("focused", null)],
+    new Map(),
+    {
+      focused: new Set(["focused"]),
+      repoOf: (entry) => (entry.projectKey === "p" ? "r" : "elsewhere"),
+    },
+  );
+  expect(more.map((entry) => entry.threadId)).toEqual(["focused", "by-title"]);
 });
 
 it("counts a chat as waiting like the sidebar: a question, an unread result, failing checks", () => {

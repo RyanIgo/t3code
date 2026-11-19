@@ -399,6 +399,17 @@ export function focusedChat(notes: DeskNotes, itemUrl: string): string | null {
   return found?.key ?? null;
 }
 
+/** The threads on an item now (normally one), for matching chats to it. */
+export function focusedThreads(notes: DeskNotes, itemUrl: string | null): Set<string> {
+  const threads = new Set<string>();
+  if (!itemUrl) return threads;
+  for (const [threadId, work] of Object.entries(notes.work)) {
+    if (work.items.some((span) => span.url === itemUrl && span.until === null))
+      threads.add(threadId);
+  }
+  return threads;
+}
+
 /** The item a chat (thread id) is on now, if any. */
 export function chatFocus(notes: DeskNotes, threadId: string): string | null {
   return notes.work[threadId]?.items.findLast((span) => span.until === null)?.url ?? null;
