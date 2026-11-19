@@ -1,10 +1,11 @@
 import { workspaceAreaProps } from "../lib/workspaceFocus";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import { createFileRoute, useRouter } from "@tanstack/react-router";
+import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import { isElectron } from "../env";
+import { isHostedStaticApp } from "../hostedPairing";
 import { NoProjectsHero } from "../components/NoProjectsHero";
 import { sortScopedProjectsForSidebar } from "../components/Sidebar.logic";
 import { Button } from "../components/ui/button";
@@ -28,6 +29,8 @@ function ChatIndexRouteView() {
   if (authGateState.status === "hosted-static") {
     if (!isReady) return null;
     if (environments.length === 0) return <HostedEmptyState />;
+    // Fleet fork: the hub is for planning, so it opens on the Board, not a new chat.
+    if (isHostedStaticApp()) return <Navigate to="/board" replace />;
   }
 
   return <IndexDraftLanding />;
