@@ -25,6 +25,8 @@ import {
   todayChatTitle,
 } from "./deskNotes.logic";
 import { saveDeskPin } from "./deskNotesStore";
+import { useNowMinute } from "../../hooks/useNowMinute";
+import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 import { DeskHeading } from "./DeskParts";
 
 export interface PinChoice {
@@ -94,6 +96,7 @@ export function PinnedStrip(props: {
   /** Set apart in its own box, for a page that shows more than one group. */
   readonly framed?: boolean;
 }) {
+  const nowMs = minuteTickToMs(useNowMinute());
   const byKey = new Map(props.chats.map((chat) => [chatKey(chat), chat]));
   const pinned = pinnedChats(props.notes, props.place).flatMap((key) => {
     const chat = byKey.get(key);
@@ -164,6 +167,11 @@ export function PinnedStrip(props: {
                     {status.label}
                   </Badge>
                   <span className="truncate">{chatTitle(chat.title)}</span>
+                  {chat.since ? (
+                    <span className="shrink-0 text-2xs text-muted-foreground">
+                      active {formatFleetBoardAge(chat.since, nowMs)} ago
+                    </span>
+                  ) : null}
                 </button>
                 <Button
                   variant="ghost"
