@@ -48,6 +48,25 @@ node ~/.claude/skills/dev-desk/desk.mjs note Precon "Decided: leveling stays the
   plain words; never secrets or personal data.
 - Rigo edits the notes and goals on the Desk (Apps view); don't rewrite them, only add lines.
 
+## Say what this chat is on, and what's next
+
+Each item has one chat **on it**, and each chat's panel on the Desk shows what it worked on and
+its next step. Keep both true:
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs focus cfe-drawings#312   # this chat is now on #312 (or an issue/PR URL)
+node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once Rigo names the account"
+```
+
+- **When you start on an issue or PR**, run `focus` with it. A chat is on one item at a time;
+  focusing another closes the earlier one, so the Desk keeps a dated record of what you worked on.
+- **At the end of each turn that changed something**, set `next` to one plain sentence: the next
+  step, or what you're waiting on and from whom. Clear it (`next ""`) when the item is done.
+- If Rigo or a planner moved you to another item (a message saying "You're now on …"), finish or
+  park what you were doing, run `focus` with the new item, and say where the old one stands.
+- A planner that starts or reassigns work chats asks each chat to run `focus`; it doesn't edit
+  other chats' records itself.
+
 ## How the work is organized
 
 **Application → Feature → Work item.** Every item on the project carries:

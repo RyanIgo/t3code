@@ -173,7 +173,80 @@ async function note(given, text) {
   fail("The notes kept changing; try again.");
 }
 
+/** Reads the desk notes, changes them, and saves them, retrying when someone saved meanwhile. */
+async function changeNotes(change) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const record = (await call("/fleet/desknotes")).body ?? { version: 0, document: null };
+    const doc = record.document ? JSON.parse(record.document) : {};
+    doc.schemaVersion = 1;
+    doc.sprintGoals ??= {};
+    doc.sprintNotes ??= {};
+    doc.work ??= {};
+    change(doc, new Date().toISOString());
+    const saved = await call("/fleet/desknotes", {
+      method: "PUT",
+      body: JSON.stringify({ baseVersion: record.version, document: JSON.stringify(doc) }),
+    });
+    if (saved.status === 200) return;
+    if (saved.status !== 409) fail(`The hub answered ${saved.status}.`);
+  }
+  fail("The notes kept changing; try again.");
+}
+
+function thisThread() {
+  const threadId = process.env.T3CODE_THREAD_ID;
+  if (!threadId) fail("This only works inside a T3 chat (T3CODE_THREAD_ID isn't set).");
+  return threadId;
+}
+
+/** `focus <issue or PR url | owner/repo#n | repo#n>`: this chat is now on that item. */
+async function focus(given) {
+  if (!given) fail("Usage: node desk.mjs focus <issue url | owner/repo#n | repo#n>");
+  const threadId = thisThread();
+  const desk = (await call("/fleet/desk")).body;
+  const match = given.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
+  const item = (desk?.items ?? []).find((entry) =>
+    match
+      ? entry.number === Number(match[3]) &&
+        (entry.repo === `${match[1]}/${match[2]}` || entry.repo?.split("/")[1] === match[2])
+      : entry.url === given,
+  );
+  if (!item?.url) fail(`${given} isn't on the Dev Desk.`);
+  await changeNotes((doc, at) => {
+    for (const [key, work] of Object.entries(doc.work)) {
+      const closeAll = key === threadId;
+      const items = (work.items ?? []).map((span) =>
+        span.until === null && (closeAll || span.url === item.url) ? { ...span, until: at } : span,
+      );
+      doc.work[key] = { ...work, items, updatedAt: at };
+    }
+    const mine = doc.work[threadId] ?? { items: [], next: null };
+    doc.work[threadId] = {
+      ...mine,
+      items: [...mine.items, { url: item.url, from: at, until: null }].slice(-50),
+      updatedAt: at,
+    };
+  });
+  console.log(`This chat is now on ${item.repo}#${item.number}: ${item.title}`);
+}
+
+/** `next "<text>"`: the one line this chat's panel shows as its next step. */
+async function nextStep(text) {
+  const threadId = thisThread();
+  const value = text?.trim() ? text.trim().slice(0, 500) : null;
+  await changeNotes((doc, at) => {
+    const mine = doc.work[threadId] ?? { items: [] };
+    doc.work[threadId] = { ...mine, next: value, updatedAt: at };
+  });
+  console.log(value ? `Next step: ${value}` : "Next step cleared.");
+}
+
 const [command, first, ...rest] = process.argv.slice(2);
 if (command === "context") await context(first);
 else if (command === "note") await note(first, rest.join(" "));
-else fail('Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>"');
+else if (command === "focus") await focus(first);
+else if (command === "next") await nextStep([first, ...rest].join(" "));
+else
+  fail(
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> | next "<text>"',
+  );

@@ -61,10 +61,11 @@ import {
 import { DirectionPanel } from "./DeskDirection";
 import { saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
+import { itemForSheet } from "./deskSheets";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import { DeskCard, DeskHeading, STAGE_VARIANT } from "./DeskParts";
+import { DeskCard, DeskHeading, openExternal, STAGE_VARIANT } from "./DeskParts";
 import { BacklogView } from "./DeskBacklog";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { PrLens } from "./DeskPrs";
@@ -212,6 +213,8 @@ export function DeskPage(props: {
     readonly pr?: DeskPr;
     /** Set by a deep link before the Desk's data loads; resolved to the item once it has. */
     readonly itemUrl?: string;
+    /** The item window's tab to open on, instead of the one its column suggests. */
+    readonly tab?: "details" | "chats" | "review";
   } | null>(
     deepLink?.kind === "item"
       ? { itemId: null, chat: null, sequence: [], itemUrl: deepLink.url }
@@ -664,6 +667,8 @@ export function DeskPage(props: {
           item={modalItem}
           pr={modal.pr ?? null}
           chat={modal.chat}
+          allChats={props.pinnable}
+          tab={modal.tab}
           chats={
             modalItem
               ? withLinked(chatsFor(modalItem), modal.pr?.chats ?? [])
@@ -724,6 +729,11 @@ export function DeskPage(props: {
           onOpenChat={openChat}
           onOpenItem={openItemIn(ids(waitingOnYou(items)))}
           onOpenPr={openPr}
+          onOpenSheet={(sheet) => {
+            const item = itemForSheet(sheet, items, notes.notes);
+            if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
+            else openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString());
+          }}
         />
       ) : mode === "today" ? (
         <TodayView

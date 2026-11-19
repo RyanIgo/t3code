@@ -544,6 +544,15 @@ async function publishArtifact(id, create, req, reply, login) {
     reply(400, { error: "a sheet needs rows: [{ id, title, detail?, group? }] with unique ids" });
     return true;
   }
+  // A sheet that reviews something running must say where it runs and how to start it again;
+  // a plain checklist (decisions, acceptance criteria) says so with `checklist: true`.
+  if (kind === "sheet" && body.checklist !== true && !cleanApp(body.app)?.start) {
+    reply(400, {
+      error:
+        'a test sheet needs "app": { "url": "<the Tailscale URL to open>", "start": "<one-line start command>", "machine": "<machine>" } and a url or links on each check. For a checklist with nothing running, send "checklist": true.',
+    });
+    return true;
+  }
   const thread =
     typeof body.thread?.environmentId === "string" && typeof body.thread?.threadId === "string"
       ? { environmentId: body.thread.environmentId, threadId: body.thread.threadId }

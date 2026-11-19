@@ -44,6 +44,22 @@ export interface DeskNotes {
   readonly directions: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
   /** Place on the Board (see pinPlace) → "<environmentId>:<threadId>" → whether it's pinned there. */
   readonly pins: Readonly<Record<string, Readonly<Record<string, DeskPin>>>>;
+  /** A chat's thread id → the items it worked on, and its next step. Agents know only their thread id. */
+  readonly work: Readonly<Record<string, DeskChatWork>>;
+}
+
+/** One stretch of a chat working on an item; `until` is null while it's still on it. */
+export interface DeskFocusSpan {
+  readonly url: string;
+  readonly from: string;
+  readonly until: string | null;
+}
+
+/** What one chat has worked on, newest last, and the next step it (or Rigo) wrote down. */
+export interface DeskChatWork {
+  readonly items: ReadonlyArray<DeskFocusSpan>;
+  readonly next: string | null;
+  readonly updatedAt: string;
 }
 
 /** A chat pinned to a place. Unpinning keeps the entry (pinned: false) so devices agree. */
@@ -174,6 +190,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   sheets: {},
   directions: {},
   pins: {},
+  work: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -288,7 +305,45 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
       ).map(([app, sections]) => [app, readNotes(sections)]),
     ),
     pins: readPins(record.pins),
+    work: readWork(record.work),
   };
+}
+
+const MAX_SPANS = 50;
+
+function readWork(value: unknown): Record<string, DeskChatWork> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([key, raw]) => {
+      if (typeof raw !== "object" || raw === null || !/^[\w-]{8,64}$/.test(key)) return [];
+      const work = raw as Record<string, unknown>;
+      if (typeof work.updatedAt !== "string") return [];
+      const items = (Array.isArray(work.items) ? work.items : []).flatMap((span: unknown) => {
+        if (typeof span !== "object" || span === null) return [];
+        const entry = span as Record<string, unknown>;
+        if (typeof entry.url !== "string" || !/^https:\/\/github\.com\//.test(entry.url)) return [];
+        if (typeof entry.from !== "string") return [];
+        return [
+          {
+            url: entry.url,
+            from: entry.from,
+            until: typeof entry.until === "string" ? entry.until : null,
+          },
+        ];
+      });
+      return [
+        [
+          key,
+          {
+            items: items.slice(-MAX_SPANS),
+            next:
+              typeof work.next === "string" && work.next.trim() ? work.next.slice(0, 500) : null,
+            updatedAt: work.updatedAt,
+          },
+        ],
+      ];
+    }),
+  );
 }
 
 function mergeNotes<T extends { readonly updatedAt: string }>(
@@ -328,6 +383,82 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
         mergeNotes(remote.pins[place] ?? {}, local.pins[place] ?? {}),
       ]),
     ),
+    work: mergeNotes(remote.work, local.work),
+  };
+}
+
+/** The chat (thread id) on an item now: the newest open stretch on it, across every chat. */
+export function focusedChat(notes: DeskNotes, itemUrl: string): string | null {
+  let found: { key: string; from: string } | null = null;
+  for (const [key, work] of Object.entries(notes.work)) {
+    for (const span of work.items) {
+      if (span.url !== itemUrl || span.until !== null) continue;
+      if (!found || span.from > found.from) found = { key, from: span.from };
+    }
+  }
+  return found?.key ?? null;
+}
+
+/** The item a chat (thread id) is on now, if any. */
+export function chatFocus(notes: DeskNotes, threadId: string): string | null {
+  return notes.work[threadId]?.items.findLast((span) => span.until === null)?.url ?? null;
+}
+
+/**
+ * Puts a chat on an item (or takes the item's chat off it, with chatKey null). A chat works on
+ * one item at a time, and an item has one chat on it, so both earlier stretches close.
+ */
+export function withFocus(
+  notes: DeskNotes,
+  itemUrl: string,
+  chatKey: string | null,
+  at: string,
+): DeskNotes {
+  const work = { ...notes.work };
+  const close = (key: string, keep: (span: DeskFocusSpan) => boolean) => {
+    const current = work[key];
+    if (!current || !current.items.some((span) => span.until === null && !keep(span))) return;
+    work[key] = {
+      ...current,
+      items: current.items.map((span) =>
+        span.until === null && !keep(span) ? { ...span, until: at } : span,
+      ),
+      updatedAt: at,
+    };
+  };
+  const previous = focusedChat(notes, itemUrl);
+  if (previous && previous !== chatKey) close(previous, (span) => span.url !== itemUrl);
+  if (chatKey) {
+    if (chatFocus(notes, chatKey) === itemUrl) return notes;
+    close(chatKey, () => false);
+    const current = work[chatKey];
+    work[chatKey] = {
+      items: [...(current?.items ?? []), { url: itemUrl, from: at, until: null }].slice(-MAX_SPANS),
+      next: current?.next ?? null,
+      updatedAt: at,
+    };
+  }
+  return { ...notes, work };
+}
+
+/** Sets the one line a chat's panel shows as its next step. */
+export function withNextStep(
+  notes: DeskNotes,
+  chatKey: string,
+  next: string | null,
+  at: string,
+): DeskNotes {
+  const current = notes.work[chatKey];
+  return {
+    ...notes,
+    work: {
+      ...notes.work,
+      [chatKey]: {
+        items: current?.items ?? [],
+        next: next?.trim() ? next.trim().slice(0, 500) : null,
+        updatedAt: at,
+      },
+    },
   };
 }
 

@@ -6,8 +6,11 @@ import {
   noteAt,
   parseDeskNotes,
   pinnedChats,
+  chatFocus,
+  focusedChat,
   todayChatFor,
   untitledTodayChats,
+  withFocus,
   withNote,
   withPin,
 } from "./deskNotes.logic";
@@ -161,5 +164,29 @@ describe("desk notes", () => {
       { key: "env:first", title: "Today · Thu, Nov 19" },
       { key: "env:second", title: "Today · Thu, Nov 19" },
     ]);
+  });
+
+  it("keeps one chat on an item and one item per chat, with a dated record of each move", () => {
+    const a = "https://github.com/o/r/issues/1";
+    const b = "https://github.com/o/r/issues/2";
+    let notes = withFocus(EMPTY_DESK_NOTES, a, "chat-one-1", "2026-11-19T10:00:00Z");
+    notes = withFocus(notes, a, "chat-two-22", "2026-11-19T11:00:00Z");
+    expect(focusedChat(notes, a)).toBe("chat-two-22");
+    expect(chatFocus(notes, "chat-one-1")).toBeNull();
+    expect(notes.work["chat-one-1"]?.items).toEqual([
+      { url: a, from: "2026-11-19T10:00:00Z", until: "2026-11-19T11:00:00Z" },
+    ]);
+
+    notes = withFocus(notes, b, "chat-two-22", "2026-11-19T12:00:00Z");
+    expect(focusedChat(notes, a)).toBeNull();
+    expect(chatFocus(notes, "chat-two-22")).toBe(b);
+    expect(notes.work["chat-two-22"]?.items.map((span) => span.until)).toEqual([
+      "2026-11-19T12:00:00Z",
+      null,
+    ]);
+
+    notes = withFocus(notes, b, null, "2026-11-19T13:00:00Z");
+    expect(focusedChat(notes, b)).toBeNull();
+    expect(parseDeskNotes(JSON.stringify(notes)).work).toEqual(notes.work);
   });
 });

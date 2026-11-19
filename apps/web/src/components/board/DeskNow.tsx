@@ -1,65 +1,23 @@
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
-import { DeskHeading, openExternal } from "./DeskParts";
-
-/** A hub test sheet with checks still to do. */
-interface SheetSummary {
-  readonly id: string;
-  readonly title: string;
-  readonly updatedAt: string;
-  /** The chat that published it, when it was published from one. */
-  readonly thread: { readonly threadId: string } | null;
-  readonly counts: {
-    readonly total: number;
-    readonly pass: number;
-    readonly fail: number;
-    readonly skip: number;
-    readonly blocked: number;
-  };
-}
+import { DeskHeading } from "./DeskParts";
+import { type SheetSummary, uncheckedRows, useHubSheets } from "./deskSheets";
 
 const SHEET_DAYS = 14;
-const SHEET_POLL_MS = 60_000;
 
 /** Test sheets on the hub with unchecked rows, changed in the last two weeks, newest first. */
 function useSheetsToTest(nowMs: number): SheetSummary[] {
-  const [sheets, setSheets] = useState<SheetSummary[]>([]);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- polls the hub's artifact list for test sheets while Now is open
-  useEffect(() => {
-    let live = true;
-    const load = () =>
-      fetch("/fleet/artifacts", { signal: AbortSignal.timeout(10_000) })
-        .then((response) => (response.ok ? response.json() : null))
-        .then(
-          (body: { artifacts?: Array<SheetSummary & { kind: string }> } | null) => {
-            if (live && body?.artifacts) {
-              setSheets(body.artifacts.filter((artifact) => artifact.kind === "sheet"));
-            }
-          },
-          () => undefined,
-        );
-    void load();
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void load();
-    }, SHEET_POLL_MS);
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, []);
-  return sheets
-    .filter((sheet) => {
-      const { total, pass, fail, skip, blocked } = sheet.counts;
-      return (
-        total > pass + fail + skip + blocked &&
-        nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * 86_400_000
-      );
-    })
+  return useHubSheets()
+    .filter(
+      (sheet) =>
+        uncheckedRows(sheet.counts) > 0 &&
+        nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * 86_400_000,
+    )
     .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
@@ -118,6 +76,8 @@ export function NowView(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onOpenPr: (pr: DeskPr) => void;
+  /** Opens a test sheet in its item's Review tab, or on its own when no item matches. */
+  readonly onOpenSheet: (sheet: SheetSummary) => void;
 }) {
   const sheets = useSheetsToTest(props.nowMs);
   const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
@@ -180,7 +140,7 @@ export function NowView(props: {
         tone: fail > 0 ? "error" : "outline",
         title: sheet.title,
         meta: ago(props.nowMs, sheet.updatedAt),
-        onClick: () => openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString()),
+        onClick: () => props.onOpenSheet(sheet),
       };
     }),
     ...props.prs

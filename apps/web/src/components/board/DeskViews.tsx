@@ -15,7 +15,6 @@ import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Dialog, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
 import {
   type DeskDetail,
@@ -31,7 +30,7 @@ import {
   chatTitle,
   workKind,
 } from "./desk.logic";
-import { APP_DIRECTION, type DeskNotes, noteAt } from "./deskNotes.logic";
+import { APP_DIRECTION, type DeskNotes, focusedChat, noteAt } from "./deskNotes.logic";
 import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import {
   DeskHeading,
@@ -50,6 +49,11 @@ import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
 import { DirectionPanel } from "./DeskDirection";
 import { ChatEmbedContext } from "../chat/ChatEmbedContext";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useRightPanelStore } from "../../rightPanelStore";
+import { cn } from "../../lib/utils";
+import { sheetsForItem, useHubSheets } from "./deskSheets";
+import { OnItRow, ReviewTab, WorkPanel } from "./DeskWork";
 
 const NONE = "__none__";
 const STAGE_RANK: Record<string, number> = { Production: 3, Testing: 2, Experiment: 1, "": 0 };
@@ -344,11 +348,6 @@ function ItemDetails(props: {
   );
 }
 
-/**
- * The Desk's work window, like the Board's card window: an item's details on the left and its
- * live T3 chat on the right, over the Desk so you keep your place. Opened on a chat alone, the
- * chat fills it. Alt+← / Alt+→ step through the list it was opened from.
- */
 /** Where the work window offers to pin a chat: Today, this item, its sprint, then every app. */
 function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoice[] {
   const choices: PinChoice[] = [{ place: { kind: "today" }, label: "Today" }];
@@ -363,12 +362,33 @@ function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoi
   return choices;
 }
 
+type ItemTab = "details" | "chats" | "review";
+
+/** The tab an item opens on: what its column is about. A chat opened directly opens Chats. */
+function firstTab(item: DeskItem | null, fromChat: boolean): ItemTab {
+  if (!item || fromChat) return "chats";
+  if (item.state === "open" && item.status === "In Review") return "review";
+  if (item.state === "open" && item.status === "In Progress") return "chats";
+  return "details";
+}
+
+/**
+ * The Desk's item window, over the Desk so you keep your place: one title, then Details (the
+ * GitHub item), Chats (the chat on it, what it's worked on, the conversation at full width) and
+ * Review (its test sheet and running app). Opened on a chat alone, the chat fills it.
+ * Alt+← / Alt+→ step through the list it was opened from.
+ */
 export function DeskModal(props: {
   readonly item: DeskItem | null;
   /** Opened from a pull request: it shows first, with its merge state and next steps. */
   readonly pr?: DeskPr | null;
   readonly chat: CardChatState | null;
+  /** The tab to open on; by default the one the item's column suggests. */
+  readonly tab?: ItemTab | undefined;
+  /** The chats the Desk links to this item (or PR), best guess first. */
   readonly chats: ReadonlyArray<CardChatState>;
+  /** Every chat, settled ones too, to find the one on the item and to move it. */
+  readonly allChats: ReadonlyArray<CardChatState>;
   /** A new chat started from the Desk, not sent yet: shown as a draft until it is. */
   readonly draft: {
     readonly draftId: DraftId;
@@ -383,20 +403,57 @@ export function DeskModal(props: {
   readonly onChat: (item: DeskItem) => void;
 }) {
   const { item } = props;
-  const deskNotes = useDeskNotes();
+  const notes = useDeskNotes().notes;
+  const hubSheets = useHubSheets();
+  const [tab, setTab] = useState<ItemTab>(
+    props.tab ?? firstTab(item, props.chat !== null || props.draft !== null),
+  );
+  // Chats stays mounted once seen, so switching tabs doesn't reload the conversation.
+  const [chatsSeen, setChatsSeen] = useState(tab === "chats");
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
   const [showDraft, setShowDraft] = useState(props.draft !== null);
+  const focusId = item?.url ? focusedChat(notes, item.url) : null;
+  const focused = focusId
+    ? (props.allChats.find((chat) => chat.threadId === focusId) ?? null)
+    : null;
+  const related = uniqueByKey([...(focused ? [focused] : []), ...props.chats]);
   const shown =
-    (chosen && props.chats.find((chat) => chatKeyOf(chat) === chatKeyOf(chosen))) ??
+    (chosen && props.allChats.find((chat) => chatKeyOf(chat) === chatKeyOf(chosen))) ??
     chosen ??
+    focused ??
     props.chats[0] ??
     null;
-  const [pane, setPane] = useState<"details" | "chat">(item || props.pr ? "details" : "chat");
   const index = item ? props.sequence.indexOf(item.itemId) : -1;
   const previous = index > 0 ? props.sequence[index - 1] : undefined;
   const next = index !== -1 ? props.sequence[index + 1] : undefined;
   const draft = showDraft ? props.draft : null;
-  const title = item ? deskTitle(item) : draft ? "New chat" : (shown?.title ?? "Chat");
+  const title = item ? deskTitle(item) : draft ? "New chat" : chatTitle(shown?.title ?? "Chat");
+  const sheets = item ? sheetsForItem(hubSheets, item, related, notes) : [];
+  const show = (nextTab: ItemTab) => {
+    setTab(nextTab);
+    if (nextTab === "chats") setChatsSeen(true);
+  };
+  const openChatHere = (chat: CardChatState) => {
+    setShowDraft(false);
+    setChosen(chat);
+    show("chats");
+  };
+  const tabbed = item !== null || props.pr !== undefined;
+  const shownKey = shown && !draft ? chatKeyOf(shown) : null;
+  // The chat's own details card is remembered open per chat; here its facts are the line above
+  // the conversation, so it starts closed and opens only from its button.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- closes the chat's remembered details popover in the right panel store when a chat shows here
+  useEffect(() => {
+    if (!shownKey || !shown) return;
+    useRightPanelStore
+      .getState()
+      .setThreadPanelOpen(
+        scopeThreadRef(shown.environmentId as EnvironmentId, shown.threadId as ThreadId),
+        "popover",
+        false,
+      );
+    // oxlint-disable-next-line react/exhaustive-effect-dependencies -- runs once per chat shown, keyed by its key
+  }, [shownKey]);
   return (
     <Dialog
       open
@@ -418,7 +475,7 @@ export function DeskModal(props: {
           }
         }}
       >
-        <header className="flex shrink-0 items-center gap-2 border-b border-border py-2 ps-3 pe-3 sm:pe-36">
+        <header className="flex shrink-0 items-center gap-2 py-2 ps-3 pe-3 sm:pe-36">
           {item && props.sequence.length > 1 ? (
             <>
               <Button
@@ -451,43 +508,56 @@ export function DeskModal(props: {
                 <span className="truncate">{title}</span>
                 {item ? (
                   <span className="shrink-0 text-xs font-normal text-muted-foreground">
-                    {[item.app, item.feature ? featureName(item.feature) : null, deskRef(item)]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {[item.app, deskRef(item)].filter(Boolean).join(" · ")}
                   </span>
+                ) : null}
+                {item?.status ? (
+                  <Badge variant="outline" size="sm">
+                    {item.state === "open" ? item.status : "Done"}
+                  </Badge>
                 ) : null}
               </span>
             </DialogTitle>
           </div>
-          {item ? (
-            <ToggleGroup
-              aria-label="Show"
-              className="sm:hidden"
-              value={[pane]}
-              onValueChange={(value) => {
-                if (value[0] === "details" || value[0] === "chat") setPane(value[0]);
-              }}
-            >
-              <Toggle value="details">Item</Toggle>
-              <Toggle value="chat">Chat</Toggle>
-            </ToggleGroup>
-          ) : null}
-          {item && props.chats.length === 0 && !props.draft ? (
-            <ChatAboutButton onClick={() => props.onChat(item)} />
-          ) : null}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
         </header>
-        <div className="flex min-h-0 flex-1">
-          {item || props.pr ? (
-            <aside
-              className={
-                pane === "details"
-                  ? "flex min-h-0 w-full flex-col overflow-y-auto border-border sm:w-[30rem] sm:shrink-0 sm:border-e"
-                  : "hidden min-h-0 w-[30rem] shrink-0 flex-col overflow-y-auto border-e border-border sm:flex"
-              }
-            >
+        {tabbed ? (
+          <nav
+            aria-label="Item"
+            className="flex shrink-0 items-end gap-1 overflow-x-auto border-b border-border px-3"
+          >
+            {(
+              [
+                ["details", "Details", null],
+                ["chats", "Chats", related.length || null],
+                ["review", "Review", sheets.length || null],
+              ] as const
+            ).map(([id, label, count]) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={tab === id ? "page" : undefined}
+                className={cn(
+                  "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
+                  tab === id
+                    ? "border-foreground font-medium text-foreground"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => show(id)}
+              >
+                {label}
+                {count ? <span className="ms-1 text-xs text-muted-foreground">{count}</span> : null}
+              </button>
+            ))}
+          </nav>
+        ) : (
+          <div className="border-b border-border" />
+        )}
+        {tabbed && tab === "details" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
+            <div className="mx-auto flex max-w-4xl flex-col">
               {props.pr ? <PrPanel pr={props.pr} chat={shown ?? null} /> : null}
               {item ? (
                 <ItemDetails
@@ -497,66 +567,82 @@ export function DeskModal(props: {
                   onOpenItem={props.onOpenItem}
                 />
               ) : null}
-            </aside>
-          ) : null}
+            </div>
+          </div>
+        ) : null}
+        {tabbed && tab === "review" && item ? (
+          <ReviewTab
+            item={item}
+            sheets={sheets}
+            allChats={props.allChats}
+            onChat={focused ?? shown}
+            onOpenChat={openChatHere}
+          />
+        ) : null}
+        {chatsSeen || !tabbed ? (
           <section
-            className={
-              !item || pane === "chat"
-                ? "relative flex min-h-0 min-w-0 flex-1 flex-col"
-                : "relative hidden min-h-0 min-w-0 flex-1 flex-col sm:flex"
-            }
+            className={cn(
+              "relative min-h-0 min-w-0 flex-1 flex-col",
+              !tabbed || tab === "chats" ? "flex" : "hidden",
+            )}
           >
-            {props.chats.length > 0 || props.draft ? (
-              <nav
-                aria-label="Chats"
-                className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-border px-3 py-1.5"
-              >
-                <span className="me-1 shrink-0 text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
-                  Agent chat
-                </span>
-                {props.draft ? (
-                  <Button
-                    variant={draft ? "secondary" : "ghost"}
-                    size="xs"
-                    onClick={() => setShowDraft(true)}
-                  >
-                    New chat
-                  </Button>
-                ) : null}
-                {props.chats.map((chat) => (
-                  <Button
-                    key={chatKeyOf(chat)}
-                    variant={
-                      !draft && shown && chatKeyOf(shown) === chatKeyOf(chat)
-                        ? "secondary"
-                        : "ghost"
-                    }
-                    size="xs"
-                    onClick={() => {
-                      setShowDraft(false);
-                      setChosen(chat);
-                    }}
-                  >
-                    <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
-                  </Button>
-                ))}
-                <span className="ms-auto flex shrink-0 items-center gap-1">
-                  {shown && !draft ? (
-                    <PinMenu
-                      chatKey={chatKeyOf(shown)}
-                      notes={deskNotes.notes}
-                      choices={pinChoices(item, props.view.apps ?? [])}
-                    />
-                  ) : null}
-                  {item ? (
-                    <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
-                      <PlusIcon />
+            <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2">
+              {item ? (
+                <OnItRow
+                  item={item}
+                  notes={notes}
+                  allChats={props.allChats}
+                  related={related}
+                  shown={shown}
+                  onShow={openChatHere}
+                />
+              ) : null}
+              {related.length > 1 || props.draft || item ? (
+                <div className="flex items-center gap-1 overflow-x-auto">
+                  {props.draft ? (
+                    <Button
+                      variant={draft ? "secondary" : "ghost"}
+                      size="xs"
+                      onClick={() => setShowDraft(true)}
+                    >
                       New chat
                     </Button>
                   ) : null}
-                </span>
-              </nav>
-            ) : null}
+                  {(related.length > 1 ? related : []).map((chat) => (
+                    <Button
+                      key={chatKeyOf(chat)}
+                      variant={
+                        !draft && shown && chatKeyOf(shown) === chatKeyOf(chat)
+                          ? "secondary"
+                          : "ghost"
+                      }
+                      size="xs"
+                      onClick={() => openChatHere(chat)}
+                    >
+                      <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
+                    </Button>
+                  ))}
+                  <span className="ms-auto flex shrink-0 items-center gap-1">
+                    {shown && !draft ? (
+                      <PinMenu
+                        chatKey={chatKeyOf(shown)}
+                        notes={notes}
+                        choices={pinChoices(item, props.view.apps ?? [])}
+                      />
+                    ) : null}
+                    {item ? (
+                      <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
+                        <PlusIcon />
+                        New or linked chat
+                      </Button>
+                    ) : null}
+                  </span>
+                </div>
+              ) : null}
+              {shown && !draft ? (
+                <WorkPanel chat={shown} notes={notes} items={props.view.items} sheets={hubSheets} />
+              ) : null}
+            </div>
             <ChatEmbedContext value>
               {draft ? (
                 <ChatView
@@ -588,10 +674,20 @@ export function DeskModal(props: {
               )}
             </ChatEmbedContext>
           </section>
-        </div>
+        ) : null}
       </DialogPopup>
     </Dialog>
   );
+}
+
+function uniqueByKey(chats: ReadonlyArray<CardChatState>): CardChatState[] {
+  const seen = new Set<string>();
+  return chats.filter((chat) => {
+    const key = chatKeyOf(chat);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 const chatKeyOf = (chat: CardChatState) => `${chat.environmentId}:${chat.threadId}`;

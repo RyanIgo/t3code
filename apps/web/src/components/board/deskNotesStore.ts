@@ -14,6 +14,8 @@ import {
   withLink,
   withNote,
   withPin,
+  withFocus,
+  withNextStep,
   withSheet,
 } from "./deskNotes.logic";
 import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
@@ -153,6 +155,35 @@ export function saveDeskPin(place: PinPlace, chatKey: string, pinned: boolean, r
     });
 }
 
+function save(next: DeskNotes, failure: string) {
+  publish({ ...snapshot, notes: next });
+  saving = saving
+    .then(() => push(next))
+    .catch((error: unknown) => {
+      toastManager.add({
+        type: "error",
+        title: failure,
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+/** Puts a chat (thread id) on an item, leaving whatever it was on; null takes the item's chat off. */
+export function saveDeskFocus(itemUrl: string, threadId: string | null) {
+  save(
+    withFocus(snapshot.notes, itemUrl, threadId, new Date().toISOString()),
+    "Couldn't move the chat",
+  );
+}
+
+/** Sets the next step a chat's (thread id's) panel shows. */
+export function saveNextStep(threadId: string, next: string | null) {
+  save(
+    withNextStep(snapshot.notes, threadId, next, new Date().toISOString()),
+    "Couldn't save the next step",
+  );
+}
+
 /**
  * Publishes a hub test sheet with one row per acceptance criterion of a story, remembers it for
  * the item, and returns its id. Makes it again (same id) when the criteria changed.
@@ -167,6 +198,7 @@ export async function publishStorySheet(item: DeskItem): Promise<string> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       kind: "sheet",
+      checklist: true,
       title: `Story check: ${deskTitle(item)} (${deskRef(item)})`,
       intro: item.story.text || undefined,
       rows: item.story.criteria.map((criterion, index) => ({

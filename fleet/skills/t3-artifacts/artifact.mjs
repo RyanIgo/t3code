@@ -81,6 +81,7 @@ async function publish(arg) {
     title: spec.title,
     ...(spec.intro ? { intro: spec.intro } : {}),
     ...(spec.app ? { app: spec.app } : {}),
+    ...(spec.checklist === true ? { checklist: true } : {}),
     ...(spec.rows ? { rows: spec.rows } : { html: spec.html }),
     ...(threadId ? { thread: { environmentId: "", threadId } } : {}),
   });
