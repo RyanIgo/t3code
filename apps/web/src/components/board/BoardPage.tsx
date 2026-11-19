@@ -123,15 +123,17 @@ export function BoardPage() {
     const target = readDeskFragment(window.location.hash);
     if (target === null) return null;
     const tab: BoardTab =
-      target.kind === "sprint"
-        ? "sprint"
-        : target.kind === "item"
-          ? "today"
-          : target.view === "board" || target.view === "sprint"
-            ? "sprint"
-            : target.view === "prs"
-              ? "today"
-              : "apps";
+      target.kind === "today"
+        ? "now"
+        : target.kind === "sprint"
+          ? "sprint"
+          : target.kind === "item"
+            ? "today"
+            : target.view === "board" || target.view === "sprint"
+              ? "sprint"
+              : target.view === "prs"
+                ? "today"
+                : "apps";
     writeLocalStorageValue("t3-fleet:tab", tab, "now" as BoardTab, BoardTab);
     return null;
   });

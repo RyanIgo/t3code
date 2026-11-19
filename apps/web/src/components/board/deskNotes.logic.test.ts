@@ -6,6 +6,8 @@ import {
   noteAt,
   parseDeskNotes,
   pinnedChats,
+  todayChatFor,
+  untitledTodayChats,
   withNote,
   withPin,
 } from "./deskNotes.logic";
@@ -117,11 +119,47 @@ describe("desk notes", () => {
           "https://github.com/o/r/issues/2": { id: "../../etc", updatedAt: "x" },
           "https://evil.example/1": { id: "5c33d70fbd29", updatedAt: "x" },
         },
+        links: {
+          "env:a": { kind: "today", day: "2026-11-19", about: "Today", updatedAt: "x" },
+          "env:b": { kind: "today", day: "Nov 19", titled: "yes", about: "Today", updatedAt: "x" },
+        },
       }),
     );
+    expect(notes.links["env:a"]).toMatchObject({ kind: "today", day: "2026-11-19" });
+    expect(notes.links["env:b"]?.day).toBeUndefined();
+    expect(notes.links["env:b"]?.titled).toBeUndefined();
     expect(Object.keys(notes.apps)).toEqual(["Precon"]);
     expect(Object.keys(notes.sheets)).toEqual(["https://github.com/o/r/issues/1"]);
     expect(notes.sprintGoals["Sprint 1"]?.Precon?.by).toBe("agent");
     expect(parseDeskNotes("not json")).toEqual(EMPTY_DESK_NOTES);
+  });
+
+  it("finds a day's Today chat, the newest when started twice, and titles it once", () => {
+    const link = (day: string, updatedAt: string, titled?: boolean) => ({
+      kind: "today" as const,
+      view: null,
+      feature: null,
+      app: null,
+      sprint: null,
+      itemUrl: null,
+      about: "Today",
+      day,
+      updatedAt,
+      ...(titled ? { titled } : {}),
+    });
+    const notes = {
+      ...EMPTY_DESK_NOTES,
+      links: {
+        "env:old": link("2026-11-18", "2026-11-18T13:00:00Z", true),
+        "env:first": link("2026-11-19", "2026-11-19T12:00:00Z"),
+        "env:second": link("2026-11-19", "2026-11-19T13:00:00Z"),
+      },
+    };
+    expect(todayChatFor(notes, "2026-11-19")).toBe("env:second");
+    expect(todayChatFor(notes, "2026-11-20")).toBeNull();
+    expect(untitledTodayChats(notes)).toEqual([
+      { key: "env:first", title: "Today · Thu, Nov 19" },
+      { key: "env:second", title: "Today · Thu, Nov 19" },
+    ]);
   });
 });

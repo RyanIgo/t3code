@@ -11,8 +11,9 @@ import {
   featureName,
   groupWork,
   sprintOverview,
+  waitingOnYou,
 } from "./desk.logic";
-import { ALL_APPS, type DeskChatLink, type DeskNotes } from "./deskNotes.logic";
+import { ALL_APPS, type DeskChatLink, type DeskNotes, todayChatTitle } from "./deskNotes.logic";
 
 export type DeskChatContext =
   | {
@@ -22,12 +23,15 @@ export type DeskChatContext =
       readonly feature: string | null;
     }
   | { readonly kind: "sprint"; readonly sprint: DeskSprint; readonly app: string | null }
-  | { readonly kind: "item"; readonly item: DeskItem };
+  | { readonly kind: "item"; readonly item: DeskItem }
+  /** The day's planning chat: what to work on first, across every app. */
+  | { readonly kind: "today"; readonly day: string };
 
 const SNAPSHOT_LIMIT = 12;
 
 /** One line naming what the chat is about, e.g. "Precon · Board" or "Sprint 1 · Precon". */
 export function contextLabel(context: DeskChatContext): string {
+  if (context.kind === "today") return todayChatTitle(context.day);
   if (context.kind === "item")
     return `${deskRef(context.item) ?? "Item"}: ${deskTitle(context.item)}`;
   if (context.kind === "sprint") {
@@ -42,6 +46,7 @@ export function contextLabel(context: DeskChatContext): string {
 /** The app a context belongs to, for picking a project and linking the chat. */
 function contextApp(context: DeskChatContext): string | null {
   if (context.kind === "item") return context.item.app;
+  if (context.kind === "today") return null;
   return context.app;
 }
 
@@ -57,6 +62,7 @@ export function contextLink(
     sprint: context.kind === "sprint" ? context.sprint.title : (sprint?.title ?? null),
     itemUrl: context.kind === "item" ? context.item.url : null,
     about: contextLabel(context),
+    ...(context.kind === "today" ? { day: context.day } : {}),
   };
 }
 
@@ -77,6 +83,7 @@ export function deskFragment(
   link: Pick<DeskChatLink, "kind" | "view" | "feature" | "app" | "sprint" | "itemUrl">,
 ): string {
   const params = new URLSearchParams({ desk: link.kind });
+  if (link.kind === "today") return params.toString();
   if (link.kind === "item" && link.itemUrl) params.set("url", link.itemUrl);
   if (link.app) params.set("app", link.app);
   if (link.kind === "app" && link.view) params.set("view", link.view);
@@ -93,13 +100,15 @@ export type DeskTarget =
       readonly feature: string | null;
     }
   | { readonly kind: "sprint"; readonly sprint: string; readonly app: string | null }
-  | { readonly kind: "item"; readonly url: string };
+  | { readonly kind: "item"; readonly url: string }
+  | { readonly kind: "today" };
 
 /** Reads a `#desk=…` fragment back into the place on the Desk it names. */
 export function readDeskFragment(fragment: string): DeskTarget | null {
   const params = new URLSearchParams(fragment.replace(/^#/, ""));
   const kind = params.get("desk");
   const app = params.get("app");
+  if (kind === "today") return { kind };
   if (kind === "item") {
     const url = params.get("url");
     return url && url.startsWith("https://github.com/") ? { kind, url } : null;
@@ -154,6 +163,8 @@ export function buildChatPrompt(input: {
   const app = contextApp(context);
   const lines: string[] = [];
   const contextCommand = `node ~/.claude/skills/dev-desk/desk.mjs context ${JSON.stringify(app ?? "")}`;
+
+  if (context.kind === "today") return todayPrompt(input, context.day);
 
   if (context.kind === "item") {
     const item = context.item;
@@ -238,6 +249,69 @@ export function buildChatPrompt(input: {
   return lines.join("\n");
 }
 
+const PRIORITY_RANK: Record<string, number> = { P0: 0, P1: 1 };
+
+/** The Today chat's opening message: help Rigo pick what to work on today, across every app. */
+function todayPrompt(input: Parameters<typeof buildChatPrompt>[0], day: string): string {
+  const { items, notes, sprint } = input;
+  const open = items.filter(
+    (item) => (item.state === "open" || item.state === "draft") && item.status !== "Done",
+  );
+  const urgent = open
+    .filter(
+      (item) =>
+        item.kind !== "pr" &&
+        item.priority !== null &&
+        item.priority in PRIORITY_RANK &&
+        (sprint === null || item.sprint?.title === sprint.title || item.sprint === null),
+    )
+    .sort(
+      (a, b) =>
+        (PRIORITY_RANK[a.priority ?? ""] ?? 9) - (PRIORITY_RANK[b.priority ?? ""] ?? 9) ||
+        (a.app ?? "").localeCompare(b.app ?? ""),
+    );
+  const appLine = (item: DeskItem) =>
+    `- ${item.app ?? "(no app)"} · ${deskRef(item) ?? "item"} ${deskTitle(item)}${
+      item.priority ? ` [${item.priority}]` : ""
+    }${item.status && item.status !== "Todo" ? ` (${item.status})` : ""}`;
+  const section = (title: string, list: ReadonlyArray<DeskItem>) => {
+    if (list.length === 0) return [];
+    const shown = list.slice(0, SNAPSHOT_LIMIT * 2).map(appLine);
+    if (list.length > shown.length) shown.push(`- …and ${list.length - shown.length} more`);
+    return ["", `${title}:`, ...shown];
+  };
+  const add = (label: string, text: string | undefined) =>
+    text?.trim() ? ["", `## ${label}`, text.trim()] : [];
+  const lines = [
+    `This is my Today chat for ${todayChatTitle(day).replace("Today · ", "")}. Help me decide what to work on today, across every application, and keep me on it.`,
+    ...(sprint
+      ? [`Current sprint: ${sprint.title} (from ${sprint.startDate}, ${sprint.duration} days).`]
+      : []),
+    ...section("Waiting on me (blocked, or PRs in review)", waitingOnYou(items)),
+    ...section(`P0 and P1 work${sprint ? ` in ${sprint.title} or unplanned` : ""}`, urgent),
+    ...add("Where the portfolio is going", notes.directions[ALL_APPS]?.arc?.text),
+    ...add("How I steer (every application)", notes.directions[ALL_APPS]?.loop?.text),
+    "",
+    "Before answering, build your context from what you can reach:",
+    "1. Run `node ~/.claude/skills/dev-desk/desk.mjs context \"\"` for every app's direction and goals (the dev-desk skill). If it isn't installed, use what's above.",
+    "2. List the T3 chats on my machines that are waiting on me (a question, an approval, a finished turn to review) with `t3_thread_list`, if you have it.",
+    "3. If you can reach my Outlook and calendar, check today's meetings and anything asked of me since yesterday about these applications.",
+    "",
+    "Then give me:",
+    "- **Top 3 for today**: the calls only I can make, most urgent first, each with why now and what happens if it waits.",
+    "- **Then**: up to five more, in order.",
+    "- **Not today**: what can safely wait, in one line each.",
+    "Use plain words, name items as app + repo#number, and flag anything that conflicts with an app's direction or goal dates. Through the day I'll tell you what I finished or what came up; keep the list current and tell me what's next. Record decisions with `desk.mjs note`.",
+  ];
+  if (input.deskUrl) {
+    lines.push(
+      "",
+      `From the Dev Desk: [${todayChatTitle(day)}](${input.deskUrl}#${deskFragment({ kind: "today", view: null, feature: null, app: null, sprint: null, itemUrl: null })})`,
+    );
+  }
+  return lines.join("\n");
+}
+
 const VIEW_LABEL = { overview: "Overview", board: "Plan", sprint: "Sprint", prs: "PRs" } as const;
 
 export interface DeskPlace {
@@ -263,12 +337,14 @@ export function deskPlace(link: DeskChatLink): DeskPlace {
       }
     : null;
   const info =
-    link.kind === "item"
-      ? (link.about.split(":")[0] ?? link.about)
-      : link.kind === "sprint"
-        ? (link.app ?? "All apps")
-        : link.feature
-          ? featureName(link.feature)
-          : `${link.app ?? "App"} · ${VIEW_LABEL[link.view ?? "overview"]}`;
+    link.kind === "today"
+      ? link.about
+      : link.kind === "item"
+        ? (link.about.split(":")[0] ?? link.about)
+        : link.kind === "sprint"
+          ? (link.app ?? "All apps")
+          : link.feature
+            ? featureName(link.feature)
+            : `${link.app ?? "App"} · ${VIEW_LABEL[link.view ?? "overview"]}`;
   return { sprint, info: { label: info, fragment: deskFragment(link) } };
 }

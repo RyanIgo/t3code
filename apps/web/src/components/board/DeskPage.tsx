@@ -51,14 +51,18 @@ import {
 import { refreshDesk, setDeskField, useDesk } from "./deskStore";
 import {
   ALL_APPS,
+  dayKey,
   type DeskNotes,
   noteAt,
   type PinPlace,
   PORTFOLIO_DIRECTION,
+  untitledTodayChats,
 } from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
 import { saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
-import { PinnedStrip } from "./DeskPins";
+import { PinnedStrip, TodayChatBar } from "./DeskPins";
+import { threadEnvironment } from "../../state/threads";
+import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
 import { DeskCard, DeskHeading, STAGE_VARIANT } from "./DeskParts";
 import { BacklogView } from "./DeskBacklog";
@@ -102,7 +106,38 @@ const ALL = "*";
 const deskUrl = () => `${window.location.origin}/board`;
 
 /** Where a chat started or linked from the Board is pinned: the place it came from, and its app. */
+/**
+ * Titles each Today chat with the day it was started ("Today · Thu, Nov 19") once its first
+ * message has made it a real chat, then remembers that, so renaming it by hand afterwards sticks.
+ */
+function useDatedTodayChats(notes: DeskNotes, chats: ReadonlyArray<CardChatState>) {
+  const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
+    reportFailure: false,
+  });
+  // Marking a chat titled updates the notes at once, so a rerun finds nothing left to do.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- renames chats on their machines once they exist
+  useEffect(() => {
+    for (const entry of untitledTodayChats(notes)) {
+      const link = notes.links[entry.key];
+      const chat = chats.find((each) => `${each.environmentId}:${each.threadId}` === entry.key);
+      if (!link || !chat) continue;
+      saveDeskLink(entry.key, { ...link, titled: true });
+      if (chat.title === entry.title) continue;
+      void updateThreadMetadata({
+        environmentId: chat.environmentId as EnvironmentId,
+        input: { threadId: chat.threadId as ThreadId, title: entry.title },
+      });
+    }
+  }, [notes, chats, updateThreadMetadata]);
+}
+
+function launcherApp(context: DeskChatContext): string | null {
+  if (context.kind === "item") return context.item.app;
+  return context.kind === "today" ? null : context.app;
+}
+
 function pinPlacesFor(context: DeskChatContext): PinPlace[] {
+  if (context.kind === "today") return [{ kind: "today" }];
   if (context.kind === "item") {
     const places: PinPlace[] = [];
     if (context.item.url) places.push({ kind: "item", url: context.item.url });
@@ -153,6 +188,7 @@ export function DeskPage(props: {
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
   const notes = useDeskNotes();
+  useDatedTodayChats(notes.notes, props.chats);
   const board = useBoard();
   const mode = props.tab;
   const setMode = props.onTab;
@@ -206,7 +242,9 @@ export function DeskPage(props: {
     const onHashChange = () => {
       const target = readDeskFragment(window.location.hash);
       if (target === null) return;
-      if (target.kind === "item") {
+      if (target.kind === "today") {
+        setMode("now");
+      } else if (target.kind === "item") {
         setModal({ itemId: null, chat: null, sequence: [], itemUrl: target.url });
       } else if (target.kind === "sprint") {
         setMode("sprint");
@@ -358,12 +396,18 @@ export function DeskPage(props: {
     setLauncher(null);
     const created = await handleNewThread(project.ref, { prompt, navigate: false });
     if (created) {
-      saveDeskLink(
-        `${project.ref.environmentId}:${created.threadId}`,
-        contextLink(context, sprint),
-      );
+      const key = `${project.ref.environmentId}:${created.threadId}`;
+      if (context.kind === "today") {
+        // Earlier days' chats leave the Today strip; they keep their dated titles in the sidebar.
+        for (const [other, link] of Object.entries(notes.notes.links)) {
+          if (link.kind === "today" && notes.notes.pins.today?.[other]?.pinned) {
+            saveDeskPin({ kind: "today" }, other, false);
+          }
+        }
+      }
+      saveDeskLink(key, contextLink(context, sprint));
       for (const place of pinPlacesFor(context)) {
-        saveDeskPin(place, `${project.ref.environmentId}:${created.threadId}`, true);
+        saveDeskPin(place, key, true, context.kind === "today" ? "planner" : undefined);
       }
       setModal({
         itemId: context.kind === "item" ? context.item.itemId : null,
@@ -392,6 +436,17 @@ export function DeskPage(props: {
     setLauncher(null);
     setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
   };
+
+  const today = dayKey(nowMs);
+  const todayBar = (
+    <TodayChatBar
+      day={today}
+      notes={notes.notes}
+      chats={props.chats}
+      onOpenChat={openChat}
+      onStart={() => setLauncher({ kind: "today", day: today })}
+    />
+  );
 
   const prs = collectPrs(items, props.chats);
   const prFor = (item: DeskItem) =>
@@ -631,21 +686,13 @@ export function DeskPage(props: {
         <ChatLauncher
           context={launcher}
           projects={props.projects}
-          appRepos={appRepos(
-            items,
-            launcher.kind === "item" ? (launcher.item.app ?? "") : (launcher.app ?? ""),
-          )}
+          appRepos={appRepos(items, launcherApp(launcher) ?? "")}
           chats={props.chats}
           appChats={
             new Set(
-              (launcher.kind === "item"
-                ? launcher.item.app
-                  ? appThreads(launcher.item.app)
-                  : []
-                : launcher.app
-                  ? appThreads(launcher.app)
-                  : []
-              ).map((chat) => `${chat.environmentId}:${chat.threadId}`),
+              (launcherApp(launcher) ? appThreads(launcherApp(launcher) ?? "") : []).map(
+                (chat) => `${chat.environmentId}:${chat.threadId}`,
+              ),
             )
           }
           onStart={(project) => void startChat(launcher, project)}
@@ -662,12 +709,15 @@ export function DeskPage(props: {
           apps={apps}
           appOf={appOf}
           pinned={
-            <PinnedStrip
-              place={{ kind: "today" }}
-              notes={notes.notes}
-              chats={props.chats}
-              onOpenChat={openChat}
-            />
+            <div className="flex flex-col gap-3">
+              {todayBar}
+              <PinnedStrip
+                place={{ kind: "today" }}
+                notes={notes.notes}
+                chats={props.chats}
+                onOpenChat={openChat}
+              />
+            </div>
           }
           onOpenChat={openChat}
           onOpenItem={openItemIn(ids(waitingOnYou(items)))}
@@ -677,13 +727,16 @@ export function DeskPage(props: {
         <TodayView
           app={app}
           pinned={
-            <PinnedStrip
-              place={app ? { kind: "app", app } : { kind: "today" }}
-              notes={notes.notes}
-              chats={props.chats}
-              onOpenChat={openChat}
-              empty={`Nothing pinned ${app ? `to ${app}` : "to Today"} yet. Use Pin on a chat to keep it here.`}
-            />
+            <div className="flex flex-col gap-3">
+              {todayBar}
+              <PinnedStrip
+                place={app ? { kind: "app", app } : { kind: "today" }}
+                notes={notes.notes}
+                chats={props.chats}
+                onOpenChat={openChat}
+                empty={`Nothing pinned ${app ? `to ${app}` : "to Today"} yet. Use Pin on a chat to keep it here.`}
+              />
+            </div>
           }
           catchup={changesSince(
             caughtUpAt,

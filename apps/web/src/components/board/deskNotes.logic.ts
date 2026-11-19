@@ -10,10 +10,10 @@ export interface DeskNote {
   readonly by: string | null;
 }
 
-/** A T3 chat linked to part of the Desk: an app (and view), a sprint, or one item. */
+/** A T3 chat linked to part of the Desk: an app (and view), a sprint, one item, or a day. */
 export interface DeskChatLink {
   /** Where on the Desk the chat came from, so its header can link back there. */
-  readonly kind: "app" | "sprint" | "item";
+  readonly kind: "app" | "sprint" | "item" | "today";
   readonly view: "overview" | "board" | "sprint" | "prs" | null;
   readonly feature: string | null;
   readonly app: string | null;
@@ -21,6 +21,10 @@ export interface DeskChatLink {
   readonly itemUrl: string | null;
   /** What the chat was started or linked about, in plain words. */
   readonly about: string;
+  /** A Today chat's day (YYYY-MM-DD, local), fixed when it was started. */
+  readonly day?: string;
+  /** Set once the chat carries its dated title, so a later rename by hand sticks. */
+  readonly titled?: boolean;
   readonly updatedAt: string;
 }
 
@@ -197,6 +201,8 @@ function readNotes(value: unknown): Record<string, DeskNote> {
   );
 }
 
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : null);
 
 function readLinks(value: unknown): Record<string, DeskChatLink> {
@@ -211,7 +217,10 @@ function readLinks(value: unknown): Record<string, DeskChatLink> {
         [
           key,
           {
-            kind: link.kind === "sprint" || link.kind === "item" ? link.kind : ("app" as const),
+            kind:
+              link.kind === "sprint" || link.kind === "item" || link.kind === "today"
+                ? link.kind
+                : ("app" as const),
             view:
               link.view === "overview" ||
               link.view === "board" ||
@@ -224,6 +233,8 @@ function readLinks(value: unknown): Record<string, DeskChatLink> {
             sprint: text(link.sprint),
             itemUrl: itemUrl && /^https:\/\/github\.com\//.test(itemUrl) ? itemUrl : null,
             about: (text(link.about) ?? "").slice(0, 300),
+            ...(typeof link.day === "string" && DAY.test(link.day) ? { day: link.day } : {}),
+            ...(link.titled === true ? { titled: true } : {}),
             updatedAt: link.updatedAt,
           },
         ],
@@ -370,4 +381,41 @@ export function withNote(
       [target.sprint]: { ...notes.sprintGoals[target.sprint], [target.app]: note },
     },
   };
+}
+
+/** A local day as YYYY-MM-DD, the key a Today chat is filed under. */
+export function dayKey(ms: number): string {
+  const date = new Date(ms);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/** A Today chat's title, dated the day it was started: "Today · Thu, Nov 19". */
+export function todayChatTitle(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  const label = new Date(year ?? 1970, (month ?? 1) - 1, date ?? 1).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+  return `Today · ${label}`;
+}
+
+/** The chat started as the Today chat for a day, if any (the newest when there are several). */
+export function todayChatFor(notes: DeskNotes, day: string): string | null {
+  let found: { key: string; at: string } | null = null;
+  for (const [key, link] of Object.entries(notes.links)) {
+    if (link.kind !== "today" || link.day !== day) continue;
+    if (!found || link.updatedAt > found.at) found = { key, at: link.updatedAt };
+  }
+  return found?.key ?? null;
+}
+
+/** Today chats that still want their dated title. */
+export function untitledTodayChats(notes: DeskNotes): Array<{ key: string; title: string }> {
+  return Object.entries(notes.links).flatMap(([key, link]) =>
+    link.kind === "today" && link.day && !link.titled
+      ? [{ key, title: todayChatTitle(link.day) }]
+      : [],
+  );
 }

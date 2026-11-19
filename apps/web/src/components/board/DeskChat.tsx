@@ -65,6 +65,8 @@ export function ChatLauncher(props: {
       Number(props.appChats.has(`${b.environmentId}:${b.threadId}`)) -
       Number(props.appChats.has(`${a.environmentId}:${a.threadId}`)),
   );
+  // A Today chat is always new, so its title carries the day it was started.
+  const today = props.context.kind === "today";
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [projectKey, setProjectKey] = useState<string | null>(projects[0]?.key ?? null);
   const [chatKey, setChatKey] = useState<string | null>(null);
@@ -81,22 +83,29 @@ export function ChatLauncher(props: {
       <DialogPopup className="sm:max-w-lg">
         <div className="flex flex-col gap-4 p-5">
           <div className="flex flex-col gap-1 pe-8">
-            <DialogTitle>Chat about {contextLabel(props.context)}</DialogTitle>
+            <DialogTitle>
+              {today
+                ? `Start ${contextLabel(props.context)}`
+                : `Chat about ${contextLabel(props.context)}`}
+            </DialogTitle>
             <p className="text-xs text-muted-foreground">
-              The chat gets an opening message with what you're working on, a snapshot of the work,
-              and how to build its context. It goes into the message box so you can edit it first.
+              {today
+                ? "A chat to pick what you work on today, across every app. It's titled with today's date and pinned to Now and Today; it goes into the message box so you can edit it first."
+                : "The chat gets an opening message with what you're working on, a snapshot of the work, and how to build its context. It goes into the message box so you can edit it first."}
             </p>
           </div>
-          <ToggleGroup
-            aria-label="New or existing chat"
-            value={[mode]}
-            onValueChange={(value) => {
-              if (value[0] === "new" || value[0] === "existing") setMode(value[0]);
-            }}
-          >
-            <Toggle value="new">New chat</Toggle>
-            <Toggle value="existing">Link an open chat</Toggle>
-          </ToggleGroup>
+          {today ? null : (
+            <ToggleGroup
+              aria-label="New or existing chat"
+              value={[mode]}
+              onValueChange={(value) => {
+                if (value[0] === "new" || value[0] === "existing") setMode(value[0]);
+              }}
+            >
+              <Toggle value="new">New chat</Toggle>
+              <Toggle value="existing">Link an open chat</Toggle>
+            </ToggleGroup>
+          )}
           {mode === "new" ? (
             <label className="flex flex-col gap-1">
               <span className="text-xs text-muted-foreground">Machine and project</span>

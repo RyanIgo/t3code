@@ -1,4 +1,4 @@
-import { PinIcon, XIcon } from "lucide-react";
+import { CalendarCheckIcon, PinIcon, XIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
@@ -21,6 +21,8 @@ import {
   type PinPlace,
   pinnedChats,
   pinPlace,
+  todayChatFor,
+  todayChatTitle,
 } from "./deskNotes.logic";
 import { saveDeskPin } from "./deskNotesStore";
 import { DeskHeading } from "./DeskParts";
@@ -176,6 +178,58 @@ export function PinnedStrip(props: {
           })}
         </ul>
       )}
+    </section>
+  );
+}
+
+/**
+ * Fleet fork: the day's planning chat, titled with the day it was started. Opens it when it's
+ * running; otherwise offers to start one (yesterday's stays in the sidebar under its own date).
+ */
+export function TodayChatBar(props: {
+  readonly day: string;
+  readonly notes: DeskNotes;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onStart: () => void;
+}) {
+  const key = todayChatFor(props.notes, props.day);
+  const chat = key ? props.chats.find((entry) => chatKey(entry) === key) : undefined;
+  const title = todayChatTitle(props.day);
+  const status = chat ? chatStatus(chat) : null;
+  return (
+    <section
+      aria-label="Today's chat"
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-border bg-muted/40 px-3 py-2"
+    >
+      <CalendarCheckIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+      {chat && status ? (
+        <button
+          type="button"
+          className="flex min-w-0 cursor-pointer items-center gap-2 text-left text-sm font-medium"
+          onClick={() => props.onOpenChat(chat)}
+        >
+          <span className="truncate">{chatTitle(chat.title)}</span>
+          <Badge variant={status.tone} size="sm">
+            {status.label}
+          </Badge>
+        </button>
+      ) : (
+        <>
+          <span className="text-sm font-medium">{title}</span>
+          <span className="text-xs text-muted-foreground">
+            No chat for today yet. It helps you pick what to work on first, across every app.
+          </span>
+        </>
+      )}
+      <Button
+        variant={chat ? "ghost" : "default"}
+        size="xs"
+        className="ms-auto"
+        onClick={chat ? () => props.onOpenChat(chat) : props.onStart}
+      >
+        {chat ? "Open" : "Plan today"}
+      </Button>
     </section>
   );
 }
