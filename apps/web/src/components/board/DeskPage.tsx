@@ -783,6 +783,9 @@ export function DeskPage(props: {
                 notes={notes.notes}
                 items={items}
                 apps={apps}
+                sprints={plannedSprints(view.sprints ?? [], nowMs).map((entry) => entry.title)}
+                chats={props.chats}
+                onOpenChat={openChat}
                 onSort={() =>
                   setLauncher({
                     kind: "inbox",

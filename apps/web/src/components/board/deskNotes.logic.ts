@@ -52,7 +52,7 @@ export interface DeskNotes {
 
 export const INBOX_SOURCES = ["In person", "Email", "Teams", "Call", "Other"] as const;
 export type InboxSource = (typeof INBOX_SOURCES)[number];
-const INBOX_ACTIONS = ["comment", "new", "planner", "dismiss"] as const;
+const INBOX_ACTIONS = ["comment", "new", "planner", "chat", "dismiss"] as const;
 export type InboxAction = (typeof INBOX_ACTIONS)[number];
 
 /** Where a triage agent (or Rigo) thinks a note belongs. Nothing happens until it's approved. */
@@ -66,6 +66,10 @@ export interface InboxProposal {
   readonly type: string | null;
   readonly priority: string | null;
   readonly title: string | null;
+  /** For "new": a sprint to put it in; null leaves it in the Backlog. */
+  readonly sprint?: string | null;
+  /** A chat ("<environmentId>:<threadId>") that also gets the note, or the only place it goes. */
+  readonly chat?: string | null;
   /** One plain sentence on why. */
   readonly reason: string;
 }
@@ -368,6 +372,8 @@ function readProposal(value: unknown): InboxProposal | null {
     type: short(raw.type, 40),
     priority: short(raw.priority, 10),
     title: short(raw.title, 200),
+    sprint: short(raw.sprint, 80),
+    chat: typeof raw.chat === "string" && /^[\w-]+:[\w-]+$/.test(raw.chat) ? raw.chat : null,
     reason: short(raw.reason, 500) ?? "",
   };
 }

@@ -1,4 +1,4 @@
-import { InboxIcon, NotebookPenIcon } from "lucide-react";
+import { ImagePlusIcon, InboxIcon, NotebookPenIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "../ui/badge";
@@ -8,7 +8,11 @@ import { Input } from "../ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
-import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
+import ChatMarkdown from "../ChatMarkdown";
+import { cn } from "../../lib/utils";
+import type { CardChatState } from "./boardCards.logic";
+import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
+import { draftToChat } from "./DeskWork";
 import {
   type DeskNotes,
   INBOX_SOURCES,
@@ -20,17 +24,21 @@ import {
 } from "./deskNotes.logic";
 import { saveInboxNote } from "./deskNotesStore";
 import { DeskHeading, openExternal } from "./DeskParts";
-import { commentOnDeskItem, createDeskItem } from "./deskStore";
+import { commentOnDeskItem, createDeskItem, uploadPicture } from "./deskStore";
 
 const NONE = "__none__";
 const TYPES = ["Bug", "Story", "Maintenance", "Research", "Support"] as const;
 const PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 const ACTION_LABEL: Record<InboxAction, string> = {
   comment: "Add to an item",
-  new: "New item",
+  new: "New item (Backlog or a sprint)",
   planner: "Send to the app's planner",
+  chat: "Send to a chat only",
   dismiss: "Not development work",
 };
+const BACKLOG = "Backlog";
+const NONE_CHAT = "__no_chat__";
+const chatKeyOf = (chat: CardChatState) => `${chat.environmentId}:${chat.threadId}`;
 
 const newId = () => Math.random().toString(36).slice(2, 12);
 const day = (iso: string) =>
@@ -43,6 +51,30 @@ export function QuickNoteButton(props: { readonly apps: ReadonlyArray<string> })
   const [source, setSource] = useState<InboxSource>("In person");
   const [who, setWho] = useState("");
   const [app, setApp] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+  // Pictures go to the hub and into the note as markdown, so they travel with it when it's filed.
+  const attach = async (files: ReadonlyArray<File>) => {
+    const images = files.filter((entry) => entry.type.startsWith("image/"));
+    if (images.length === 0) return;
+    setUploading((count) => count + images.length);
+    for (const image of images) {
+      try {
+        const url = await uploadPicture(image);
+        setText(
+          (current) =>
+            `${current}${current && !current.endsWith("\n") ? "\n" : ""}![${image.name || "picture"}](${url})\n`,
+        );
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Couldn't attach the picture",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setUploading((count) => count - 1);
+      }
+    }
+  };
   const save = () => {
     if (!text.trim()) return;
     const at = new Date().toISOString();
@@ -83,12 +115,45 @@ export function QuickNoteButton(props: { readonly apps: ReadonlyArray<string> })
               <DialogTitle>Quick note</DialogTitle>
               <Textarea
                 aria-label="What was asked or reported"
-                placeholder="What was asked or reported, in your words"
-                rows={4}
+                placeholder="What was asked or reported, in your words. Paste or drop a picture to attach it."
+                rows={5}
                 autoFocus
                 value={text}
                 onChange={(event) => setText(event.target.value)}
+                onPaste={(event) => {
+                  const files = [...event.clipboardData.files];
+                  if (files.some((entry) => entry.type.startsWith("image/"))) {
+                    event.preventDefault();
+                    void attach(files);
+                  }
+                }}
+                onDrop={(event) => {
+                  const files = [...event.dataTransfer.files];
+                  if (files.length > 0) {
+                    event.preventDefault();
+                    void attach(files);
+                  }
+                }}
               />
+              <div className="flex items-center gap-2">
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent">
+                  <ImagePlusIcon className="size-3.5" aria-hidden />
+                  Add picture
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="sr-only"
+                    onChange={(event) => {
+                      void attach([...(event.target.files ?? [])]);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+                {uploading > 0 ? (
+                  <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
+                ) : null}
+              </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <Select
                   value={source}
@@ -142,7 +207,7 @@ export function QuickNoteButton(props: { readonly apps: ReadonlyArray<string> })
                 <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-                <Button type="submit" size="sm" disabled={!text.trim()}>
+                <Button type="submit" size="sm" disabled={!text.trim() || uploading > 0}>
                   Save to inbox
                 </Button>
               </div>
@@ -154,23 +219,80 @@ export function QuickNoteButton(props: { readonly apps: ReadonlyArray<string> })
   );
 }
 
-function describe(proposal: InboxProposal, items: ReadonlyArray<DeskItem>): string {
+function describe(
+  proposal: InboxProposal,
+  items: ReadonlyArray<DeskItem>,
+  chats: ReadonlyArray<CardChatState>,
+): string {
+  const chat = proposal.chat ? chats.find((entry) => chatKeyOf(entry) === proposal.chat) : null;
+  const toChat = chat ? `"${chatTitle(chat.title)}"` : "a chat";
+  let main: string;
   if (proposal.action === "comment") {
     const item = items.find((entry) => entry.url === proposal.itemUrl);
-    return `Add to ${item ? `${deskRef(item)}: ${deskTitle(item)}` : (proposal.itemUrl ?? "an item")}`;
+    main = `Add to ${item ? `${deskRef(item)}: ${deskTitle(item)}` : (proposal.itemUrl ?? "an item")}`;
+  } else if (proposal.action === "new") {
+    main = `New ${proposal.type ?? "item"} in ${proposal.app ?? "?"}${proposal.priority ? ` (${proposal.priority})` : ""}, in ${proposal.sprint ?? BACKLOG}: ${proposal.title ?? ""}`;
+  } else if (proposal.action === "planner") {
+    main = `Send to ${proposal.app ?? "the app"}'s planner`;
+  } else if (proposal.action === "chat") {
+    return `Send to ${toChat}`;
+  } else {
+    return "Not development work: dismiss";
   }
-  if (proposal.action === "new") {
-    return `New ${proposal.type ?? "item"} in ${proposal.app ?? "?"}${proposal.priority ? ` (${proposal.priority})` : ""}: ${proposal.title ?? ""}`;
-  }
-  if (proposal.action === "planner") return `Send to ${proposal.app ?? "the app"}'s planner`;
-  return "Not development work: dismiss";
+  return proposal.chat ? `${main}, and send to ${toChat}` : main;
+}
+
+/** A first guess at a title: the first real sentence, skipping greetings and picture lines. */
+function suggestTitle(text: string): string {
+  const line =
+    text
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find(
+        (entry) =>
+          entry.split(/\s+/).length >= 5 &&
+          !entry.startsWith("![") &&
+          !/^(hi|hello|hey|dear)\b/i.test(entry),
+      ) ?? text.trim();
+  const sentence = line.split(/(?<=[.!?])\s/)[0] ?? line;
+  return sentence.slice(0, 120);
 }
 
 const from = (note: InboxNote) =>
   [note.who, note.source, day(note.createdAt)].filter(Boolean).join(" · ");
 
 /** Files an approved note: a comment, a new issue, a hand-off to a planner, or nothing. */
-async function file(note: InboxNote, proposal: InboxProposal): Promise<InboxNote> {
+async function file(
+  note: InboxNote,
+  proposal: InboxProposal,
+  chats: ReadonlyArray<CardChatState>,
+  onOpenChat: (chat: CardChatState) => void,
+): Promise<InboxNote> {
+  const filed = await fileOnGitHub(note, proposal);
+  const chat = proposal.chat ? chats.find((entry) => chatKeyOf(entry) === proposal.chat) : null;
+  if (chat) {
+    draftToChat(
+      chat,
+      [
+        `From my inbox (${from(note)}):`,
+        "",
+        note.text,
+        ...(filed.result?.url ? ["", `Filed as ${filed.result.url}`] : []),
+      ].join("\n"),
+    );
+    onOpenChat(chat);
+    if (proposal.action === "chat") {
+      return {
+        ...filed,
+        state: "filed",
+        result: { url: null, label: `Sent to ${chatTitle(chat.title)}` },
+      };
+    }
+  }
+  return filed;
+}
+
+async function fileOnGitHub(note: InboxNote, proposal: InboxProposal): Promise<InboxNote> {
   const at = new Date().toISOString();
   const credit = `Raised by ${note.who ?? "someone"} (${note.source.toLowerCase()}, ${day(note.createdAt)}).`;
   if (proposal.action === "comment" && proposal.itemUrl) {
@@ -206,6 +328,7 @@ async function file(note: InboxNote, proposal: InboxProposal): Promise<InboxNote
           ["App", proposal.app],
           ["Work type", proposal.type],
           ["Priority", proposal.priority],
+          ["Sprint", proposal.sprint ?? null],
         ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
       ),
     });
@@ -226,6 +349,7 @@ async function file(note: InboxNote, proposal: InboxProposal): Promise<InboxNote
       updatedAt: at,
     };
   }
+  if (proposal.action === "chat") return { ...note, proposal, updatedAt: at };
   return { ...note, state: "dismissed", proposal, result: null, updatedAt: at };
 }
 
@@ -237,6 +361,11 @@ export function InboxStrip(props: {
   readonly notes: DeskNotes;
   readonly items: ReadonlyArray<DeskItem>;
   readonly apps: ReadonlyArray<string>;
+  /** Sprint names a new item can go into (else it waits in the Backlog). */
+  readonly sprints: ReadonlyArray<string>;
+  /** Open chats a note can also be sent to. */
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
   /** Starts a triage chat that proposes a route for each new note. */
   readonly onSort: () => void;
 }) {
@@ -264,7 +393,15 @@ export function InboxStrip(props: {
       {toSort.length > 0 ? (
         <ul className="flex flex-col gap-2">
           {toSort.map((note) => (
-            <InboxCard key={note.id} note={note} items={props.items} apps={props.apps} />
+            <InboxCard
+              key={note.id}
+              note={note}
+              items={props.items}
+              apps={props.apps}
+              sprints={props.sprints}
+              chats={props.chats}
+              onOpenChat={props.onOpenChat}
+            />
           ))}
         </ul>
       ) : null}
@@ -276,7 +413,9 @@ export function InboxStrip(props: {
           <ul className="mt-1 flex flex-col gap-1 text-xs">
             {sorted.map((note) => (
               <li key={note.id} className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate">{note.text}</span>
+                <span className="min-w-0 flex-1 truncate">
+                  {note.text.replace(/!\[[^\]]*\]\([^)]*\)/g, "[picture]")}
+                </span>
                 {note.result?.url ? (
                   <button
                     type="button"
@@ -301,14 +440,19 @@ function InboxCard(props: {
   readonly note: InboxNote;
   readonly items: ReadonlyArray<DeskItem>;
   readonly apps: ReadonlyArray<string>;
+  readonly sprints: ReadonlyArray<string>;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const { note } = props;
   const [editing, setEditing] = useState<InboxProposal | null>(null);
   const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const long = note.text.length > 400 || note.text.split("\n").length > 6;
   const run = async (proposal: InboxProposal) => {
     setBusy(true);
     try {
-      saveInboxNote(await file(note, proposal));
+      saveInboxNote(await file(note, proposal, props.chats, props.onOpenChat));
       setEditing(null);
     } catch (error) {
       toastManager.add({
@@ -337,17 +481,35 @@ function InboxCard(props: {
         {from(note)}
         {note.app ? ` · ${note.app}` : ""}
       </span>
-      <p className="whitespace-pre-wrap">{note.text}</p>
+      <div
+        className={cn(
+          "relative text-sm [&_img]:max-h-64 [&_img]:rounded-md",
+          long && !expanded && "max-h-32 overflow-hidden",
+        )}
+      >
+        <ChatMarkdown text={note.text} cwd={undefined} />
+      </div>
+      {long ? (
+        <button
+          type="button"
+          className="self-start cursor-pointer text-xs text-muted-foreground underline-offset-2 hover:underline"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? "Show less" : "Show all"}
+        </button>
+      ) : null}
       {editing ? (
         <ProposalEditor
           value={editing}
           items={props.items}
           apps={props.apps}
+          sprints={props.sprints}
+          chats={props.chats}
           onChange={setEditing}
         />
       ) : note.proposal ? (
         <div className="flex flex-col gap-0.5 rounded-md bg-muted/60 px-2 py-1.5">
-          <span className="font-medium">{describe(note.proposal, props.items)}</span>
+          <span className="font-medium">{describe(note.proposal, props.items, props.chats)}</span>
           {note.proposal.reason ? (
             <span className="text-xs text-muted-foreground">{note.proposal.reason}</span>
           ) : null}
@@ -392,7 +554,7 @@ function InboxCard(props: {
                     app: note.app,
                     type: "Bug",
                     priority: "P2",
-                    title: note.text.split("\n")[0]?.slice(0, 120) ?? "",
+                    title: suggestTitle(note.text),
                     reason: "Sorted by Rigo.",
                   },
                 )
@@ -414,6 +576,8 @@ function ProposalEditor(props: {
   readonly value: InboxProposal;
   readonly items: ReadonlyArray<DeskItem>;
   readonly apps: ReadonlyArray<string>;
+  readonly sprints: ReadonlyArray<string>;
+  readonly chats: ReadonlyArray<CardChatState>;
   readonly onChange: (value: InboxProposal) => void;
 }) {
   const { value } = props;
@@ -455,12 +619,14 @@ function ProposalEditor(props: {
     </Select>
   );
   const byUrl = new Map(appItems.flatMap((item) => (item.url ? [[item.url, item]] : [])));
+  const chatName = new Map(props.chats.map((chat) => [chatKeyOf(chat), chatTitle(chat.title)]));
+  const chatKeys = [...chatName.keys()];
   return (
     <div className="grid grid-cols-1 gap-2 rounded-md border border-border p-2 sm:grid-cols-2">
       {menu(
         "What to do",
         value.action,
-        ["comment", "new", "planner", "dismiss"],
+        ["comment", "new", "planner", "chat", "dismiss"],
         (next) => set({ action: (next as InboxAction | null) ?? "new" }),
         (option) => ACTION_LABEL[option as InboxAction],
       )}
@@ -490,8 +656,20 @@ function ProposalEditor(props: {
             value={value.title ?? ""}
             onChange={(event) => set({ title: event.target.value })}
           />
+          {menu("Sprint", value.sprint ?? BACKLOG, [BACKLOG, ...props.sprints], (next) =>
+            set({ sprint: next === BACKLOG ? null : next }),
+          )}
         </>
       ) : null}
+      {value.action === "dismiss"
+        ? null
+        : menu(
+            value.action === "chat" ? "Chat" : "Also send to a chat",
+            value.chat ?? null,
+            [...(value.action === "chat" ? [] : [NONE_CHAT]), ...chatKeys],
+            (next) => set({ chat: next === NONE_CHAT ? null : next }),
+            (key) => (key === NONE_CHAT ? "No chat" : (chatName.get(key) ?? key)),
+          )}
     </div>
   );
 }

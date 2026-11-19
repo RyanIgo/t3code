@@ -174,6 +174,62 @@ async function handleDocument(name, req, res, login) {
   send(res, 200, { version: outcome.saved.version, updatedAt: outcome.saved.updatedAt });
 }
 
+// Pictures attached to inbox notes: images only, kept in the data folder, served to owners.
+const FILES_DIR = NodePath.join(DATA_ROOT, "files");
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+const IMAGE_TYPES = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/heic": "heic",
+};
+
+async function handleFiles(pathname, req, res) {
+  if (pathname === "/fleet/files" && req.method === "POST") {
+    const type = String(req.headers["content-type"] ?? "")
+      .split(";")[0]
+      .trim();
+    const ext = IMAGE_TYPES[type];
+    if (!ext) {
+      send(res, 415, { error: "Only images (PNG, JPEG, GIF, WebP, HEIC) can be attached." });
+      return true;
+    }
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_FILE_BYTES) {
+        send(res, 413, { error: "Pictures can be up to 8 MB." });
+        return true;
+      }
+      chunks.push(chunk);
+    }
+    const name = `${NodeCrypto.randomBytes(9).toString("hex")}.${ext}`;
+    await NodeFSP.mkdir(FILES_DIR, { recursive: true, mode: 0o700 });
+    await NodeFSP.writeFile(NodePath.join(FILES_DIR, name), Buffer.concat(chunks), { mode: 0o600 });
+    send(res, 200, { path: `/fleet/files/${name}` });
+    return true;
+  }
+  const file = pathname.match(/^\/fleet\/files\/([a-f0-9]{18}\.(png|jpg|gif|webp|heic))$/);
+  if (file && req.method === "GET") {
+    try {
+      const data = await NodeFSP.readFile(NodePath.join(FILES_DIR, file[1]));
+      const type = Object.entries(IMAGE_TYPES).find(([, ext]) => ext === file[2])?.[0];
+      res.writeHead(200, {
+        "content-type": type ?? "application/octet-stream",
+        "cache-control": "private, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(data);
+    } catch {
+      send(res, 404, { error: "not-found" });
+    }
+    return true;
+  }
+  return false;
+}
+
 async function serveStatic(req, res) {
   if (req.method !== "GET" && req.method !== "HEAD") {
     send(res, 405, "Method not allowed");
@@ -716,6 +772,7 @@ const server = NodeHttp.createServer(async (req, res) => {
     }
     if (await handleArtifacts(pathname, req, res, login, owner)) return;
     if (pathname.startsWith("/fleet/desk") && (await handleDesk(pathname, req, res))) return;
+    if (pathname.startsWith("/fleet/files") && (await handleFiles(pathname, req, res))) return;
     if (pathname === "/fleet/whoami") {
       send(res, 200, { login });
       return;

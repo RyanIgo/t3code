@@ -42,7 +42,7 @@ const refOf = (chat: CardChatState) =>
   scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId);
 
 /** Puts text in a chat's message box (after anything already there), for Rigo to read and send. */
-function draftToChat(chat: CardChatState, text: string) {
+export function draftToChat(chat: CardChatState, text: string) {
   const store = useComposerDraftStore.getState();
   const ref = refOf(chat);
   const existing = store.getComposerDraft(ref)?.prompt ?? "";

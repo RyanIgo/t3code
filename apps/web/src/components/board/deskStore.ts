@@ -178,3 +178,20 @@ export async function commentOnDeskItem(
 ): Promise<{ readonly url: string }> {
   return post<{ url: string }>("/fleet/desk/comment", { url, body });
 }
+
+/** Uploads a picture to the hub and returns its address, for a note's markdown. */
+export async function uploadPicture(file: Blob): Promise<string> {
+  const response = await fetch("/fleet/files", {
+    method: "POST",
+    headers: { "content-type": file.type },
+    body: file,
+    signal: AbortSignal.timeout(60_000),
+  });
+  const result = (await response.json().catch(() => null)) as {
+    path?: string;
+    error?: string;
+  } | null;
+  if (!response.ok || !result?.path)
+    throw new Error(result?.error ?? `The hub answered ${response.status}.`);
+  return new URL(result.path, window.location.origin).toString();
+}

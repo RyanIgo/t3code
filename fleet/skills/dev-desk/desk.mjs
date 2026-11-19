@@ -320,6 +320,7 @@ async function propose(id, action, options) {
         type: given.type ?? null,
         priority: given.priority ?? null,
         title: given.title ?? null,
+        sprint: given.sprint ?? null,
         reason: given.reason ?? "",
       },
       updatedAt: at,
