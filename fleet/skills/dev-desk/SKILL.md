@@ -87,6 +87,12 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
   research and support. Work not in a sprint is the **Backlog**, ordered by **Priority** (P0–P3).
 - **Status**: Todo → In Progress → In Review → Done, the Sprint board's columns. **Lane** is only
   used to flag **Blocked**.
+  - **Todo**: no one is on it yet.
+  - **In Progress**: a chat is on it (focus), working, or has a draft PR.
+  - **In Review**: something waits on Rigo: an open PR, a test sheet with checks to do, or a result or question from the chat.
+  - **Done** means nothing is left: the issue is closed, every PR is merged or closed, the test
+    sheet is finished with nothing failed, the acceptance criteria are ticked, and the chat is
+    settled. A closed item with any of these left shows as "Done, needs wrap-up" until it's cleared.
 
 Existing parent / sub-issue links are kept; features are a field, not a parent.
 
@@ -136,8 +142,11 @@ gh project item-list 1 --owner cfevans --format json --limit 1000 \
 
 - Not in the current sprint: say so in one line and ask whether to go ahead before a large change.
 - Keep **Status** current: In Progress when you start, In Review when the PR or test sheet is
-  ready for Rigo. The board also moves a card forward when it sees an open PR or a working agent,
-  but the field is the record. Done is set by merging or closing, or by Rigo.
+  ready for Rigo. The board also moves a card forward when it sees an open PR, a sheet or a
+  working agent, but the field is the record. Done is set by merging or closing, or by Rigo.
+- **Wrapping up** (when your work merges): tick the acceptance criteria that hold (move any that
+  don't to a new issue and say so), close PRs that won't merge, make sure the test sheet is
+  finished, close the issue, run `desk.mjs next ""`, and tell Rigo the chat can be settled.
 - If you hit a blocker you can't clear, set Lane to **Blocked** (the card shows a Blocked flag) and
   say on what in "Where it stands". Clear it when unblocked.
 

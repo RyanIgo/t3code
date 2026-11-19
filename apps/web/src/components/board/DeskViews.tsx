@@ -26,6 +26,7 @@ import {
   featureName,
   featureRecord,
   groupWork,
+  needsWrapUp,
   sprintOverview,
   chatTitle,
   workKind,
@@ -52,7 +53,8 @@ import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { cn } from "../../lib/utils";
-import { sheetsForItem, useHubSheets } from "./deskSheets";
+import { sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
+import { WrapUpPanel } from "./DeskWrapUp";
 import { OnItRow, ReviewTab, WorkPanel } from "./DeskWork";
 
 const NONE = "__none__";
@@ -428,7 +430,13 @@ export function DeskModal(props: {
   const next = index !== -1 ? props.sequence[index + 1] : undefined;
   const draft = showDraft ? props.draft : null;
   const title = item ? deskTitle(item) : draft ? "New chat" : chatTitle(shown?.title ?? "Chat");
-  const sheets = item ? sheetsForItem(hubSheets, item, related, notes) : [];
+  const sheets = item ? sheetsForItem(hubSheets, item, notes) : [];
+  const sheetSignal = sheets[0]
+    ? {
+        unchecked: uncheckedRows(sheets[0].counts),
+        failed: sheets[0].counts.fail + sheets[0].counts.blocked,
+      }
+    : null;
   const show = (nextTab: ItemTab) => {
     setTab(nextTab);
     if (nextTab === "chats") setChatsSeen(true);
@@ -555,6 +563,15 @@ export function DeskModal(props: {
         ) : (
           <div className="border-b border-border" />
         )}
+        {item && needsWrapUp(item, { chats: props.chats, focused: false, sheet: sheetSignal }) ? (
+          <WrapUpPanel
+            item={item}
+            chats={props.chats}
+            sheet={sheetSignal}
+            onOpenChat={openChatHere}
+            onReview={() => show("review")}
+          />
+        ) : null}
         {tabbed && tab === "details" ? (
           <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
             <div className="mx-auto flex max-w-4xl flex-col">

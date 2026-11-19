@@ -50,6 +50,22 @@ const pr = (number: number, state = "open") => ({
 });
 
 describe("sprint board and backlog", () => {
+  const chat = (overrides: Partial<CardChatState>): CardChatState => ({
+    environmentId: "env",
+    threadId: "t",
+    title: "Chat",
+    projectKey: "p",
+    column: "running",
+    needsYou: false,
+    working: false,
+    hasPullRequest: false,
+    pullRequestNumber: null,
+    pullRequests: [],
+    since: null,
+    worktree: null,
+    branch: null,
+    ...overrides,
+  });
   const sprint1 = { title: "Sprint 1", startDate: "2026-11-16", duration: 14 };
   const sprint0 = { title: "Sprint 0", startDate: "2026-11-02", duration: 14 };
 
@@ -65,15 +81,44 @@ describe("sprint board and backlog", () => {
         item({ itemId: "pr-open", sprint: sprint1, status: "Todo", pullRequests: [pr(7)] }),
         item({ itemId: "pr-draft", sprint: sprint1, pullRequests: [pr(8, "draft")] }),
         item({ itemId: "agent", sprint: sprint1, priority: "P3" }),
+        item({ itemId: "result", sprint: sprint1, status: "Todo" }),
+        item({ itemId: "sheet", sprint: sprint1, status: "In Progress" }),
+        item({ itemId: "closed-pr-open", sprint: sprint1, state: "closed", pullRequests: [pr(9)] }),
+        item({ itemId: "closed-asking", sprint: sprint1, state: "closed" }),
+        item({
+          itemId: "closed-unticked",
+          sprint: sprint1,
+          state: "closed",
+          story: { text: "", criteria: [{ text: "a", done: false }] },
+        }),
       ],
       sprint1,
       { app: null, query: "" },
-      (entry) => entry.itemId === "agent",
+      (entry) => ({
+        chats:
+          entry.itemId === "agent"
+            ? [chat({ working: true })]
+            : entry.itemId === "result"
+              ? [chat({ column: "done" })]
+              : entry.itemId === "closed-asking"
+                ? [chat({ needsYou: true })]
+                : [],
+        focused: false,
+        sheet: entry.itemId === "sheet" ? { unchecked: 3, failed: 0 } : null,
+      }),
     );
     const ids = (status: keyof typeof board) => board[status].map((entry) => entry.itemId);
     expect(ids("Todo")).toEqual(["todo"]);
     expect(ids("In Progress")).toEqual(["doing", "pr-draft", "agent"]);
-    expect(ids("In Review").toSorted()).toEqual(["pr-open", "review"]);
+    expect(ids("In Review").toSorted()).toEqual([
+      "closed-asking",
+      "closed-pr-open",
+      "closed-unticked",
+      "pr-open",
+      "result",
+      "review",
+      "sheet",
+    ]);
     expect(ids("Done")).toEqual(["closed"]);
   });
 

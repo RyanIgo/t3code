@@ -200,6 +200,8 @@ export function DeskCard(props: {
   readonly currentSprint: string | null;
   /** A button under the card (e.g. Add to sprint, Start a chat). */
   readonly action?: ReactNode;
+  /** Closed (or marked Done) with leftovers: an open PR, a chat waiting, unfinished tests. */
+  readonly wrapUp?: boolean;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpen: (item: DeskItem) => void;
 }) {
@@ -270,6 +272,11 @@ export function DeskCard(props: {
           ) : inCurrentSprint && unfinished ? (
             <Badge variant="outline" size="sm">
               No agent yet
+            </Badge>
+          ) : null}
+          {props.wrapUp ? (
+            <Badge variant="warning" size="sm">
+              Done, needs wrap-up
             </Badge>
           ) : null}
           {item.lane === "Blocked" ? (

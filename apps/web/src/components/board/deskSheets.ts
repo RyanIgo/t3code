@@ -1,13 +1,12 @@
 /**
  * Fleet fork: hub test sheets, for the Now tab and an item's Review tab. A sheet is matched to an
- * item by the chat that published it, the story sheet the Desk made for it, or a "#<n>" in its
- * title that names the item or one of its pull requests.
+ * item by the story sheet the Desk made for it, a "#<n>" in its title that names the item or one
+ * of its pull requests, or the chat recorded on the item having published it.
  */
 import { useEffect, useState } from "react";
 
-import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem } from "./desk.logic";
-import type { DeskNotes } from "./deskNotes.logic";
+import { type DeskNotes, focusedThreads } from "./deskNotes.logic";
 
 interface SheetCounts {
   readonly total: number;
@@ -109,10 +108,11 @@ export function sheetIsIncomplete(detail: SheetDetail): boolean {
 export function sheetsForItem(
   sheets: ReadonlyArray<SheetSummary>,
   item: DeskItem,
-  chats: ReadonlyArray<CardChatState>,
   notes: DeskNotes,
 ): SheetSummary[] {
-  const threads = new Set(chats.map((chat) => chat.threadId));
+  // Only the chat recorded on the item: a chat that touched many items (a living list) doesn't
+  // make its sheets this item's.
+  const threads = focusedThreads(notes, item.url);
   const storySheet = item.url ? notes.sheets[item.url]?.id : undefined;
   const numbers = new Set(
     [item.number, ...item.pullRequests.map((pr) => pr.number)].filter(

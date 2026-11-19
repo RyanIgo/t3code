@@ -39,6 +39,8 @@ import {
   deskRef,
   deskTitle,
   groupWork,
+  type ItemSignals,
+  needsWrapUp,
   plannedSprints,
   SPRINT_STATUSES,
   type SprintStatus,
@@ -47,6 +49,7 @@ import {
   summarizeApps,
   waitingOnYou,
   type WorkKind,
+  wrapUpLeft,
 } from "./desk.logic";
 import { refreshDesk, setDeskField, useDesk } from "./deskStore";
 import {
@@ -62,7 +65,8 @@ import {
 import { DirectionPanel } from "./DeskDirection";
 import { saveDeskFocus, saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
-import { itemForSheet } from "./deskSheets";
+import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
+import { StatusSyncBar } from "./DeskWrapUp";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
@@ -192,6 +196,7 @@ export function DeskPage(props: {
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
   const notes = useDeskNotes();
+  const hubSheets = useHubSheets();
   useDatedTodayChats(notes.notes, props.pinnable);
   const board = useBoard();
   const mode = props.tab;
@@ -392,8 +397,15 @@ export function DeskPage(props: {
   const onDragEnd = (event: DragEndEvent) => {
     const status = event.over?.data.current?.status as SprintStatus | undefined;
     const item = items.find((entry) => entry.itemId === event.active.id);
-    if (!item || !status || sprintStatus(item, agentActive(item)) === status) return;
+    if (!item || !status || sprintStatus(item, signalsFor(item)) === status) return;
     void setDeskField(item.itemId, "Status", status);
+    // Done only sticks when nothing is left; otherwise show what's left to wrap up.
+    if (
+      status === "Done" &&
+      wrapUpLeft({ ...item, state: "closed" }, signalsFor(item)).length > 0
+    ) {
+      setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "details" });
+    }
   };
 
   const startChat = async (context: DeskChatContext, project: DeskProjectChoice) => {
@@ -484,12 +496,26 @@ export function DeskPage(props: {
       showApp={app === null}
       currentSprint={sprint?.title ?? null}
       action={action}
+      wrapUp={needsWrapUp(item, signalsFor(item))}
       onOpenChat={openChat}
       onOpen={openItemIn(sequence)}
     />
   );
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
-  const agentActive = (entry: DeskItem) => chatsFor(entry).some((chat) => chat.working);
+  const signalsFor = (entry: DeskItem): ItemSignals => {
+    const chats = chatsFor(entry);
+    const sheet = sheetsForItem(hubSheets, entry, notes.notes)[0];
+    return {
+      chats,
+      focused: focusedThreads(notes.notes, entry.url).size > 0,
+      sheet: sheet
+        ? {
+            unchecked: uncheckedRows(sheet.counts),
+            failed: sheet.counts.fail + sheet.counts.blocked,
+          }
+        : null,
+    };
+  };
   // The PR shows first, with its own item (or the issue it closes) and its chat beside it.
   const openPr = (pr: DeskPr) =>
     setModal({
@@ -528,7 +554,18 @@ export function DeskPage(props: {
     if (!sprintShown) {
       return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
     }
-    const board = buildSprintBoard(items, sprintShown, { app, query }, agentActive);
+    const board = buildSprintBoard(items, sprintShown, { app, query }, signalsFor);
+    // Where GitHub's Status lags the board; updated together once Rigo approves the list.
+    const behind = SPRINT_STATUSES.flatMap((status) =>
+      board[status].flatMap((entry) =>
+        entry.kind !== "pr" &&
+        (entry.status ?? "Todo") !== status &&
+        // A closed item waiting to be wrapped up keeps Done on GitHub.
+        !needsWrapUp(entry, signalsFor(entry))
+          ? [{ entry, status }]
+          : [],
+      ),
+    );
     const sequence = SPRINT_STATUSES.flatMap((status) => ids(board[status]));
     return (
       <SprintView
@@ -567,6 +604,16 @@ export function DeskPage(props: {
         }
         board={
           <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+            {behind.length > 0 ? (
+              <StatusSyncBar
+                changes={behind.map(({ entry, status }) => ({
+                  itemId: entry.itemId,
+                  label: `${deskRef(entry) ?? "item"} ${deskTitle(entry)}`,
+                  from: entry.status ?? "Todo",
+                  to: status,
+                }))}
+              />
+            ) : null}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
               {SPRINT_STATUSES.map((status) => (
                 <StatusColumn key={status} status={status} count={board[status].length}>

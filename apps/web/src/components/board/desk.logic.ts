@@ -169,18 +169,68 @@ export function workKind(item: Pick<DeskItem, "workType">): WorkKind | null {
 export const SPRINT_STATUSES = ["Todo", "In Progress", "In Review", "Done"] as const;
 export type SprintStatus = (typeof SPRINT_STATUSES)[number];
 
+/** What's happening around an item beyond GitHub: its chats, whether one is on it, its sheet. */
+export interface ItemSignals {
+  /** Its chats that aren't settled. */
+  readonly chats: ReadonlyArray<CardChatState>;
+  /** A chat is recorded as on it. */
+  readonly focused: boolean;
+  /** Its newest hub test sheet's open checks. */
+  readonly sheet: { readonly unchecked: number; readonly failed: number } | null;
+}
+
+const NO_SIGNALS: ItemSignals = { chats: [], focused: false, sheet: null };
+
 /**
- * Where an item sits on the Sprint board: its Status, moved forward by what's happening when the
- * field lags. An open PR means In Review; a draft PR or an active agent means In Progress.
+ * What still stands between an item and Done, in plain words: an open PR, a chat that's working,
+ * asking or holding a result, unfinished test checks, unticked acceptance criteria.
  */
-export function sprintStatus(item: DeskItem, agentActive = false): SprintStatus {
-  if (!isOpen(item) || item.status === "Done") return "Done";
+export function wrapUpLeft(item: DeskItem, signals: ItemSignals = NO_SIGNALS): string[] {
+  const left: string[] = [];
+  if (isOpen(item)) left.push("The issue is still open on GitHub.");
+  for (const pr of item.pullRequests) {
+    if (pr.state === "open" || pr.state === "draft") left.push(`PR #${pr.number} is still open.`);
+  }
+  for (const chat of signals.chats) {
+    const name = chatTitle(chat.title);
+    if (chat.needsYou) left.push(`"${name}" is waiting on you.`);
+    else if (chat.working) left.push(`"${name}" is still working.`);
+    else if (chat.column === "done") left.push(`"${name}" has a result to read.`);
+  }
+  if (signals.sheet && signals.sheet.unchecked > 0)
+    left.push(`The test sheet has ${signals.sheet.unchecked} checks not done.`);
+  if (signals.sheet && signals.sheet.failed > 0)
+    left.push(`The test sheet has ${signals.sheet.failed} failed or blocked.`);
+  const unticked = item.story?.criteria.filter((criterion) => !criterion.done).length ?? 0;
+  if (unticked > 0) left.push(`${unticked} acceptance criteria aren't ticked.`);
+  return left;
+}
+
+/**
+ * Where an item sits on the Sprint board. Done only when wrapUpLeft finds nothing; a closed item
+ * with leftovers waits in In Review. Otherwise its Status, moved forward: an open PR, a chat waiting
+ * or a sheet to test means In Review; a draft PR or a chat working or recorded on it, In Progress.
+ */
+export function sprintStatus(item: DeskItem, signals: ItemSignals = NO_SIGNALS): SprintStatus {
+  if (!isOpen(item) || item.status === "Done") {
+    return wrapUpLeft(item, signals).length > 0 ? "In Review" : "Done";
+  }
   const set = SPRINT_STATUSES.indexOf(
     item.status === "In Progress" || item.status === "In Review" ? item.status : "Todo",
   );
   const prs = item.pullRequests.filter((pr) => pr.state === "open" || pr.state === "draft");
-  const seen = prs.some((pr) => pr.state === "open") ? 2 : prs.length > 0 || agentActive ? 1 : 0;
+  const waits =
+    prs.some((pr) => pr.state === "open") ||
+    signals.chats.some((chat) => chat.needsYou || chat.column === "done") ||
+    (signals.sheet?.unchecked ?? 0) > 0;
+  const busy = prs.length > 0 || signals.chats.some((chat) => chat.working) || signals.focused;
+  const seen = waits ? 2 : busy ? 1 : 0;
   return SPRINT_STATUSES[Math.max(set, seen)] ?? "Todo";
+}
+
+/** A closed item (or one marked Done) that still has leftovers. */
+export function needsWrapUp(item: DeskItem, signals: ItemSignals): boolean {
+  return (!isOpen(item) || item.status === "Done") && wrapUpLeft(item, signals).length > 0;
 }
 
 /** One sprint's work by Status, highest priority first in each column. */
@@ -188,7 +238,7 @@ export function buildSprintBoard(
   items: ReadonlyArray<DeskItem>,
   sprint: DeskSprint,
   filter: DeskFilter,
-  agentActive: (item: DeskItem) => boolean = () => false,
+  signals: (item: DeskItem) => ItemSignals = () => NO_SIGNALS,
 ): Record<SprintStatus, DeskItem[]> {
   const board: Record<SprintStatus, DeskItem[]> = {
     Todo: [],
@@ -198,7 +248,7 @@ export function buildSprintBoard(
   };
   for (const item of visibleItems(items)) {
     if (item.sprint?.title !== sprint.title || !matches(item, filter)) continue;
-    board[sprintStatus(item, agentActive(item))].push(item);
+    board[sprintStatus(item, signals(item))].push(item);
   }
   for (const column of Object.values(board)) column.sort(byPriority);
   return board;
