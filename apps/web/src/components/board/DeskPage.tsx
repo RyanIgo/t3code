@@ -60,7 +60,7 @@ import {
   untitledTodayChats,
 } from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
-import { saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
+import { saveDeskFocus, saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
 import { itemForSheet } from "./deskSheets";
 import { threadEnvironment } from "../../state/threads";
@@ -417,6 +417,9 @@ export function DeskPage(props: {
         }
       }
       saveDeskLink(key, contextLink(context, sprint));
+      if (context.kind === "item" && context.item.url) {
+        saveDeskFocus(context.item.url, created.threadId);
+      }
       for (const place of pinPlacesFor(context)) {
         saveDeskPin(place, key, true, context.kind === "today" ? "planner" : undefined);
       }
@@ -441,6 +444,7 @@ export function DeskPage(props: {
     });
     store.setPrompt(ref, existing.trim() ? `${existing}\n\n${prompt}` : prompt);
     saveDeskLink(`${chat.environmentId}:${chat.threadId}`, contextLink(context, sprint));
+    if (context.kind === "item" && context.item.url) saveDeskFocus(context.item.url, chat.threadId);
     for (const place of pinPlacesFor(context)) {
       saveDeskPin(place, `${chat.environmentId}:${chat.threadId}`, true);
     }
@@ -669,7 +673,7 @@ export function DeskPage(props: {
       </div>
       {modal && (modal.itemUrl === undefined || modalItem) ? (
         <DeskModal
-          key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}:${modal.pr?.url ?? ""}`}
+          key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}:${modal.pr?.url ?? ""}:${modal.draft?.draftId ?? ""}`}
           item={modalItem}
           pr={modal.pr ?? null}
           chat={modal.chat}
