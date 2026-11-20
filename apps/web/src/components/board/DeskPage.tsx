@@ -783,6 +783,21 @@ export function DeskPage(props: {
         onOpenPr={openPr}
         planner={chat}
         notes={notes.notes}
+        relatedChatsFor={(entry) =>
+          // Settled chats too: their history is what a decision builds on.
+          chatsForItem(entry, props.pinnable, linksByChat, {
+            focused: focusedThreads(notes.notes, entry.url),
+            repoOf: chatRepo,
+          })
+        }
+        onOpenChat={(other) =>
+          setModal({
+            itemId: null,
+            chat: other,
+            sequence: [],
+            back: { chat, label: `${rosterApp} planning` },
+          })
+        }
       />
     );
   };

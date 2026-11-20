@@ -381,6 +381,10 @@ export function PlanPane(props: {
   readonly onOpenPr: (pr: DeskPr) => void;
   /** The planner chat this session is with: its decisions, checklist and Rigo's answers. */
   readonly planner: CardChatState;
+  /** Opens another chat (one that worked on an item a decision is about). */
+  readonly onOpenChat: (chat: CardChatState) => void;
+  /** Every chat that touched an item (its own, and those that only touched its PR or card). */
+  readonly relatedChatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
   readonly notes: DeskNotes;
 }) {
   const sendToChat = useSendToChat();
@@ -482,11 +486,15 @@ export function PlanPane(props: {
               decision={decision}
               items={props.items}
               sheets={hubSheets}
+              chatsFor={props.relatedChatsFor}
+              notes={props.notes}
+              nowMs={props.nowMs}
+              onOpenChat={props.onOpenChat}
               onAnswer={answer}
               onTellMore={() =>
                 void sendToChat(
                   props.planner,
-                  `Before I answer "${decision.question}": I need more context. Update that decision (desk.mjs decide --id ${decision.id}) with --context: in plain words, what this is, why it's coming up now, what each item and PR involved does for the people who use the app, and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
+                  `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
                 )
               }
             />
@@ -716,6 +724,11 @@ function LinkedThing(props: {
   readonly url: string;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sheets: ReadonlyArray<SheetSummary>;
+  /** The chats that worked on the item, with their state and next step. */
+  readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly notes: DeskNotes;
+  readonly nowMs: number;
+  readonly onOpenChat: (chat: CardChatState) => void;
 }) {
   const item = props.items.find((entry) => entry.url === props.url);
   const sheetId = props.url.match(/\/a\/([a-z0-9]{12})/)?.[1];
@@ -751,33 +764,63 @@ function LinkedThing(props: {
     detail = "Not on the Desk; open it to see more.";
   }
   const ref = item ? deskRef(item) : null;
+  const chats = item ? props.chatsFor(item) : [];
   return (
-    <a
-      href={props.url}
-      target="_blank"
-      rel="noopener"
-      className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border px-2 py-1.5 text-xs hover:bg-accent"
-    >
-      <span className="flex min-w-0 items-center gap-1.5">
-        {kind}
-        <span className="min-w-0 flex-1 font-medium text-foreground">{title}</span>
-        {state ? (
-          <span
-            className={cn(
-              "shrink-0 font-medium",
-              state === "closed" || state === "merged"
-                ? "text-success-foreground"
-                : "text-info-foreground",
-            )}
-          >
-            {state}
-          </span>
+    <div className="flex min-w-0 flex-col rounded-md border border-border text-xs">
+      <a
+        href={props.url}
+        target="_blank"
+        rel="noopener"
+        className="flex min-w-0 flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-accent"
+      >
+        <span className="flex min-w-0 items-center gap-1.5">
+          {kind}
+          <span className="min-w-0 flex-1 font-medium text-foreground">{title}</span>
+          {state ? (
+            <span
+              className={cn(
+                "shrink-0 font-medium",
+                state === "closed" || state === "merged"
+                  ? "text-success-foreground"
+                  : "text-info-foreground",
+              )}
+            >
+              {state}
+            </span>
+          ) : null}
+        </span>
+        {detail || ref ? (
+          <span className="text-muted-foreground">{[ref, detail].filter(Boolean).join(" · ")}</span>
         ) : null}
-      </span>
-      {detail || ref ? (
-        <span className="text-muted-foreground">{[ref, detail].filter(Boolean).join(" · ")}</span>
+      </a>
+      {chats.length > 0 ? (
+        <ul className="flex flex-col border-t border-border px-2 py-1">
+          {chats.map((chat) => {
+            const next = props.notes.work[chat.threadId]?.next ?? null;
+            const age = formatFleetBoardAge(chat.since, props.nowMs);
+            return (
+              <li key={chat.threadId}>
+                <button
+                  type="button"
+                  onClick={() => props.onOpenChat(chat)}
+                  className="flex w-full min-w-0 cursor-pointer flex-col py-0.5 text-left hover:underline"
+                >
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="text-muted-foreground">Chat</span>
+                    <span className="min-w-0 flex-1 truncate">{chatTitle(chat.title)}</span>
+                    <span className="shrink-0 text-muted-foreground">
+                      {chatStatus(chat).label}
+                      {age ? ` · ${age} ago` : ""}
+                    </span>
+                  </span>
+                  {next ? <span className="text-muted-foreground">Next: {next}</span> : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
       ) : null}
-    </a>
+    </div>
   );
 }
 
@@ -790,6 +833,10 @@ function DecisionCard(props: {
   readonly decision: PlannerDecision;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sheets: ReadonlyArray<SheetSummary>;
+  readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly notes: DeskNotes;
+  readonly nowMs: number;
+  readonly onOpenChat: (chat: CardChatState) => void;
   readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
   readonly onTellMore: () => void;
 }) {
@@ -814,7 +861,16 @@ function DecisionCard(props: {
       {links.length > 0 ? (
         <div className="flex flex-col gap-1">
           {links.map((url) => (
-            <LinkedThing key={url} url={url} items={props.items} sheets={props.sheets} />
+            <LinkedThing
+              key={url}
+              url={url}
+              items={props.items}
+              sheets={props.sheets}
+              chatsFor={props.chatsFor}
+              notes={props.notes}
+              nowMs={props.nowMs}
+              onOpenChat={props.onOpenChat}
+            />
           ))}
         </div>
       ) : null}
