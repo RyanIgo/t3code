@@ -389,6 +389,8 @@ export function DeskModal(props: {
   readonly tab?: ItemTab | undefined;
   /** For a planner or sprint chat opened on its own: its sprint's roster, above the chat. */
   readonly roster?: ReactNode;
+  /** Opened from a planning session: the way back to it. */
+  readonly back?: { readonly label: string; readonly onBack: () => void } | null;
   /** The chats the Desk links to this item (or PR), best guess first. */
   readonly chats: ReadonlyArray<CardChatState>;
   /** Every chat, settled ones too, to find the one on the item and to move it. */
@@ -456,6 +458,8 @@ export function DeskModal(props: {
   // A planner or sprint chat on its own is a planning session: the plan beside the conversation.
   const planning = item === null && props.roster !== undefined && props.roster !== null;
   const [planPane, setPlanPane] = useState<"plan" | "chat">("plan");
+  // On a wide screen the plan can fold away so wide tables in the chat get the full width.
+  const [planHidden, setPlanHidden] = useState(false);
   const shownKey = shown && !draft ? chatKeyOf(shown) : null;
   // The chat's own details card is remembered open per chat; here its facts are the line above
   // the conversation, so it starts closed and opens only from its button.
@@ -493,6 +497,12 @@ export function DeskModal(props: {
         }}
       >
         <header className="flex shrink-0 items-center gap-2 py-2 ps-3 pe-3 sm:pe-36">
+          {props.back ? (
+            <Button variant="ghost" size="sm" onClick={props.back.onBack}>
+              <ArrowLeftIcon />
+              {props.back.label}
+            </Button>
+          ) : null}
           {item && props.sequence.length > 1 ? (
             <>
               <Button
@@ -569,10 +579,21 @@ export function DeskModal(props: {
               className={cn(
                 "flex min-h-0 flex-col border-border lg:w-[26rem] lg:shrink-0 lg:border-e",
                 planPane === "chat" && "max-lg:hidden",
+                planHidden && "lg:hidden",
               )}
             >
               {props.roster}
             </aside>
+            <div className="hidden shrink-0 border-e border-border lg:flex lg:flex-col">
+              <Button
+                variant="ghost"
+                size="xs"
+                aria-label={planHidden ? "Show the plan" : "Hide the plan"}
+                onClick={() => setPlanHidden(!planHidden)}
+              >
+                {planHidden ? "Plan ›" : "‹"}
+              </Button>
+            </div>
             <section
               className={cn(
                 "relative flex min-h-0 min-w-0 flex-1 flex-col",

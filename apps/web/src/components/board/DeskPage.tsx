@@ -230,6 +230,8 @@ export function DeskPage(props: {
     readonly itemUrl?: string;
     /** The item window's tab to open on, instead of the one its column suggests. */
     readonly tab?: "details" | "chats" | "review";
+    /** The window this one was opened from (a planning session), for a way back to it. */
+    readonly back?: { readonly chat: CardChatState; readonly label: string };
   } | null>(
     deepLink?.kind === "item"
       ? {
@@ -761,7 +763,14 @@ export function DeskPage(props: {
         items={items}
         chatsFor={ownChatsOf}
         signalsFor={signalsFor}
-        onOpenItem={(entry) => setModal({ itemId: entry.itemId, chat: null, sequence: [] })}
+        onOpenItem={(entry) =>
+          setModal({
+            itemId: entry.itemId,
+            chat: null,
+            sequence: [],
+            back: { chat, label: `${rosterApp} planning` },
+          })
+        }
         onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
         prs={prs}
         onOpenPr={openPr}
@@ -778,6 +787,15 @@ export function DeskPage(props: {
           chat={modal.chat}
           allChats={props.pinnable}
           ownChats={modalItem ? ownChatsOf(modalItem) : []}
+          back={
+            modal.back
+              ? {
+                  label: modal.back.label,
+                  onBack: () =>
+                    modal.back && setModal({ itemId: null, chat: modal.back.chat, sequence: [] }),
+                }
+              : null
+          }
           tab={modal.tab}
           roster={rosterFor(modal.chat)}
           chats={
