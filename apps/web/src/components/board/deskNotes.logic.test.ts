@@ -7,6 +7,8 @@ import {
   parseDeskNotes,
   pinnedChats,
   chatFocus,
+  openDecisions,
+  withDecisionAnswer,
   chatRoleOf,
   withRole,
   focusedChat,
@@ -249,5 +251,55 @@ describe("desk notes", () => {
     expect(parsed.work[launched]?.role).toBe("helper");
     expect(parsed.work[launched]?.parent).toBe(delegated);
     expect(chatRoleOf(parsed, { environmentId: "env", threadId: delegated })).toBe("work");
+  });
+
+  it("keeps planners' decisions until answered, the big picture per sprint, and a planner's checklist", () => {
+    const notes = parseDeskNotes(
+      JSON.stringify({
+        decisions: {
+          dec1: {
+            threadId: "planner-thread-1",
+            app: "Precon",
+            question: "Settle the finished chats?",
+            options: ["Yes", "No", 7],
+            recommended: "Yes",
+            createdAt: "2026-11-20T10:00:00Z",
+            updatedAt: "2026-11-20T10:00:00Z",
+          },
+          bad: { question: "No thread", createdAt: "x", updatedAt: "x" },
+        },
+        framing: { "Sprint 1": { Precon: { text: "Leveling first.", updatedAt: "x" } } },
+        work: {
+          "planner-thread-1": {
+            updatedAt: "x",
+            items: [],
+            plan: [{ text: "Sign off", who: "you" }, { text: "" }, { text: "Done", done: true }],
+          },
+        },
+      }),
+    );
+    expect(Object.keys(notes.decisions)).toEqual(["dec1"]);
+    expect(notes.decisions.dec1?.options).toEqual(["Yes", "No"]);
+    expect(openDecisions(notes, "Precon").map((entry) => entry.id)).toEqual(["dec1"]);
+    const answered = withDecisionAnswer(
+      notes,
+      "dec1",
+      "Yes",
+      " after Friday ",
+      "2026-11-20T11:00:00Z",
+    );
+    expect(openDecisions(answered, "Precon")).toEqual([]);
+    expect(answered.decisions.dec1?.answer).toEqual({
+      choice: "Yes",
+      note: "after Friday",
+      at: "2026-11-20T11:00:00Z",
+    });
+    expect(notes.framing["Sprint 1"]?.Precon?.text).toBe("Leveling first.");
+    expect(
+      notes.work["planner-thread-1"]?.plan?.map((line) => [line.text, line.who, line.done]),
+    ).toEqual([
+      ["Sign off", "you", false],
+      ["Done", "agents", true],
+    ]);
   });
 });

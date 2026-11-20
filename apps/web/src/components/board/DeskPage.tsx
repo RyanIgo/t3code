@@ -57,6 +57,8 @@ import {
   ALL_APPS,
   dayKey,
   focusedThreads,
+  openDecisions,
+  type PlannerDecision,
   type DeskNotes,
   noteAt,
   type PinPlace,
@@ -352,6 +354,11 @@ export function DeskPage(props: {
       chatsFor(entry).some((found) => `${found.environmentId}:${found.threadId}` === key),
     );
     setModal({ itemId: owner?.itemId ?? null, chat, sequence: [] });
+  };
+  // A planner's question opens its planning session, where it can be answered in context.
+  const openDecision = (decision: PlannerDecision) => {
+    const chat = props.pinnable.find((entry) => entry.threadId === decision.threadId);
+    if (chat) setModal({ itemId: null, chat, sequence: [] });
   };
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
     setModal({ itemId: entry.itemId, chat: null, sequence });
@@ -774,6 +781,8 @@ export function DeskPage(props: {
         onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
         prs={prs}
         onOpenPr={openPr}
+        planner={chat}
+        notes={notes.notes}
       />
     );
   };
@@ -885,6 +894,8 @@ export function DeskPage(props: {
           onOpenChat={openChat}
           onOpenItem={openItemIn([])}
           onOpenPr={openPr}
+          decisions={openDecisions(notes.notes)}
+          onOpenDecision={openDecision}
           onOpenSheet={(sheet) => {
             const item = itemForSheet(sheet, items, notes.notes);
             if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
@@ -1016,6 +1027,8 @@ export function DeskPage(props: {
           onOpenChat={openChat}
           onOpenItem={openItemIn(ids(waitingOnYou(items)))}
           onOpenPr={openPr}
+          decisions={openDecisions(notes.notes)}
+          onOpenDecision={openDecision}
           onOpenSheet={(sheet) => {
             const item = itemForSheet(sheet, items, notes.notes);
             if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });

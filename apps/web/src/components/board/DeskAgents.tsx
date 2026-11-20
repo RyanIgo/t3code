@@ -18,8 +18,24 @@ import {
   sprintStatus,
   workKind,
 } from "./desk.logic";
-import { CHAT_ROLE_LABEL, CHAT_ROLES, type DeskNotes } from "./deskNotes.logic";
-import { saveChatRole } from "./deskNotesStore";
+import {
+  CHAT_ROLE_LABEL,
+  CHAT_ROLES,
+  type DeskNote,
+  type DeskNotes,
+  noteAt,
+  openDecisions,
+  type PlannerDecision,
+} from "./deskNotes.logic";
+import { saveChatRole, saveDecisionAnswer, saveDeskNote } from "./deskNotesStore";
+import { useSendToChat } from "./deskSend";
+import { uploadPicture } from "./deskStore";
+import ChatMarkdown from "../ChatMarkdown";
+import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
+import { toastManager } from "../ui/toast";
+import { cn } from "../../lib/utils";
+import { useState } from "react";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { moveFocus } from "./DeskWork";
 import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
@@ -362,7 +378,24 @@ export function PlanPane(props: {
   /** The app's pull requests, for the ones waiting to be merged or sent back. */
   readonly prs: ReadonlyArray<DeskPr>;
   readonly onOpenPr: (pr: DeskPr) => void;
+  /** The planner chat this session is with: its decisions, checklist and Rigo's answers. */
+  readonly planner: CardChatState;
+  readonly notes: DeskNotes;
 }) {
+  const sendToChat = useSendToChat();
+  const decisions = openDecisions(props.notes, props.app);
+  const decided = Object.values(props.notes.decisions)
+    .filter((entry) => entry.app === props.app && entry.answer !== null)
+    .toSorted((a, b) => (b.answer?.at ?? "").localeCompare(a.answer?.at ?? ""))
+    .slice(0, 5);
+  const checklist = props.notes.work[props.planner.threadId]?.plan ?? [];
+  const answer = (decision: PlannerDecision, choice: string, note: string | null) => {
+    saveDecisionAnswer(decision.id, choice, note);
+    void sendToChat(
+      props.planner,
+      `Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`,
+    );
+  };
   const day = 86_400_000;
   const daysLeft = Math.max(
     0,
@@ -427,6 +460,40 @@ export function PlanPane(props: {
           <span className="text-xs text-muted-foreground">No sprint goal yet.</span>
         )}
       </header>
+      <BigPicture
+        app={props.app}
+        sprint={props.sprint.title}
+        note={noteAt(props.notes, { kind: "framing", sprint: props.sprint.title, app: props.app })}
+        onSaved={(text) =>
+          void sendToChat(
+            props.planner,
+            `I updated the big picture for ${props.app}, ${props.sprint.title}:\n\n${text}\n\nAdjust the plan and your open decisions to it, and tell me in a line what changes.`,
+          )
+        }
+      />
+      {decisions.length > 0 || decided.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <DeskHeading>Decisions · {decisions.length}</DeskHeading>
+          {decisions.map((decision) => (
+            <DecisionCard key={decision.id} decision={decision} onAnswer={answer} />
+          ))}
+          {decided.length > 0 ? (
+            <details>
+              <summary className="cursor-pointer text-xs text-muted-foreground">
+                Decided recently · {decided.length}
+              </summary>
+              <ul className="flex flex-col gap-1 pt-1 text-xs">
+                {decided.map((entry) => (
+                  <li key={entry.id}>
+                    {entry.question} → <b>{entry.answer?.choice}</b>
+                    {entry.answer?.note ? ` (${entry.answer.note})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </section>
+      ) : null}
       <section className="flex flex-col">
         <DeskHeading>Waiting on you · {waiting.length + prsWaiting.length}</DeskHeading>
         {prsWaiting.length > 0 ? (
@@ -470,6 +537,38 @@ export function PlanPane(props: {
           </ul>
         )}
       </section>
+      {checklist.length > 0 ? (
+        <section className="flex flex-col">
+          <DeskHeading>The planner's checklist</DeskHeading>
+          <ul className="flex flex-col">
+            {checklist.map((line) => (
+              <li key={line.text} className="flex items-start gap-2 py-1 text-sm">
+                <span aria-hidden className="w-4 shrink-0 text-muted-foreground">
+                  {line.done ? "✓" : line.who === "agents" ? "▶" : "☐"}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1",
+                    line.done && "text-muted-foreground line-through",
+                  )}
+                >
+                  {line.text}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 rounded border px-1.5 text-2xs",
+                    line.who === "you" && !line.done
+                      ? "border-warning/40 text-warning-foreground"
+                      : "border-border text-muted-foreground",
+                  )}
+                >
+                  {line.done ? "done" : line.who}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
       <section className="flex flex-col">
         <DeskHeading>Next up · {next.length}</DeskHeading>
         <ul className="flex flex-col divide-y divide-border">
@@ -499,6 +598,133 @@ export function PlanPane(props: {
           {done.map((item) => row(item, null))}
         </ul>
       </details>
+    </div>
+  );
+}
+
+/**
+ * Fleet fork: Rigo's big picture for an app's sprint, above the plan: what matters, what to leave
+ * alone, who's waiting on whom. Markdown, with pictures pasted in; the planner works from it.
+ */
+function BigPicture(props: {
+  readonly app: string;
+  readonly sprint: string;
+  readonly note: DeskNote | null;
+  readonly onSaved: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(0);
+  const text = props.note?.text ?? "";
+  const attach = async (files: ReadonlyArray<File>) => {
+    for (const file of files.filter((entry) => entry.type.startsWith("image/"))) {
+      setUploading((count) => count + 1);
+      try {
+        const url = await uploadPicture(file);
+        setDraft(
+          (current) =>
+            `${current ?? ""}${current && !current.endsWith("\n") ? "\n" : ""}![picture](${url})\n`,
+        );
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Couldn't attach the picture",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setUploading((count) => count - 1);
+      }
+    }
+  };
+  const save = () => {
+    if (draft !== null && draft.trim() !== text.trim()) {
+      saveDeskNote({ kind: "framing", sprint: props.sprint, app: props.app }, draft.trim());
+      props.onSaved(draft.trim());
+    }
+    setDraft(null);
+  };
+  return (
+    <section className="flex flex-col gap-1.5 rounded-lg border border-border bg-muted/40 p-3">
+      <div className="flex items-center gap-2">
+        <DeskHeading>Big picture</DeskHeading>
+        {draft === null ? (
+          <Button size="xs" variant="ghost" className="ms-auto" onClick={() => setDraft(text)}>
+            {text ? "Edit" : "Write it"}
+          </Button>
+        ) : null}
+      </div>
+      {draft !== null ? (
+        <div className="flex flex-col gap-2">
+          <Textarea
+            aria-label="Big picture"
+            rows={6}
+            placeholder="What matters most this sprint, what to leave alone, constraints, who's waiting on whom. Paste a picture to add it."
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onPaste={(event) => {
+              const files = [...event.clipboardData.files];
+              if (files.some((entry) => entry.type.startsWith("image/"))) {
+                event.preventDefault();
+                void attach(files);
+              }
+            }}
+          />
+          <div className="flex items-center gap-2">
+            <Button size="xs" disabled={uploading > 0} onClick={save}>
+              Save and tell the planner
+            </Button>
+            <Button size="xs" variant="ghost" onClick={() => setDraft(null)}>
+              Cancel
+            </Button>
+            {uploading > 0 ? (
+              <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
+            ) : null}
+          </div>
+        </div>
+      ) : text ? (
+        <div className="text-sm [&_img]:max-h-48 [&_img]:rounded-md">
+          <ChatMarkdown text={text} cwd={undefined} />
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Frame the sprint for the planner: what matters most, what to leave alone, who's waiting on
+          whom. It reads this every turn.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** One of a planner's questions: its options (the recommended one marked) and a note. */
+function DecisionCard(props: {
+  readonly decision: PlannerDecision;
+  readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
+}) {
+  const [note, setNote] = useState("");
+  const { decision } = props;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2.5">
+      <span className="text-sm font-medium">{decision.question}</span>
+      {decision.why ? <span className="text-xs text-muted-foreground">{decision.why}</span> : null}
+      <div className="flex flex-wrap gap-1.5">
+        {decision.options.map((option) => (
+          <Button
+            key={option}
+            size="xs"
+            variant={option === decision.recommended ? "default" : "outline"}
+            onClick={() => props.onAnswer(decision, option, note)}
+          >
+            {option}
+            {option === decision.recommended ? " · rec" : ""}
+          </Button>
+        ))}
+      </div>
+      <Input
+        aria-label="Note with your answer"
+        size="sm"
+        placeholder="Note with your answer (optional)"
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+      />
     </div>
   );
 }

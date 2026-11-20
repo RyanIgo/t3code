@@ -101,6 +101,32 @@ node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                   
 - **Work chats** finish one item. More work found along the way becomes a note to the planner
   (or `capture`), not a second item in the same chat.
 
+### How a planner talks to Rigo
+
+Rigo plans from the Plan pane beside your chat, not from your messages, so keep it current:
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs decide "Settle the 8 finished chats?" --options "Yes|No|Only rows 5-9" --rec Yes --why "They're done; settling clears Wrap up. Can be undone."
+node ~/.claude/skills/dev-desk/desk.mjs plan set - <<'JSON'
+[{"text":"12 chats given a level","who":"done","done":true},
+ {"text":"Sign off before the Dec 1 flip","who":"you","item":"https://github.com/cfevans/cfe-data-warehouse/issues/115"},
+ {"text":"AP roles agreed","who":"Admin team"},
+ {"text":"#229, #238, #245 in progress","who":"agents"}]
+JSON
+node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company connectors"   # waiting questions and his answers
+```
+
+- **Questions are decisions, not prose.** Anything that needs Rigo's yes or no goes through
+  `decide`, one per question, with the options, your recommendation and a one-line reason. His
+  answer arrives in this chat as "Decision: … → <choice>". Don't also list them in your message.
+- **The checklist replaces status essays.** After each turn that changes the picture, `plan set`
+  the whole checklist: what's done, what's on Rigo (`"who": "you"`), on someone else (their
+  name or team), and what agents are on. Your message then says only what changed.
+- **Work from Rigo's big picture.** `context` shows it ("Rigo's big picture"). When he edits it,
+  you get a message; adjust the plan and your open decisions, and say what changed in one line.
+- **Wide tables go to a hub sheet** (t3-artifacts), linked from a one-line summary, not into the
+  chat.
+
 ### Reconciling an app's chats (planners)
 
 When Rigo asks you to reconcile, or once a week:

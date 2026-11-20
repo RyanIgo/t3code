@@ -18,6 +18,7 @@ import {
   type InboxNote,
   withInboxNote,
   withNextStep,
+  withDecisionAnswer,
   type ChatRole,
   withRole,
   withSheet,
@@ -182,6 +183,14 @@ export function saveDeskFocus(itemUrl: string, threadId: string | null) {
   save(
     withFocus(snapshot.notes, itemUrl, threadId, new Date().toISOString()),
     "Couldn't move the chat",
+  );
+}
+
+/** Records Rigo's answer to a planner's question. */
+export function saveDecisionAnswer(id: string, choice: string, note: string | null) {
+  save(
+    withDecisionAnswer(snapshot.notes, id, choice, note, new Date().toISOString()),
+    "Couldn't save the answer",
   );
 }
 

@@ -123,6 +123,23 @@ async function context(given) {
     const sprintNotes = notes.sprintNotes?.[sprint.title]?.text;
     if (sprintNotes) lines.push(`Sprint notes:\n${sprintNotes}`);
   }
+  if (sprint) {
+    const framing = notes.framing?.[sprint.title]?.[app]?.text;
+    lines.push(`\n## Rigo's big picture for ${sprint.title}`);
+    lines.push(framing || "Not written yet.");
+  }
+  const decisionsFor = Object.values(notes.decisions ?? {}).filter((entry) => entry.app === app);
+  const answered = decisionsFor.filter((entry) => entry.answer).slice(-10);
+  const pending = decisionsFor.filter((entry) => !entry.answer);
+  if (pending.length || answered.length) {
+    lines.push("\n## Decisions");
+    for (const entry of pending) lines.push(`- (waiting) ${entry.question}`);
+    for (const entry of answered) {
+      lines.push(
+        `- ${entry.question} → ${entry.answer.choice}${entry.answer.note ? ` (${entry.answer.note})` : ""}`,
+      );
+    }
+  }
   lines.push("\n## Notes for agents");
   lines.push(notes.apps?.[app]?.text || "None yet.");
   const forPlanner = Object.values(notes.inbox ?? {}).filter(
@@ -260,6 +277,110 @@ async function nextStep(text) {
     doc.work[threadId] = { ...mine, next: value, updatedAt: at };
   });
   console.log(value ? `Next step: ${value}` : "Next step cleared.");
+}
+
+/**
+ * `decide "<question>" --options "Yes|No|…" [--rec Yes] [--why "<reason>"] [--item <url>] [--app "<app>"]`:
+ * a question for Rigo, shown in the planning session's Decisions, on Now and on his phone. His
+ * answer comes back to this chat as a message ("Decision: … → Yes").
+ */
+async function decide(question, options) {
+  if (!question?.trim()) {
+    fail(
+      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--app "<app>"]',
+    );
+  }
+  const threadId = thisThread();
+  const given = flags(options);
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const appName = given.app
+    ? resolveApp((await call("/fleet/desk")).body, given.app)
+    : (doc.work?.[threadId]?.app ?? null);
+  if (!appName)
+    fail('Which app is this for? Add --app "<app>" (or record this chat: role planner --app …).');
+  const choices = (given.options ?? "Yes|No")
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  if (given.rec && !choices.includes(given.rec))
+    fail(`--rec must be one of: ${choices.join(", ")}`);
+  const id = Math.random().toString(36).slice(2, 12);
+  await changeNotes((next, at) => {
+    next.decisions ??= {};
+    next.decisions[id] = {
+      id,
+      threadId,
+      app: appName,
+      question: question.trim().slice(0, 500),
+      why: given.why?.trim() ? given.why.trim().slice(0, 1000) : null,
+      options: choices,
+      recommended: given.rec ?? null,
+      itemUrl: given.item ?? null,
+      createdAt: at,
+      updatedAt: at,
+      answer: null,
+    };
+  });
+  console.log(
+    `Asked Rigo (${id}). It's in his plan, on Now and on his phone; his answer comes back here as a message.`,
+  );
+}
+
+/** `decisions [app]`: questions still waiting, and recent answers. */
+async function decisions(given) {
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const app = given ? resolveApp((await call("/fleet/desk")).body, given) : null;
+  const all = Object.values(doc.decisions ?? {}).filter((entry) => !app || entry.app === app);
+  for (const entry of all.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
+    console.log(
+      `- ${entry.id} ${entry.answer ? `answered ${entry.answer.choice}${entry.answer.note ? ` (${entry.answer.note})` : ""}` : "waiting"}: ${entry.question}`,
+    );
+  }
+  if (all.length === 0) console.log("No decisions.");
+}
+
+/**
+ * `plan set <file.json | ->`: this planner's checklist, replaced whole, as JSON lines
+ * [{ "text": "...", "who": "you|agents|<person>", "done": false, "item": "<url>" }]. `plan show` prints it.
+ */
+async function plan(action, rest) {
+  const threadId = thisThread();
+  if (action === "show") {
+    const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+    const lines = doc.work?.[threadId]?.plan ?? [];
+    for (const line of lines) console.log(`${line.done ? "✓" : "☐"} ${line.text} (${line.who})`);
+    if (!lines.length) console.log("No checklist yet.");
+    return;
+  }
+  if (action !== "set" || !rest[0])
+    fail("Usage: node desk.mjs plan set <file.json | -> | plan show");
+  const raw =
+    rest[0] === "-" ? NodeFS.readFileSync(0, "utf8") : NodeFS.readFileSync(rest[0], "utf8");
+  let lines;
+  try {
+    lines = JSON.parse(raw);
+  } catch (error) {
+    fail(`The checklist isn't JSON: ${error.message}`);
+  }
+  if (!Array.isArray(lines)) fail("The checklist is a JSON array of { text, who, done, item }.");
+  const clean = lines
+    .filter((line) => line && typeof line.text === "string" && line.text.trim())
+    .slice(0, 40)
+    .map((line) => ({
+      text: line.text.trim().slice(0, 300),
+      who:
+        typeof line.who === "string" && line.who.trim() ? line.who.trim().slice(0, 40) : "agents",
+      done: line.done === true,
+      itemUrl: typeof line.item === "string" ? line.item : (line.itemUrl ?? null),
+    }));
+  await changeNotes((doc, at) => {
+    const mine = doc.work[threadId] ?? { items: [], next: null };
+    doc.work[threadId] = { ...mine, plan: clean, updatedAt: at };
+  });
+  console.log(
+    `Checklist saved: ${clean.length} lines, ${clean.filter((line) => !line.done).length} open.`,
+  );
 }
 
 /** Reads `--name value` flags after the positional arguments. */
@@ -503,10 +624,13 @@ else if (command === "focus") await focus(first, rest);
 else if (command === "next") await nextStep([first, ...rest].join(" "));
 else if (command === "inbox") await inbox();
 else if (command === "role") await role(first, rest);
+else if (command === "decide") await decide(first, rest);
+else if (command === "decisions") await decisions(first);
+else if (command === "plan") await plan(first, rest);
 else if (command === "agents") await agents(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
 else if (command === "capture") await capture(first, rest);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>" | role <level> … | agents [app]',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | plan set|show',
   );

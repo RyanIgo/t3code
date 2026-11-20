@@ -48,6 +48,39 @@ export interface DeskNotes {
   readonly work: Readonly<Record<string, DeskChatWork>>;
   /** Quick notes from email, meetings and hallway asks, waiting to be sorted into the work. */
   readonly inbox: Readonly<Record<string, InboxNote>>;
+  /** Sprint title → app → Rigo's big picture for that app's sprint, which its planner works from. */
+  readonly framing: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
+  /** Questions planners put to Rigo, answered in the Plan pane, on Now or on the phone. */
+  readonly decisions: Readonly<Record<string, PlannerDecision>>;
+}
+
+/** A question a planner puts to Rigo, with its options and the one it recommends. */
+export interface PlannerDecision {
+  readonly id: string;
+  /** The planner's thread id: its answer goes back to that chat. */
+  readonly threadId: string;
+  readonly app: string | null;
+  readonly question: string;
+  readonly why: string | null;
+  readonly options: ReadonlyArray<string>;
+  readonly recommended: string | null;
+  readonly itemUrl: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly answer: {
+    readonly choice: string;
+    readonly note: string | null;
+    readonly at: string;
+  } | null;
+}
+
+/** One line of a planner's checklist: what it is, who it's on, and whether it's done. */
+export interface PlanLine {
+  readonly text: string;
+  /** "you" (Rigo), "agents", or a person or team. */
+  readonly who: string;
+  readonly done: boolean;
+  readonly itemUrl: string | null;
 }
 
 export const INBOX_SOURCES = ["In person", "Email", "Teams", "Call", "Other"] as const;
@@ -108,6 +141,8 @@ export interface DeskChatWork {
   readonly app?: string | null;
   /** A helper's parent chat (thread id), whose questions and results it goes through. */
   readonly parent?: string | null;
+  /** A planner's checklist, kept current by the planner each turn. */
+  readonly plan?: ReadonlyArray<PlanLine>;
   readonly updatedAt: string;
 }
 
@@ -250,6 +285,8 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   pins: {},
   work: {},
   inbox: {},
+  framing: {},
+  decisions: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -366,6 +403,116 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
     pins: readPins(record.pins),
     work: readWork(record.work),
     inbox: readInbox(record.inbox),
+    framing: Object.fromEntries(
+      Object.entries(
+        typeof record.framing === "object" && record.framing !== null ? record.framing : {},
+      ).map(([sprint, byApp]) => [sprint, readNotes(byApp)]),
+    ),
+    decisions: readDecisions(record.decisions),
+  };
+}
+
+function readDecisions(value: unknown): Record<string, PlannerDecision> {
+  if (typeof value !== "object" || value === null) return {};
+  return Object.fromEntries(
+    Object.entries(value).flatMap(([id, raw]) => {
+      if (typeof raw !== "object" || raw === null || !/^[\w-]{4,40}$/.test(id)) return [];
+      const entry = raw as Record<string, unknown>;
+      const question = short(entry.question, 500);
+      const threadId = typeof entry.threadId === "string" ? entry.threadId : null;
+      if (
+        !question ||
+        !threadId ||
+        typeof entry.createdAt !== "string" ||
+        typeof entry.updatedAt !== "string"
+      ) {
+        return [];
+      }
+      const options = (Array.isArray(entry.options) ? entry.options : [])
+        .flatMap((option) =>
+          typeof option === "string" && option.trim() ? [option.trim().slice(0, 80)] : [],
+        )
+        .slice(0, 6);
+      const answer =
+        typeof entry.answer === "object" && entry.answer !== null
+          ? (entry.answer as Record<string, unknown>)
+          : null;
+      return [
+        [
+          id,
+          {
+            id,
+            threadId,
+            app: short(entry.app, 120),
+            question,
+            why: short(entry.why, 1000),
+            options: options.length > 0 ? options : ["Yes", "No"],
+            recommended: short(entry.recommended, 80),
+            itemUrl: githubUrl(entry.itemUrl),
+            createdAt: entry.createdAt,
+            updatedAt: entry.updatedAt,
+            answer:
+              answer && typeof answer.choice === "string" && typeof answer.at === "string"
+                ? {
+                    choice: answer.choice.slice(0, 80),
+                    note: short(answer.note, 1000),
+                    at: answer.at,
+                  }
+                : null,
+          },
+        ],
+      ];
+    }),
+  );
+}
+
+function readPlan(value: unknown): PlanLine[] | null {
+  if (!Array.isArray(value)) return null;
+  return value
+    .flatMap((raw: unknown) => {
+      if (typeof raw !== "object" || raw === null) return [];
+      const line = raw as Record<string, unknown>;
+      const text = short(line.text, 300);
+      if (!text) return [];
+      return [
+        {
+          text,
+          who: short(line.who, 40) ?? "agents",
+          done: line.done === true,
+          itemUrl: githubUrl(line.itemUrl ?? line.item),
+        },
+      ];
+    })
+    .slice(0, 40);
+}
+
+/** A planner's open questions for an app (or every app), oldest first. */
+export function openDecisions(notes: DeskNotes, app: string | null = null): PlannerDecision[] {
+  return Object.values(notes.decisions)
+    .filter((decision) => decision.answer === null && (app === null || decision.app === app))
+    .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** Records Rigo's answer to a planner's question. */
+export function withDecisionAnswer(
+  notes: DeskNotes,
+  id: string,
+  choice: string,
+  note: string | null,
+  at: string,
+): DeskNotes {
+  const decision = notes.decisions[id];
+  if (!decision) return notes;
+  return {
+    ...notes,
+    decisions: {
+      ...notes.decisions,
+      [id]: {
+        ...decision,
+        answer: { choice, note: note?.trim() ? note.trim().slice(0, 1000) : null, at },
+        updatedAt: at,
+      },
+    },
   };
 }
 
@@ -483,6 +630,7 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
             ...(typeof work.parent === "string" && THREAD_ID.test(work.parent)
               ? { parent: work.parent }
               : {}),
+            ...(readPlan(work.plan) ? { plan: readPlan(work.plan) ?? [] } : {}),
             updatedAt: work.updatedAt,
           },
         ],
@@ -530,6 +678,12 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
     ),
     work: mergeNotes(remote.work, local.work),
     inbox: mergeNotes(remote.inbox, local.inbox),
+    framing: Object.fromEntries(
+      [...new Set([...Object.keys(local.framing), ...Object.keys(remote.framing)])].map(
+        (sprint) => [sprint, mergeNotes(remote.framing[sprint] ?? {}, local.framing[sprint] ?? {})],
+      ),
+    ),
+    decisions: mergeNotes(remote.decisions, local.decisions),
   };
 }
 
@@ -687,12 +841,15 @@ export type DeskNoteTarget =
   | { readonly kind: "app"; readonly app: string }
   | { readonly kind: "sprintGoal"; readonly sprint: string; readonly app: string }
   | { readonly kind: "sprintNotes"; readonly sprint: string }
-  | { readonly kind: "direction"; readonly app: string; readonly section: string };
+  | { readonly kind: "direction"; readonly app: string; readonly section: string }
+  /** Rigo's big picture for an app's sprint, shown above its plan. */
+  | { readonly kind: "framing"; readonly sprint: string; readonly app: string };
 
 export function noteAt(notes: DeskNotes, target: DeskNoteTarget): DeskNote | null {
   if (target.kind === "app") return notes.apps[target.app] ?? null;
   if (target.kind === "sprintNotes") return notes.sprintNotes[target.sprint] ?? null;
   if (target.kind === "direction") return notes.directions[target.app]?.[target.section] ?? null;
+  if (target.kind === "framing") return notes.framing[target.sprint]?.[target.app] ?? null;
   return notes.sprintGoals[target.sprint]?.[target.app] ?? null;
 }
 
@@ -707,6 +864,15 @@ export function withNote(
   if (target.kind === "app") return { ...notes, apps: { ...notes.apps, [target.app]: note } };
   if (target.kind === "sprintNotes") {
     return { ...notes, sprintNotes: { ...notes.sprintNotes, [target.sprint]: note } };
+  }
+  if (target.kind === "framing") {
+    return {
+      ...notes,
+      framing: {
+        ...notes.framing,
+        [target.sprint]: { ...notes.framing[target.sprint], [target.app]: note },
+      },
+    };
   }
   if (target.kind === "direction") {
     return {

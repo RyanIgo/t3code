@@ -7,6 +7,7 @@ import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading } from "./DeskParts";
 import { type SheetSummary, uncheckedRows, useHubSheets } from "./deskSheets";
+import type { PlannerDecision } from "./deskNotes.logic";
 
 const SHEET_DAYS = 14;
 
@@ -76,6 +77,9 @@ export interface NowInput {
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenSheet: (sheet: SheetSummary) => void;
+  /** Planners' open questions, each opening its planning session. */
+  readonly decisions?: ReadonlyArray<PlannerDecision>;
+  readonly onOpenDecision?: (decision: PlannerDecision) => void;
 }
 
 export function NowView(props: {
@@ -92,6 +96,8 @@ export function NowView(props: {
   readonly onOpenPr: (pr: DeskPr) => void;
   /** Opens a test sheet in its item's Review tab, or on its own when no item matches. */
   readonly onOpenSheet: (sheet: SheetSummary) => void;
+  readonly decisions?: ReadonlyArray<PlannerDecision>;
+  readonly onOpenDecision?: (decision: PlannerDecision) => void;
 }) {
   const { entries, bumps } = useNowEntries(props);
   const count = (lane: Lane, of: ReadonlyArray<Entry> = entries) =>
@@ -290,8 +296,18 @@ export function useNowEntries(props: NowInput): {
         };
       }),
   ];
+  const decisions = (props.decisions ?? []).map((decision): Entry => ({
+    key: `decision:${decision.id}`,
+    lane: "review",
+    app: decision.app ?? OTHER,
+    badge: "Decide",
+    tone: "warning",
+    title: `${decision.app ?? "Planner"}: ${decision.question}`,
+    meta: decision.recommended ? `rec: ${decision.recommended}` : "",
+    onClick: () => props.onOpenDecision?.(decision),
+  }));
   const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
-  return { entries, bumps };
+  return { entries: [...decisions, ...entries], bumps };
 }
 
 function Row(props: {
