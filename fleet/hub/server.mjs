@@ -289,7 +289,10 @@ const MAX_NOTE = 4000;
 
 const isGuestPath = (pathname) =>
   /^\/a\/[a-z0-9]{12}$/.test(pathname) ||
-  /^\/fleet\/artifacts\/[a-z0-9]{12}(?:\/(?:state|submit))?$/.test(pathname) ||
+  /^\/fleet\/artifacts\/[a-z0-9]{12}(?:\/(?:state|submit|files))?$/.test(pathname) ||
+  /^\/fleet\/artifacts\/[a-z0-9]{12}\/files\/[a-f0-9]{18}\.(?:png|jpg|gif|webp|heic)$/.test(
+    pathname,
+  ) ||
   pathname === "/fleet/whoami";
 
 const artifactFile = (id) => NodePath.join(ARTIFACT_DIR, `${id}.json`);
@@ -446,7 +449,8 @@ setInterval(function(){if(document.visibilityState==="visible")refresh();},15000
 window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,
 save:function(value){return call("/state","POST",A.kind==="sheet"?value:{data:value}).then(function(a){A.state=a.state;return a.state;});},
 submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
-onChange:function(f){fns.push(f);}};})();`;
+onChange:function(f){fns.push(f);},
+upload:function(file){return fetch(base+"/files?type="+encodeURIComponent(file.type),{method:"POST",headers:{"content-type":"text/plain"},body:file}).then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j&&j.error||("hub "+r.status));return new URL(location.href).origin+j.path;});});}};})();`;
 
 async function readJsonBody(req) {
   const raw = await readBody(req);
@@ -514,6 +518,49 @@ async function handleArtifacts(pathname, req, res, login, owner) {
     if (req.method !== "POST") return (reply(405, { error: "method-not-allowed" }), true);
     const id = NodeCrypto.randomBytes(6).toString("hex");
     return publishArtifact(id, true, req, reply, login);
+  }
+  // Pictures pasted into a sheet's notes: kept beside the artifact, readable by anyone who can
+  // open the sheet. Sent as text/plain so the sandboxed page needs no preflight.
+  const fileUpload = pathname.match(/^\/fleet\/artifacts\/([a-z0-9]{12})\/files$/);
+  if (fileUpload && req.method === "POST") {
+    const ext = IMAGE_TYPES[new URL(req.url, "http://hub").searchParams.get("type") ?? ""];
+    if (!ext) return (reply(415, { error: "Only images can be attached." }), true);
+    if (!(await readArtifact(fileUpload[1]))) return (reply(404, { error: "not-found" }), true);
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > MAX_FILE_BYTES)
+        return (reply(413, { error: "Pictures can be up to 8 MB." }), true);
+      chunks.push(chunk);
+    }
+    const name = `${NodeCrypto.randomBytes(9).toString("hex")}.${ext}`;
+    const dir = NodePath.join(ARTIFACT_DIR, `${fileUpload[1]}-files`);
+    await NodeFSP.mkdir(dir, { recursive: true, mode: 0o700 });
+    await NodeFSP.writeFile(NodePath.join(dir, name), Buffer.concat(chunks), { mode: 0o600 });
+    reply(200, { path: `/fleet/artifacts/${fileUpload[1]}/files/${name}` });
+    return true;
+  }
+  const fileRead = pathname.match(
+    /^\/fleet\/artifacts\/([a-z0-9]{12})\/files\/([a-f0-9]{18}\.(png|jpg|gif|webp|heic))$/,
+  );
+  if (fileRead && req.method === "GET") {
+    try {
+      const data = await NodeFSP.readFile(
+        NodePath.join(ARTIFACT_DIR, `${fileRead[1]}-files`, fileRead[2]),
+      );
+      const type = Object.entries(IMAGE_TYPES).find(([, value]) => value === fileRead[3])?.[0];
+      res.writeHead(200, {
+        ...CORS,
+        "content-type": type ?? "application/octet-stream",
+        "cache-control": "private, max-age=31536000, immutable",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(data);
+    } catch {
+      reply(404, { error: "not-found" });
+    }
+    return true;
   }
   const match = pathname.match(/^\/fleet\/artifacts\/([a-z0-9]{12})(?:\/(state|submit))?$/);
   if (!match || !ARTIFACT_ID.test(match[1])) return (reply(404, { error: "not-found" }), true);

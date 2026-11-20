@@ -31,10 +31,14 @@ interface SheetDetail {
   readonly id: string;
   readonly app: { readonly url: string; readonly start?: string; readonly machine?: string } | null;
   readonly rows: ReadonlyArray<{
+    readonly id?: string;
+    readonly title?: string;
     readonly url?: string;
-    readonly links?: ReadonlyArray<unknown>;
+    readonly links?: ReadonlyArray<{ readonly url?: string; readonly label?: string }>;
     readonly detail?: string;
   }>;
+  /** Each check's result, by row id. */
+  readonly results: Readonly<Record<string, string>>;
 }
 
 const SHEET_POLL_MS = 60_000;
@@ -79,7 +83,20 @@ export function useSheetDetail(id: string | null): SheetDetail | null {
       .then((response) => (response.ok ? response.json() : null))
       .then(
         (body: (SheetDetail & { app?: SheetDetail["app"] }) | null) => {
-          if (live && body) setDetail({ id, app: body.app ?? null, rows: body.rows ?? [] });
+          if (live && body) {
+            const rows = (body as { state?: { rows?: Record<string, { status?: string }> } }).state
+              ?.rows;
+            setDetail({
+              id,
+              app: body.app ?? null,
+              rows: body.rows ?? [],
+              results: Object.fromEntries(
+                Object.entries(rows ?? {}).flatMap(([rowId, row]) =>
+                  row.status ? [[rowId, row.status]] : [],
+                ),
+              ),
+            });
+          }
         },
         () => undefined,
       );

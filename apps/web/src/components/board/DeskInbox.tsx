@@ -63,8 +63,25 @@ export function QuickNoteDialog(props: {
   readonly apps: ReadonlyArray<string>;
   readonly onClose: () => void;
 }) {
+  return (
+    <Dialog open onOpenChange={(next) => !next && props.onClose()}>
+      <DialogPopup className="sm:max-w-lg">
+        <QuickNoteForm apps={props.apps} onClose={props.onClose} />
+      </DialogPopup>
+    </Dialog>
+  );
+}
+
+/** The note form: text (pictures pasted, dropped or attached), where it came from, who, the app. */
+export function QuickNoteForm(props: {
+  readonly apps: ReadonlyArray<string>;
+  /** Shown in a dialog: a title, Cancel, and it closes after saving. */
+  readonly onClose?: () => void;
+  /** Inline on the phone's Now: a bigger box for meeting notes and screenshots. */
+  readonly inline?: boolean;
+}) {
   const setOpen = (next: boolean) => {
-    if (!next) props.onClose();
+    if (!next) props.onClose?.();
   };
   const [text, setText] = useState("");
   const [source, setSource] = useState<InboxSource>("In person");
@@ -117,117 +134,117 @@ export function QuickNoteDialog(props: {
   };
   return (
     <>
-      <Dialog open onOpenChange={(next) => !next && setOpen(false)}>
-        <DialogPopup className="sm:max-w-lg">
-          <form
-            className="flex flex-col gap-3 p-5"
-            onSubmit={(event) => {
+      <form
+        className={cn("flex flex-col gap-3", props.inline ? "" : "p-5")}
+        onSubmit={(event) => {
+          event.preventDefault();
+          save();
+        }}
+      >
+        {props.inline ? null : <DialogTitle>Quick note</DialogTitle>}
+        <Textarea
+          aria-label="What was asked or reported"
+          placeholder="What was asked or reported, in your words. Paste or drop a picture to attach it."
+          rows={props.inline ? 6 : 5}
+          autoFocus={!props.inline}
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          onPaste={(event) => {
+            const files = [...event.clipboardData.files];
+            if (files.some((entry) => entry.type.startsWith("image/"))) {
               event.preventDefault();
-              save();
-            }}
-          >
-            <DialogTitle>Quick note</DialogTitle>
-            <Textarea
-              aria-label="What was asked or reported"
-              placeholder="What was asked or reported, in your words. Paste or drop a picture to attach it."
-              rows={5}
-              autoFocus
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              onPaste={(event) => {
-                const files = [...event.clipboardData.files];
-                if (files.some((entry) => entry.type.startsWith("image/"))) {
-                  event.preventDefault();
-                  void attach(files);
-                }
-              }}
-              onDrop={(event) => {
-                const files = [...event.dataTransfer.files];
-                if (files.length > 0) {
-                  event.preventDefault();
-                  void attach(files);
-                }
+              void attach(files);
+            }
+          }}
+          onDrop={(event) => {
+            const files = [...event.dataTransfer.files];
+            if (files.length > 0) {
+              event.preventDefault();
+              void attach(files);
+            }
+          }}
+        />
+        <div className="flex items-center gap-2">
+          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent">
+            <ImagePlusIcon className="size-3.5" aria-hidden />
+            Add picture
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              className="sr-only"
+              onChange={(event) => {
+                void attach([...(event.target.files ?? [])]);
+                event.target.value = "";
               }}
             />
-            <div className="flex items-center gap-2">
-              <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent">
-                <ImagePlusIcon className="size-3.5" aria-hidden />
-                Add picture
-                <input
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="sr-only"
-                  onChange={(event) => {
-                    void attach([...(event.target.files ?? [])]);
-                    event.target.value = "";
-                  }}
-                />
-              </label>
-              {uploading > 0 ? (
-                <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
-              ) : null}
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Select
-                value={source}
-                onValueChange={(value) => {
-                  const found = INBOX_SOURCES.find((entry) => entry === value);
-                  if (found) setSource(found);
-                }}
-              >
-                <SelectTrigger aria-label="Where it came from" size="sm">
-                  <SelectValue>{source}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {INBOX_SOURCES.map((entry) => (
-                    <SelectItem key={entry} value={entry}>
-                      {entry}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-              <Input
-                aria-label="Who"
-                size="sm"
-                placeholder="Who"
-                value={who}
-                onChange={(event) => setWho(event.target.value)}
-              />
-              <Select
-                value={app ?? NONE}
-                onValueChange={(value) =>
-                  setApp(typeof value === "string" && value !== NONE ? value : null)
-                }
-              >
-                <SelectTrigger aria-label="App" size="sm">
-                  <SelectValue>{app ?? "App (optional)"}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  <SelectItem value={NONE}>Not sure</SelectItem>
-                  {props.apps.map((entry) => (
-                    <SelectItem key={entry} value={entry}>
-                      {entry}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              It waits in the inbox on Now. A triage agent proposes where it goes; nothing is filed
-              until you approve.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" size="sm" disabled={!text.trim() || uploading > 0}>
-                Save to inbox
-              </Button>
-            </div>
-          </form>
-        </DialogPopup>
-      </Dialog>
+          </label>
+          {uploading > 0 ? (
+            <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
+          ) : null}
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Select
+            value={source}
+            onValueChange={(value) => {
+              const found = INBOX_SOURCES.find((entry) => entry === value);
+              if (found) setSource(found);
+            }}
+          >
+            <SelectTrigger aria-label="Where it came from" size="sm">
+              <SelectValue>{source}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {INBOX_SOURCES.map((entry) => (
+                <SelectItem key={entry} value={entry}>
+                  {entry}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <Input
+            aria-label="Who"
+            size="sm"
+            placeholder="Who"
+            value={who}
+            onChange={(event) => setWho(event.target.value)}
+          />
+          <Select
+            value={app ?? NONE}
+            onValueChange={(value) =>
+              setApp(typeof value === "string" && value !== NONE ? value : null)
+            }
+          >
+            <SelectTrigger aria-label="App" size="sm">
+              <SelectValue>{app ?? "App (optional)"}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value={NONE}>Not sure</SelectItem>
+              {props.apps.map((entry) => (
+                <SelectItem key={entry} value={entry}>
+                  {entry}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+        {props.inline ? null : (
+          <p className="text-xs text-muted-foreground">
+            It waits in the inbox on Now. A triage agent proposes where it goes; nothing is filed
+            until you approve.
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          {props.inline ? null : (
+            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          )}
+          <Button type="submit" size="sm" disabled={!text.trim() || uploading > 0}>
+            Save to inbox
+          </Button>
+        </div>
+      </form>
     </>
   );
 }
@@ -305,7 +322,8 @@ async function file(
   return filed;
 }
 
-async function fileOnGitHub(note: InboxNote, proposal: InboxProposal): Promise<InboxNote> {
+/** Files a note on GitHub as the proposal says, and returns the note as sorted. */
+export async function fileOnGitHub(note: InboxNote, proposal: InboxProposal): Promise<InboxNote> {
   const at = new Date().toISOString();
   const credit = `Raised by ${note.who ?? "someone"} (${note.source.toLowerCase()}, ${day(note.createdAt)}).`;
   if (proposal.action === "comment" && proposal.itemUrl) {

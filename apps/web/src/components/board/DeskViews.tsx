@@ -414,6 +414,8 @@ export function DeskModal(props: {
   const [chatsSeen, setChatsSeen] = useState(tab === "chats");
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
   const [showDraft, setShowDraft] = useState(props.draft !== null);
+  // On a phone the Chats tab is the conversation; who's on it and the other chats open from ⋯.
+  const [phoneControls, setPhoneControls] = useState(false);
   const focusId = item?.url ? focusedChat(notes, item.url) : null;
   const focused = focusId
     ? (props.allChats.find((chat) => chat.threadId === focusId) ?? null)
@@ -603,7 +605,25 @@ export function DeskModal(props: {
               !tabbed || tab === "chats" ? "flex" : "hidden",
             )}
           >
-            <div className="flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2">
+            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 sm:hidden">
+              <span className="min-w-0 flex-1 truncate text-sm">
+                {draft ? "New chat" : shown ? chatTitle(shown.title) : "No chat on it yet"}
+              </span>
+              <Button
+                variant="ghost"
+                size="xs"
+                aria-expanded={phoneControls}
+                onClick={() => setPhoneControls(!phoneControls)}
+              >
+                {phoneControls ? "Done" : "⋯"}
+              </Button>
+            </div>
+            <div
+              className={cn(
+                "flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2",
+                !phoneControls && "max-sm:hidden",
+              )}
+            >
               {item ? (
                 <OnItRow
                   item={item}

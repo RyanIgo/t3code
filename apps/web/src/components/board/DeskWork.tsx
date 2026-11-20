@@ -458,6 +458,32 @@ export function ReviewTab(props: {
           </div>
         </section>
       ) : null}
+      {detail && detail.rows.length > 0 ? (
+        <ul className="flex flex-col divide-y divide-border sm:hidden">
+          {detail.rows.map((row, index) => {
+            const link = row.url ?? row.links?.find((entry) => entry.url)?.url ?? null;
+            const result = row.id ? detail.results[row.id] : undefined;
+            return (
+              <li key={row.id ?? index} className="flex items-start gap-2 py-2 text-sm">
+                <span className="w-14 shrink-0 text-xs text-muted-foreground">
+                  {result ?? "to do"}
+                </span>
+                {link ? (
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 cursor-pointer text-left text-info-foreground underline-offset-2 hover:underline"
+                    onClick={() => openExternal(link)}
+                  >
+                    {row.title ?? link}
+                  </button>
+                ) : (
+                  <span className="min-w-0 flex-1">{row.title}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
       <p className="text-sm sm:hidden">
         Testing happens on a computer. This sheet is{" "}
         {sheet.counts.pass + sheet.counts.fail + sheet.counts.skip + sheet.counts.blocked} of{" "}
