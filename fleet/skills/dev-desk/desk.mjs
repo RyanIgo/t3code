@@ -296,7 +296,7 @@ function many(list, name) {
 async function decide(question, options) {
   if (!question?.trim()) {
     fail(
-      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"]',
+      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"] [--goal (the question is a proposed sprint goal)]',
     );
   }
   const threadId = thisThread();
@@ -307,7 +307,13 @@ async function decide(question, options) {
     : (doc.work?.[threadId]?.app ?? null);
   if (!appName)
     fail('Which app is this for? Add --app "<app>" (or record this chat: role planner --app …).');
-  const choices = (given.options ?? "Yes|No")
+  // --goal: the question is a proposed sprint goal; the first option takes it as written.
+  const goalFor =
+    given.goal !== undefined
+      ? currentSprint((await call("/fleet/desk")).body?.sprints)?.title
+      : null;
+  if (given.goal !== undefined && !goalFor) fail("There's no current sprint to set a goal for.");
+  const choices = (given.options ?? (goalFor ? "Use this goal|Not yet" : "Yes|No"))
     .split("|")
     .map((entry) => entry.trim())
     .filter(Boolean)
@@ -366,6 +372,7 @@ async function decide(question, options) {
       context: context?.trim() ? context.trim().slice(0, 4000) : null,
       recommended: given.rec ?? null,
       itemUrl: given.item ?? null,
+      goalFor: goalFor ?? null,
       createdAt: at,
       updatedAt: at,
       answer: null,
@@ -510,7 +517,7 @@ async function propose(id, action, options) {
   console.log(`Proposed for ${id}: ${action}. Rigo approves it on the Board (Now → Inbox).`);
 }
 
-/** `capture "<text>" [--who name] [--source "In person|Email|Teams|Call|Other"] [--app "<app>"]`: a new inbox note. */
+/** `capture "<text>" [--who name] [--source "In person|User session|Email|Teams|Call|Other"] [--app "<app>"]`: a new inbox note. */
 async function capture(text, options) {
   if (!text?.trim())
     fail(
@@ -523,7 +530,9 @@ async function capture(text, options) {
     doc.inbox[id] = {
       id,
       text: text.trim().slice(0, 4000),
-      source: ["In person", "Email", "Teams", "Call", "Other"].includes(given.source)
+      source: ["In person", "User session", "Email", "Teams", "Call", "Other"].includes(
+        given.source,
+      )
         ? given.source
         : "Other",
       who: given.who ?? null,
@@ -563,20 +572,41 @@ async function role(value, options) {
     fail("A helper names its parent chat: --parent <thread id>.");
   }
   let app = given.app ?? null;
-  if (app) app = resolveApp((await call("/fleet/desk")).body, app);
+  const desk = app || value === "planner" ? (await call("/fleet/desk")).body : null;
+  if (app) app = resolveApp(desk, app);
+  // One planner per app per sprint: a new planner takes over the app's earlier one, carrying its
+  // open lines over, and the earlier one becomes its helper (it hands over and stops).
+  const sprint = value === "planner" ? (currentSprint(desk?.sprints)?.title ?? null) : null;
+  const handedOver = [];
   await changeNotes((doc, at) => {
     const current = doc.work[threadId] ?? { items: [], next: null };
+    const carried = [];
+    if (value === "planner") {
+      for (const [other, work] of Object.entries(doc.work)) {
+        if (other === threadId || work.role !== "planner" || work.app !== app) continue;
+        carried.push(...(work.plan ?? []).filter((line) => !line.done));
+        doc.work[other] = { ...work, role: "helper", parent: threadId, updatedAt: at };
+        handedOver.push({ threadId: other, sprint: work.sprint ?? null });
+      }
+    }
     doc.work[threadId] = {
       ...current,
       role: value,
       ...(app ? { app } : {}),
       ...(given.parent ? { parent: given.parent } : {}),
+      ...(sprint ? { sprint } : {}),
+      ...(carried.length && !current.plan?.length ? { plan: carried.slice(0, 40) } : {}),
       updatedAt: at,
     };
   });
   console.log(
-    `${given.thread ? `Chat ${threadId.slice(0, 8)}` : "This chat"} is now a ${value}${app ? ` for ${app}` : ""}.`,
+    `${given.thread ? `Chat ${threadId.slice(0, 8)}` : "This chat"} is now a ${value}${app ? ` for ${app}` : ""}${sprint ? ` (${sprint})` : ""}.`,
   );
+  for (const old of handedOver) {
+    console.log(
+      `Took over from the earlier planner ${old.threadId}${old.sprint ? ` (${old.sprint})` : ""}: its open checklist lines are now yours (plan show), and it's now your helper. Send it one queued message (t3_thread_send) asking it to hand over what isn't on the Desk and stop; read its last turns (t3_thread_read) first.`,
+    );
+  }
 }
 
 /**

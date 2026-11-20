@@ -71,13 +71,13 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
 
 ## Levels: who does what
 
-Every chat works at one level, recorded on the Desk and shown on the Board. Rigo talks to the
-level that owns the question; a chat answers only at its own level.
+Every chat works at one level, recorded on the Desk and shown on the Board. Rigo steers each app
+through its planner; the Board's Now tab is his list of where he's needed across every app (there
+is no Today chat any more). He also talks to work chats directly to scope a feature.
 
 | Level                                  | Owns                                                                                                                                  | Does not                                                                                                                   |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Today** (one a day)                  | Rigo's priorities across apps for the day                                                                                             | plan an app's sprint or write code                                                                                         |
-| **Planner** (one per app)              | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test, or publish test sheets (the item's work chat does; the sheet shows in its Review tab) |
+| **Planner** (one per app, per sprint)  | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test, or publish test sheets (the item's work chat does; the sheet shows in its Review tab) |
 | **Work** (one item)                    | one issue or PR: code, PR, test sheet, wrap-up                                                                                        | change the plan, pick its own next item, take on a second item                                                             |
 | **Helper** (a subagent or a side task) | the job its parent gave it                                                                                                            | talk to Rigo; its results and questions go to its parent                                                                   |
 
@@ -100,6 +100,33 @@ node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                   
   thread id>`. A work chat that needs a decision asks its planner; the planner asks Rigo.
 - **Work chats** finish one item. More work found along the way becomes a note to the planner
   (or `capture`), not a second item in the same chat.
+- **Rigo scoping with a work chat** is expected: shape the feature with him, write what was
+  agreed into the issue (acceptance criteria, "Where it stands"), add a `note` for anything the
+  next chat should know, and tell the planner in one queued line (`t3_thread_send`) so its plan
+  stays true. If what he asks is another item, say so and `capture` it for the planner.
+- **Steering from a user session is expedited.** When Rigo brings what a user said while using
+  the app (a session, a demo, a test with them) and it changes a feature, a bug or what comes
+  first: act on it now, ahead of the queue. A work chat on that item takes it on at once and
+  tells the planner; anywhere else, `capture … --source "User session"` and send the planner one
+  queued line at once. The planner re-plans in its next turn (priority, sprint, who's on it) and
+  says what moved. Triage proposes "User session" notes first, with Expedite.
+
+### A new planner each sprint
+
+Each sprint starts a fresh planner chat per app, so its context starts clean:
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs role planner --app "BizDev Leads"   # takes over from last sprint's planner
+node ~/.claude/skills/dev-desk/desk.mjs context "BizDev Leads"              # direction, goal, big picture, decisions
+node ~/.claude/skills/dev-desk/desk.mjs plan show                           # the open lines carried over
+```
+
+- `role planner` records the sprint, carries the earlier planner's open checklist lines over, and
+  makes that chat your helper. Read its last turns (`t3_thread_read`), send it one queued message
+  to hand over what isn't on the Desk and stop, then `plan set` the checklist for this sprint.
+- **No sprint goal yet?** Propose one as a decision: `decide "<the goal, one plain sentence>"
+  --goal --why "<why this, now>" --context …`. "Use this goal" sets it; Rigo's note replaces it
+  with his wording.
 
 ### How a planner talks to Rigo
 
@@ -139,6 +166,12 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **The checklist replaces status essays.** After each turn that changes the picture, `plan set`
   the whole checklist: what's done, what's on Rigo (`"who": "you"`), on someone else (their
   name or team), and what agents are on. Your message then says only what changed.
+- **Rigo's lines are his to-do list.** They show in Waiting on you, on Now and on his phone, each
+  with **Done** and **Ask**. Keep them to things only he can do, one action each, with where to
+  do it ("Remove template 7's Raw marks in Admin → Access"). A question is never a "you" line:
+  it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
+  item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
+  your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
 - **Work from Rigo's big picture.** `context` shows it ("Rigo's big picture"). When he edits it,
   you get a message; adjust the plan and your open decisions, and say what changed in one line.
 - **Wide tables go to a hub sheet** (t3-artifacts), linked from a one-line summary, not into the

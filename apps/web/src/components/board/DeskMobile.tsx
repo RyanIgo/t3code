@@ -140,7 +140,6 @@ export function MobileNow(
     readonly currentSprint: string | null;
     readonly onStartChat: (item: DeskItem) => void;
     /** The day's chat, or the button to start it. */
-    readonly today: ReactNode;
   },
 ) {
   const [app, setApp] = useState<string | null>(null);
@@ -183,7 +182,6 @@ export function MobileNow(
           </button>
         ))}
       </div>
-      {props.today}
       <section
         aria-label="Capture"
         className="flex flex-col gap-2 rounded-lg border border-border p-3"

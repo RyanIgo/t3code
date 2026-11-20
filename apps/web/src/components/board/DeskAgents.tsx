@@ -27,7 +27,7 @@ import {
   openDecisions,
   type PlannerDecision,
 } from "./deskNotes.logic";
-import { saveChatRole, saveDecisionAnswer, saveDeskNote } from "./deskNotesStore";
+import { saveChatRole, saveDecisionAnswer, saveDeskNote, savePlanLineDone } from "./deskNotesStore";
 import { useSendToChat } from "./deskSend";
 import { type SheetSummary, useHubSheets } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
@@ -160,7 +160,6 @@ export function AgentsView(props: {
   readonly appOfRepo: (chat: CardChatState) => string | null;
   readonly repoOf: (chat: CardChatState) => string | null;
   readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
-  readonly today: ReactNode;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onStartChat: (item: DeskItem) => void;
@@ -233,7 +232,6 @@ export function AgentsView(props: {
             : ""}
         </span>
       </header>
-      {props.today}
       {apps.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open chats or sprint work here.</p>
       ) : null}
@@ -397,6 +395,11 @@ export function PlanPane(props: {
   const checklist = props.notes.work[props.planner.threadId]?.plan ?? [];
   const answer = (decision: PlannerDecision, choice: string, note: string | null) => {
     saveDecisionAnswer(decision.id, choice, note);
+    // A proposed sprint goal: the first option takes it as written; a note is Rigo's own wording.
+    const goal = note?.trim() || (choice === decision.options[0] ? decision.question : null);
+    if (decision.goalFor && goal) {
+      saveDeskNote({ kind: "sprintGoal", sprint: decision.goalFor, app: props.app }, goal);
+    }
     void sendToChat(
       props.planner,
       `Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`,
@@ -436,6 +439,35 @@ export function PlanPane(props: {
       (pr.stage === "ready" || pr.stage === "fix") &&
       !isDependencyUpdate(pr),
   );
+  // The planner's checklist, split: Rigo's open lines join Waiting on you (folded into the row they
+  // repeat when they name its item or PR), the rest show as the plan, done lines folded away.
+  const shownUrls = new Set(
+    [
+      ...prsWaiting.flatMap((pr) => [pr.url, pr.item?.url]),
+      ...waiting.flatMap((item) => [item.url, ...item.pullRequests.map((pr) => pr.url)]),
+    ].filter(Boolean),
+  );
+  const youLines = checklist.filter((line) => line.who === "you" && !line.done);
+  const ownTodos = youLines.filter((line) => !line.itemUrl || !shownUrls.has(line.itemUrl));
+  const agentLines = checklist.filter((line) => line.who !== "you" && !line.done);
+  const doneLines = checklist.filter((line) => line.done);
+  const plannerSays = (urls: ReadonlyArray<string | null | undefined>) =>
+    youLines
+      .filter((line) => line.itemUrl && urls.includes(line.itemUrl))
+      .map((line) => (
+        <p key={line.text} className="pt-0.5 pl-1 text-xs text-muted-foreground">
+          Planner: {line.text}
+        </p>
+      ));
+  const todoDone = (text: string) => {
+    savePlanLineDone(props.planner.threadId, text);
+    void sendToChat(props.planner, `Done: ${text}`);
+  };
+  const todoAsk = (text: string) =>
+    void sendToChat(
+      props.planner,
+      `About "${text}": what exactly do you need from me, and where do I do it? Answer in a line or two, with the link.`,
+    );
   const order: Record<string, number> = { "In Review": 0, "In Progress": 1, Todo: 2 };
   const next = inSprint
     .filter((item) => isOpenWork(item) && ask(item) === null)
@@ -517,78 +549,116 @@ export function PlanPane(props: {
         </section>
       ) : null}
       <section className="flex flex-col">
-        <DeskHeading>Waiting on you · {waiting.length + prsWaiting.length}</DeskHeading>
-        {prsWaiting.length > 0 ? (
+        <DeskHeading>
+          Waiting on you · {waiting.length + prsWaiting.length + ownTodos.length}
+        </DeskHeading>
+        {waiting.length === 0 && prsWaiting.length === 0 && ownTodos.length === 0 ? (
+          <p className="py-1 text-xs text-muted-foreground">Nothing in this sprint waits on you.</p>
+        ) : (
           <ul className="flex flex-col divide-y divide-border">
             {prsWaiting.map((pr) => (
-              <li key={pr.url} className="flex min-w-0 items-center gap-2 py-1.5">
-                <button
-                  type="button"
-                  onClick={() => props.onOpenPr(pr)}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
-                >
-                  <span className="shrink-0 text-xs text-muted-foreground">PR #{pr.number}</span>
-                  <span className="truncate">{pr.title}</span>
-                </button>
-                <Button size="xs" variant="outline" onClick={() => props.onOpenPr(pr)}>
-                  {pr.stage === "ready" ? "Merge" : "Send back"}
+              <li key={pr.url} className="flex flex-col py-1.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => props.onOpenPr(pr)}
+                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
+                  >
+                    <span className="shrink-0 text-xs text-muted-foreground">PR #{pr.number}</span>
+                    <span className="truncate">{pr.title}</span>
+                  </button>
+                  <Button size="xs" variant="outline" onClick={() => props.onOpenPr(pr)}>
+                    {pr.stage === "ready" ? "Merge" : "Send back"}
+                  </Button>
+                </div>
+                {plannerSays([pr.url, pr.item?.url])}
+              </li>
+            ))}
+            {waiting.map((item) => {
+              const needed = ask(item);
+              return (
+                <li key={item.itemId} className="flex flex-col py-1.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => props.onOpenItem(item)}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
+                    >
+                      <TypeTag kind={workKind(item)} />
+                      <span className="truncate">{deskTitle(item)}</span>
+                    </button>
+                    <Button
+                      size="xs"
+                      variant={needed?.action === "start" ? "default" : "outline"}
+                      onClick={() =>
+                        needed?.action === "start"
+                          ? props.onStartChat(item)
+                          : props.onOpenItem(item)
+                      }
+                    >
+                      {needed?.label}
+                    </Button>
+                  </div>
+                  {plannerSays([item.url, ...item.pullRequests.map((pr) => pr.url)])}
+                </li>
+              );
+            })}
+            {ownTodos.map((line) => (
+              <li key={line.text} className="flex min-w-0 items-start gap-2 py-1.5">
+                <span aria-hidden className="w-4 shrink-0 text-muted-foreground">
+                  ☐
+                </span>
+                <span className="min-w-0 flex-1 text-sm">
+                  {line.text}
+                  <span className="block text-2xs text-muted-foreground">From the planner</span>
+                </span>
+                <Button size="xs" variant="outline" onClick={() => todoDone(line.text)}>
+                  Done
+                </Button>
+                <Button size="xs" variant="ghost" onClick={() => todoAsk(line.text)}>
+                  Ask
                 </Button>
               </li>
             ))}
           </ul>
-        ) : null}
-        {waiting.length === 0 && prsWaiting.length === 0 ? (
-          <p className="py-1 text-xs text-muted-foreground">Nothing in this sprint waits on you.</p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border">
-            {waiting.map((item) => {
-              const needed = ask(item);
-              return row(
-                item,
-                <Button
-                  size="xs"
-                  variant={needed?.action === "start" ? "default" : "outline"}
-                  onClick={() =>
-                    needed?.action === "start" ? props.onStartChat(item) : props.onOpenItem(item)
-                  }
-                >
-                  {needed?.label}
-                </Button>,
-              );
-            })}
-          </ul>
         )}
       </section>
-      {checklist.length > 0 ? (
+      {agentLines.length > 0 || doneLines.length > 0 ? (
         <section className="flex flex-col">
-          <DeskHeading>The planner's checklist</DeskHeading>
+          <DeskHeading>The planner's plan · {agentLines.length} under way</DeskHeading>
           <ul className="flex flex-col">
-            {checklist.map((line) => (
+            {agentLines.map((line) => (
               <li key={line.text} className="flex items-start gap-2 py-1 text-sm">
                 <span aria-hidden className="w-4 shrink-0 text-muted-foreground">
-                  {line.done ? "✓" : line.who === "agents" ? "▶" : "☐"}
+                  ▶
                 </span>
-                <span
-                  className={cn(
-                    "min-w-0 flex-1",
-                    line.done && "text-muted-foreground line-through",
-                  )}
-                >
-                  {line.text}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded border px-1.5 text-2xs",
-                    line.who === "you" && !line.done
-                      ? "border-warning/40 text-warning-foreground"
-                      : "border-border text-muted-foreground",
-                  )}
-                >
-                  {line.done ? "done" : line.who}
+                <span className="min-w-0 flex-1">{line.text}</span>
+                <span className="shrink-0 rounded border border-border px-1.5 text-2xs text-muted-foreground">
+                  {line.who}
                 </span>
               </li>
             ))}
           </ul>
+          {doneLines.length > 0 ? (
+            <details>
+              <summary className="cursor-pointer py-1 text-xs text-muted-foreground">
+                Done · {doneLines.length}
+              </summary>
+              <ul className="flex flex-col">
+                {doneLines.map((line) => (
+                  <li
+                    key={line.text}
+                    className="flex items-start gap-2 py-1 text-sm text-muted-foreground"
+                  >
+                    <span aria-hidden className="w-4 shrink-0">
+                      ✓
+                    </span>
+                    <span className="min-w-0 flex-1">{line.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </section>
       ) : null}
       <section className="flex flex-col">
@@ -848,6 +918,11 @@ function DecisionCard(props: {
     decision.outcomes.find((entry) => entry.option === option) ?? null;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2.5">
+      {decision.goalFor ? (
+        <span className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Proposed goal for {decision.goalFor} · a note replaces it with your words
+        </span>
+      ) : null}
       <span className="text-sm font-medium">{decision.question}</span>
       {decision.why ? <span className="text-xs text-muted-foreground">{decision.why}</span> : null}
       {decision.context ? (

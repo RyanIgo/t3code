@@ -276,6 +276,7 @@ function inboxPrompt(): string {
     `   - Bigger than one item (a goal, a change of direction): \`${desk} propose <id> planner --app "<app>" --reason "<why>"\``,
     `   - Not development work: \`${desk} propose <id> dismiss --reason "<why>"\``,
     "4. Priority follows the app's direction and goals: P0 only for something broken for people now or blocking a goal date.",
+    '5. Notes from a "User session" (what a user said while using the app) go first: they steer work under way, so propose them at P1 or higher, with the item they change, and say "expedite" in the reason.',
     "",
     "Then give me a short table: note · route · why, and flag any note you weren't sure about.",
   ].join("\n");

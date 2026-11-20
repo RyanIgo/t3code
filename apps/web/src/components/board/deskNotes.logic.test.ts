@@ -12,8 +12,9 @@ import {
   chatRoleOf,
   withRole,
   focusedChat,
-  todayChatFor,
   untitledTodayChats,
+  plannerTodos,
+  withPlanLineDone,
   withFocus,
   withNote,
   withPin,
@@ -175,12 +176,43 @@ describe("desk notes", () => {
         "env:second": link("2026-11-19", "2026-11-19T13:00:00Z"),
       },
     };
-    expect(todayChatFor(notes, "2026-11-19")).toBe("env:second");
-    expect(todayChatFor(notes, "2026-11-20")).toBeNull();
     expect(untitledTodayChats(notes)).toEqual([
       { key: "env:first", title: "Today · Thu, Nov 19" },
       { key: "env:second", title: "Today · Thu, Nov 19" },
     ]);
+  });
+
+  it("lists planners' open lines on Rigo and ticks one done", () => {
+    const at = "2026-11-20T10:00:00Z";
+    const notes = {
+      ...EMPTY_DESK_NOTES,
+      work: {
+        "planner-one": {
+          items: [],
+          next: null,
+          role: "planner" as const,
+          app: "Precon",
+          plan: [
+            { text: "Test the sheet", who: "you", done: false, itemUrl: null },
+            { text: "Build it", who: "agents", done: false, itemUrl: null },
+            { text: "Old", who: "you", done: true, itemUrl: null },
+          ],
+          updatedAt: at,
+        },
+        "work-chat-1": {
+          items: [],
+          next: null,
+          role: "work" as const,
+          plan: [{ text: "Not a planner", who: "you", done: false, itemUrl: null }],
+          updatedAt: at,
+        },
+      },
+    };
+    expect(plannerTodos(notes).map((todo) => todo.line.text)).toEqual(["Test the sheet"]);
+    expect(plannerTodos(notes, "Materials")).toEqual([]);
+    const ticked = withPlanLineDone(notes, "planner-one", "Test the sheet", at);
+    expect(plannerTodos(ticked)).toEqual([]);
+    expect(withPlanLineDone(notes, "planner-one", "Missing", at)).toBe(notes);
   });
 
   it("keeps one chat on an item and one item per chat, with a dated record of each move", () => {

@@ -55,9 +55,9 @@ import {
 import { refreshDesk, setDeskField, useDesk } from "./deskStore";
 import {
   ALL_APPS,
-  dayKey,
   focusedThreads,
   openDecisions,
+  plannerTodos,
   type PlannerDecision,
   type DeskNotes,
   noteAt,
@@ -73,7 +73,7 @@ import {
   saveDeskPin,
   useDeskNotes,
 } from "./deskNotesStore";
-import { PinnedStrip, TodayChatBar } from "./DeskPins";
+import { PinnedStrip } from "./DeskPins";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
 import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
@@ -356,10 +356,11 @@ export function DeskPage(props: {
     setModal({ itemId: owner?.itemId ?? null, chat, sequence: [] });
   };
   // A planner's question opens its planning session, where it can be answered in context.
-  const openDecision = (decision: PlannerDecision) => {
-    const chat = props.pinnable.find((entry) => entry.threadId === decision.threadId);
+  const openPlanner = (threadId: string) => {
+    const chat = props.pinnable.find((entry) => entry.threadId === threadId);
     if (chat) setModal({ itemId: null, chat, sequence: [] });
   };
+  const openDecision = (decision: PlannerDecision) => openPlanner(decision.threadId);
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
     setModal({ itemId: entry.itemId, chat: null, sequence });
 
@@ -506,17 +507,6 @@ export function DeskPage(props: {
     setLauncher(null);
     setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
   };
-
-  const today = dayKey(nowMs);
-  const todayBar = (
-    <TodayChatBar
-      day={today}
-      notes={notes.notes}
-      chats={props.pinnable}
-      onOpenChat={openChat}
-      onStart={() => setLauncher({ kind: "today", day: today })}
-    />
-  );
 
   const prs = collectPrs(items, props.chats);
   const prFor = (item: DeskItem) =>
@@ -905,12 +895,13 @@ export function DeskPage(props: {
           sprints={plannedSprints(view.sprints ?? [], nowMs).map((entry) => entry.title)}
           currentSprint={sprint?.title ?? null}
           onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
-          today={todayBar}
           onOpenChat={openChat}
           onOpenItem={openItemIn([])}
           onOpenPr={openPr}
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
+          todos={plannerTodos(notes.notes)}
+          onOpenTodo={(todo) => openPlanner(todo.threadId)}
           onOpenSheet={(sheet) => {
             const item = itemForSheet(sheet, items, notes.notes);
             if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
@@ -1030,7 +1021,6 @@ export function DeskPage(props: {
                   })
                 }
               />
-              {todayBar}
               <PinnedStrip
                 place={{ kind: "today" }}
                 notes={notes.notes}
@@ -1044,6 +1034,8 @@ export function DeskPage(props: {
           onOpenPr={openPr}
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
+          todos={plannerTodos(notes.notes)}
+          onOpenTodo={(todo) => openPlanner(todo.threadId)}
           onOpenSheet={(sheet) => {
             const item = itemForSheet(sheet, items, notes.notes);
             if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
@@ -1055,7 +1047,6 @@ export function DeskPage(props: {
           app={app}
           pinned={
             <div className="flex flex-col gap-3">
-              {todayBar}
               <PinnedStrip
                 place={app ? { kind: "app", app } : { kind: "today" }}
                 notes={notes.notes}
@@ -1137,7 +1128,6 @@ export function DeskPage(props: {
           appOfRepo={appOf}
           repoOf={repoOf}
           chatsFor={chatsFor}
-          today={todayBar}
           onOpenChat={openChat}
           onOpenItem={openItemIn([])}
           onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}

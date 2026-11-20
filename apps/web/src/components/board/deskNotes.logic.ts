@@ -75,6 +75,8 @@ export interface PlannerDecision {
     readonly effect: string;
     readonly undoable: boolean;
   }>;
+  /** A proposed sprint goal: answering it sets that sprint's goal for the app. */
+  readonly goalFor: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly answer: {
@@ -93,7 +95,14 @@ export interface PlanLine {
   readonly itemUrl: string | null;
 }
 
-export const INBOX_SOURCES = ["In person", "Email", "Teams", "Call", "Other"] as const;
+export const INBOX_SOURCES = [
+  "In person",
+  "User session",
+  "Email",
+  "Teams",
+  "Call",
+  "Other",
+] as const;
 export type InboxSource = (typeof INBOX_SOURCES)[number];
 const INBOX_ACTIONS = ["comment", "new", "planner", "chat", "dismiss"] as const;
 export type InboxAction = (typeof INBOX_ACTIONS)[number];
@@ -153,6 +162,8 @@ export interface DeskChatWork {
   readonly parent?: string | null;
   /** A planner's checklist, kept current by the planner each turn. */
   readonly plan?: ReadonlyArray<PlanLine>;
+  /** The sprint a planner runs; each sprint gets a new planner. */
+  readonly sprint?: string | null;
   readonly updatedAt: string;
 }
 
@@ -476,6 +487,7 @@ function readDecisions(value: unknown): Record<string, PlannerDecision> {
                   : [];
               },
             ),
+            goalFor: short(entry.goalFor, 80),
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
             answer:
@@ -518,6 +530,46 @@ export function openDecisions(notes: DeskNotes, app: string | null = null): Plan
   return Object.values(notes.decisions)
     .filter((decision) => decision.answer === null && (app === null || decision.app === app))
     .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** A planner's line that's on Rigo and still open, with the planner and app it came from. */
+export interface PlannerTodo {
+  readonly threadId: string;
+  readonly app: string | null;
+  readonly line: PlanLine;
+}
+
+/** The open "you" lines of every planner (or one app's), the planner's order kept. */
+export function plannerTodos(notes: DeskNotes, app: string | null = null): PlannerTodo[] {
+  return Object.entries(notes.work).flatMap(([threadId, work]) =>
+    work.role === "planner" && (app === null || work.app === app)
+      ? (work.plan ?? [])
+          .filter((line) => line.who === "you" && !line.done)
+          .map((line) => ({ threadId, app: work.app ?? null, line }))
+      : [],
+  );
+}
+
+/** Ticks a planner's checklist line (matched by its text) done. */
+export function withPlanLineDone(
+  notes: DeskNotes,
+  threadId: string,
+  text: string,
+  at: string,
+): DeskNotes {
+  const work = notes.work[threadId];
+  if (!work?.plan?.some((line) => line.text === text)) return notes;
+  return {
+    ...notes,
+    work: {
+      ...notes.work,
+      [threadId]: {
+        ...work,
+        plan: work.plan.map((line) => (line.text === text ? { ...line, done: true } : line)),
+        updatedAt: at,
+      },
+    },
+  };
 }
 
 /** Records Rigo's answer to a planner's question. */
@@ -658,6 +710,9 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
               ? { parent: work.parent }
               : {}),
             ...(readPlan(work.plan) ? { plan: readPlan(work.plan) ?? [] } : {}),
+            ...(typeof work.sprint === "string" && work.sprint.trim()
+              ? { sprint: work.sprint.slice(0, 80) }
+              : {}),
             updatedAt: work.updatedAt,
           },
         ],
@@ -935,16 +990,6 @@ export function todayChatTitle(day: string): string {
     day: "numeric",
   });
   return `Today · ${label}`;
-}
-
-/** The chat started as the Today chat for a day, if any (the newest when there are several). */
-export function todayChatFor(notes: DeskNotes, day: string): string | null {
-  let found: { key: string; at: string } | null = null;
-  for (const [key, link] of Object.entries(notes.links)) {
-    if (link.kind !== "today" || link.day !== day) continue;
-    if (!found || link.updatedAt > found.at) found = { key, at: link.updatedAt };
-  }
-  return found?.key ?? null;
 }
 
 /** Today chats that still want their dated title. */

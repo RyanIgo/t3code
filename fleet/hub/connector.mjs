@@ -932,7 +932,10 @@ function createTools({ desk, readNotes, changeNotes }) {
       properties: {
         text: { type: "string", description: "What was asked or reported, in plain words." },
         who: { type: "string", description: "Who raised it." },
-        source: { type: "string", enum: ["In person", "Email", "Teams", "Call", "Other"] },
+        source: {
+          type: "string",
+          enum: ["In person", "User session", "Email", "Teams", "Call", "Other"],
+        },
         app: { type: "string", description: "The application it's about, if known." },
       },
       required: ["text"],
@@ -945,7 +948,7 @@ function createTools({ desk, readNotes, changeNotes }) {
         doc.inbox[id] = {
           id,
           text: text.trim().slice(0, 4000),
-          source: ["In person", "Email", "Teams", "Call", "Other"].includes(source)
+          source: ["In person", "User session", "Email", "Teams", "Call", "Other"].includes(source)
             ? source
             : "Other",
           who: typeof who === "string" && who.trim() ? who.trim().slice(0, 120) : null,

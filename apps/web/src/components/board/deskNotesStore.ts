@@ -19,6 +19,7 @@ import {
   withInboxNote,
   withNextStep,
   withDecisionAnswer,
+  withPlanLineDone,
   type ChatRole,
   withRole,
   withSheet,
@@ -191,6 +192,14 @@ export function saveDecisionAnswer(id: string, choice: string, note: string | nu
   save(
     withDecisionAnswer(snapshot.notes, id, choice, note, new Date().toISOString()),
     "Couldn't save the answer",
+  );
+}
+
+/** Ticks one of a planner's checklist lines done. */
+export function savePlanLineDone(threadId: string, text: string) {
+  save(
+    withPlanLineDone(snapshot.notes, threadId, text, new Date().toISOString()),
+    "Couldn't tick the line",
   );
 }
 

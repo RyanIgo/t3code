@@ -7,7 +7,7 @@ import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading } from "./DeskParts";
 import { type SheetSummary, uncheckedRows, useHubSheets } from "./deskSheets";
-import type { PlannerDecision } from "./deskNotes.logic";
+import type { PlannerDecision, PlannerTodo } from "./deskNotes.logic";
 
 const SHEET_DAYS = 14;
 
@@ -80,6 +80,9 @@ export interface NowInput {
   /** Planners' open questions, each opening its planning session. */
   readonly decisions?: ReadonlyArray<PlannerDecision>;
   readonly onOpenDecision?: (decision: PlannerDecision) => void;
+  /** Planners' open lines on Rigo, each opening its planning session. */
+  readonly todos?: ReadonlyArray<PlannerTodo>;
+  readonly onOpenTodo?: (todo: PlannerTodo) => void;
 }
 
 export function NowView(props: {
@@ -98,6 +101,9 @@ export function NowView(props: {
   readonly onOpenSheet: (sheet: SheetSummary) => void;
   readonly decisions?: ReadonlyArray<PlannerDecision>;
   readonly onOpenDecision?: (decision: PlannerDecision) => void;
+  /** Planners' open lines on Rigo, each opening its planning session. */
+  readonly todos?: ReadonlyArray<PlannerTodo>;
+  readonly onOpenTodo?: (todo: PlannerTodo) => void;
 }) {
   const { entries, bumps } = useNowEntries(props);
   const count = (lane: Lane, of: ReadonlyArray<Entry> = entries) =>
@@ -306,8 +312,25 @@ export function useNowEntries(props: NowInput): {
     meta: decision.recommended ? `rec: ${decision.recommended}` : "",
     onClick: () => props.onOpenDecision?.(decision),
   }));
+  // A planner's line about an item or PR already listed shows once, as that row.
+  const listed = new Set([
+    ...props.waiting.flatMap((item) => [item.url, ...item.pullRequests.map((pr) => pr.url)]),
+    ...props.prs.flatMap((pr) => [pr.url, pr.item?.url]),
+  ]);
+  const todos = (props.todos ?? [])
+    .filter((todo) => !todo.line.itemUrl || !listed.has(todo.line.itemUrl))
+    .map((todo): Entry => ({
+      key: `todo:${todo.threadId}:${todo.line.text}`,
+      lane: "review",
+      app: todo.app ?? OTHER,
+      badge: "To do",
+      tone: "warning",
+      title: todo.line.text,
+      meta: "from the planner",
+      onClick: () => props.onOpenTodo?.(todo),
+    }));
   const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
-  return { entries: [...decisions, ...entries], bumps };
+  return { entries: [...decisions, ...todos, ...entries], bumps };
 }
 
 function Row(props: {
