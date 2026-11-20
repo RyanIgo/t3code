@@ -124,8 +124,8 @@ node ~/.claude/skills/dev-desk/desk.mjs plan show                           # th
 - `role planner` records the sprint, carries the earlier planner's open checklist lines over, and
   makes that chat your helper. Read its last turns (`t3_thread_read`), send it one queued message
   to hand over what isn't on the Desk and stop, then `plan set` the checklist for this sprint.
-- **No sprint goal yet?** Propose one as a decision: `decide "<the goal, one plain sentence>"
-  --goal --why "<why this, now>" --context …`. "Use this goal" sets it; Rigo's note replaces it
+- **No sprint goal yet?** Propose one as a decision whose question is the goal sentence itself,
+  nothing around it: `decide "<the goal, one plain sentence>" --goal --why "<why this, now>" --context …`. "Use this goal" sets it; Rigo's note replaces it
   with his wording.
 
 ### How a planner talks to Rigo

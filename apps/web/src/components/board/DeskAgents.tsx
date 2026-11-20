@@ -24,6 +24,7 @@ import {
   type DeskNote,
   type DeskNotes,
   noteAt,
+  goalOf,
   openDecisions,
   type PlannerDecision,
 } from "./deskNotes.logic";
@@ -396,7 +397,8 @@ export function PlanPane(props: {
   const answer = (decision: PlannerDecision, choice: string, note: string | null) => {
     saveDecisionAnswer(decision.id, choice, note);
     // A proposed sprint goal: the first option takes it as written; a note is Rigo's own wording.
-    const goal = note?.trim() || (choice === decision.options[0] ? decision.question : null);
+    const goal =
+      note?.trim() || (choice === decision.options[0] ? goalOf(decision.question) : null);
     if (decision.goalFor && goal) {
       saveDeskNote({ kind: "sprintGoal", sprint: decision.goalFor, app: props.app }, goal);
     }
@@ -433,10 +435,16 @@ export function PlanPane(props: {
     return null;
   };
   const waiting = inSprint.filter((item) => ask(item) !== null);
+  // A PR to send back that the plan already has an agent on isn't Rigo's: it shows in the plan.
+  const agentsOn = new Set(
+    checklist.flatMap((line) =>
+      line.who !== "you" && !line.done && line.itemUrl ? [line.itemUrl] : [],
+    ),
+  );
   const prsWaiting = props.prs.filter(
     (pr) =>
       pr.app === props.app &&
-      (pr.stage === "ready" || pr.stage === "fix") &&
+      (pr.stage === "ready" || (pr.stage === "fix" && !agentsOn.has(pr.url))) &&
       !isDependencyUpdate(pr),
   );
   // The planner's checklist, split: Rigo's open lines join Waiting on you (folded into the row they

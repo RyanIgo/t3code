@@ -532,6 +532,11 @@ export function openDecisions(notes: DeskNotes, app: string | null = null): Plan
     .toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
+/** The goal in a proposed-goal question, when the planner wrapped it ("Set the goal: '…'"). */
+export function goalOf(question: string): string {
+  return question.match(/:\s*['"“‘](.+?)['"”’]?\s*$/s)?.[1]?.trim() ?? question.trim();
+}
+
 /** A planner's line that's on Rigo and still open, with the planner and app it came from. */
 export interface PlannerTodo {
   readonly threadId: string;

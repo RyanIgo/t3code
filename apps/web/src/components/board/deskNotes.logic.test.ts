@@ -14,6 +14,7 @@ import {
   focusedChat,
   untitledTodayChats,
   plannerTodos,
+  goalOf,
   withPlanLineDone,
   withFocus,
   withNote,
@@ -213,6 +214,13 @@ describe("desk notes", () => {
     const ticked = withPlanLineDone(notes, "planner-one", "Test the sheet", at);
     expect(plannerTodos(ticked)).toEqual([]);
     expect(withPlanLineDone(notes, "planner-one", "Missing", at)).toBe(notes);
+  });
+
+  it("takes the goal out of a planner's wrapped question", () => {
+    expect(goalOf("Set Sprint 1's goal for the warehouse: 'Everyone sees who has what.'")).toBe(
+      "Everyone sees who has what.",
+    );
+    expect(goalOf("Everyone sees who has what.")).toBe("Everyone sees who has what.");
   });
 
   it("keeps one chat on an item and one item per chat, with a dated record of each move", () => {
