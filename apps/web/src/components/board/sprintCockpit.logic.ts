@@ -44,7 +44,9 @@ export function storySteps(
   pr: DeskPr | null,
 ): ReadonlyArray<StepState> {
   if (!isOpenWork(item) && !needsWrapUp(item, signals)) return STORY_STEPS.map(() => "done");
-  const working = signals.chats.some((chat) => chat.working);
+  // A chat on the item or on its PR (fixing a merge conflict) counts as an agent on it.
+  const working =
+    signals.chats.some((chat) => chat.working) || (pr?.chats.some((chat) => chat.working) ?? false);
   const onIt = working || signals.focused;
   const asks = signals.chats.some((chat) => chat.needsYou);
   const criteria = item.story?.criteria ?? [];
@@ -89,13 +91,16 @@ export function storySteps(
         : tested === "done"
           ? "agent"
           : "todo";
+  const prBusy = pr?.chats.some((chat) => chat.working) ?? false;
   const landed: StepState = closed
     ? needsWrapUp(item, signals)
       ? "you"
       : "done"
-    : pr?.stage === "ready" || pr?.stage === "landed"
-      ? "you"
-      : "todo";
+    : prBusy
+      ? "agent"
+      : pr?.stage === "ready" || pr?.stage === "landed"
+        ? "you"
+        : "todo";
 
   const steps: StepState[] = [defined, built, checks, tested, proven, landed];
   // The first open step says who has it now.
@@ -104,6 +109,9 @@ export function storySteps(
     steps[current] = asks ? "you" : onIt ? "agent" : "todo";
   } else if (current !== -1 && asks) {
     steps[current] = "you";
+  } else if (current !== -1 && working && steps[current] === "you") {
+    // Rigo's turn was next, but he sent a chat back to work on it: it's the agent's now.
+    steps[current] = "agent";
   }
   return steps;
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem, ItemSignals } from "./desk.logic";
+import type { DeskPr } from "./deskPrs.logic";
 import { featureGroups, storySteps } from "./sprintCockpit.logic";
 
 const sprint = { title: "Sprint 1", startDate: "2026-11-17", duration: 14 };
@@ -54,6 +55,19 @@ describe("storySteps", () => {
     const sheet = { unchecked: 3, failed: 0 };
     expect(storySteps(withPr, signals({ sheet }), null)[3]).toBe("you");
     expect(storySteps(item(), signals({ chats: [chat({ needsYou: true })] }), null)[1]).toBe("you");
+  });
+
+  it("hands a PR back to the agent while its chat fixes a merge conflict", () => {
+    const withPr = item({
+      pullRequests: [{ number: 5, url: "https://github.com/cfevans/app/pull/5", state: "open" }],
+    });
+    const pr = {
+      stage: "fix",
+      checks: "passing",
+      chats: [chat({ working: true })],
+    } as unknown as DeskPr;
+    const steps = storySteps(withPr, signals({ sheet: { unchecked: 0, failed: 0 } }), pr);
+    expect(steps.find((step) => step !== "done" && step !== "skip")).toBe("agent");
   });
 
   it("marks a story with no criteria as not defined and skips proving it", () => {

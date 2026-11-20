@@ -129,9 +129,15 @@ export function SprintCockpit(props: {
   const stepsOf = (item: DeskItem) => storySteps(item, props.signalsFor(item), prFor(item));
   const needRows = useNeedRows({ ...props, moving });
   const needCount = needRows.length;
-  const working = moving.filter((item) =>
-    props.signalsFor(item).chats.some((chat) => chat.working),
-  ).length;
+  // Every chat working on this app's sprint: on its items, or on their PRs (fixing a conflict).
+  const working = new Set(
+    [
+      ...moving.flatMap((item) => props.signalsFor(item).chats),
+      ...props.prs.filter((pr) => pr.app === props.app).flatMap((pr) => pr.chats),
+    ]
+      .filter((chat) => chat.working)
+      .map((chat) => `${chat.environmentId}:${chat.threadId}`),
+  ).size;
   const unstarted = moving.filter(
     (item) => props.signalsFor(item).chats.length === 0 && !props.signalsFor(item).focused,
   ).length;
@@ -433,6 +439,11 @@ function useNeedRows(input: NeedInput): Need[] {
   for (const pr of input.prs) {
     if (pr.app !== input.app || isDependencyUpdate(pr) || decided.has(pr.url)) continue;
     if (!(pr.stage === "ready" || (pr.stage === "fix" && !agentsOn.has(pr.url)))) continue;
+    // A chat already on it (fixing a conflict, re-running checks) has it, not Rigo.
+    const busy =
+      pr.chats.some((chat) => chat.working) ||
+      (pr.item !== null && input.signalsFor(pr.item).chats.some((chat) => chat.working));
+    if (busy) continue;
     const sheet = pr.item ? input.signalsFor(pr.item).sheet : null;
     const toTest = sheet !== null && sheet.unchecked > 0;
     shown.add(pr.url);
