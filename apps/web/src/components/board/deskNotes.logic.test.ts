@@ -298,6 +298,45 @@ describe("desk notes", () => {
     });
   });
 
+  it("keeps a triage proposal's feature, user story and criteria", () => {
+    const at = "2026-11-20T10:00:00Z";
+    const notes = parseDeskNotes(
+      JSON.stringify({
+        schemaVersion: 1,
+        inbox: {
+          note1: {
+            id: "note1",
+            text: "Estimators want bids sorted by trade",
+            source: "In person",
+            who: "Austin",
+            app: "Precon",
+            createdAt: at,
+            updatedAt: at,
+            state: "proposed",
+            result: null,
+            proposal: {
+              action: "new",
+              repo: "cfevans/cfe-drawings",
+              app: "Precon",
+              type: "Story",
+              priority: "P2",
+              title: "Bids sorted by trade",
+              feature: "Bid intake",
+              story: "As an estimator, I can sort bids by trade.",
+              criteria: ["Bids group by trade", "", 4],
+              reason: "Asked in person",
+            },
+          },
+        },
+      }),
+    );
+    expect(notes.inbox.note1?.proposal).toMatchObject({
+      feature: "Bid intake",
+      story: "As an estimator, I can sort bids by trade.",
+      criteria: ["Bids group by trade"],
+    });
+  });
+
   it("takes the goal out of a planner's wrapped question", () => {
     expect(goalOf("Set Sprint 1's goal for the warehouse: 'Everyone sees who has what.'")).toBe(
       "Everyone sees who has what.",

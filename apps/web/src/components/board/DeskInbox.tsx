@@ -23,6 +23,7 @@ import {
   inboxToSort,
 } from "./deskNotes.logic";
 import { saveInboxNote } from "./deskNotesStore";
+import { useSendToChat } from "./deskSend";
 import { DeskHeading, openExternal } from "./DeskParts";
 import { commentOnDeskItem, createDeskItem, findDeskItem, uploadPicture } from "./deskStore";
 
@@ -79,6 +80,10 @@ export function QuickNoteForm(props: {
   readonly onClose?: () => void;
   /** Inline on the phone's Now: a bigger box for meeting notes and screenshots. */
   readonly inline?: boolean;
+  /** The app it's about, when it's taken from that app's page. */
+  readonly defaultApp?: string | null;
+  /** Instead of closing: hands the saved note on (to start it right away, say). */
+  readonly onSaved?: (note: InboxNote) => void;
 }) {
   const setOpen = (next: boolean) => {
     if (!next) props.onClose?.();
@@ -86,7 +91,7 @@ export function QuickNoteForm(props: {
   const [text, setText] = useState("");
   const [source, setSource] = useState<InboxSource>("In person");
   const [who, setWho] = useState("");
-  const [app, setApp] = useState<string | null>(null);
+  const [app, setApp] = useState<string | null>(props.defaultApp ?? null);
   const [uploading, setUploading] = useState(0);
   // Pictures go to the hub and into the note as markdown, so they travel with it when it's filed.
   const attach = async (files: ReadonlyArray<File>) => {
@@ -114,7 +119,7 @@ export function QuickNoteForm(props: {
   const save = () => {
     if (!text.trim()) return;
     const at = new Date().toISOString();
-    saveInboxNote({
+    const note: InboxNote = {
       id: newId(),
       text: text.trim(),
       source,
@@ -125,7 +130,12 @@ export function QuickNoteForm(props: {
       state: "new",
       proposal: null,
       result: null,
-    });
+    };
+    saveInboxNote(note);
+    if (props.onSaved) {
+      props.onSaved(note);
+      return;
+    }
     toastManager.add({ type: "success", title: "Saved to the inbox" });
     setText("");
     setWho("");
@@ -350,6 +360,15 @@ export async function fileOnGitHub(note: InboxNote, proposal: InboxProposal): Pr
         `**Why it matters:** ${credit}`,
         "**Where it stands:** Filed from Rigo's inbox; not started.",
         "",
+        ...(proposal.story ? ["## User story", "", proposal.story, ""] : []),
+        ...((proposal.criteria ?? []).length > 0
+          ? [
+              "## Acceptance criteria",
+              "",
+              ...(proposal.criteria ?? []).map((entry) => `- [ ] ${entry}`),
+              "",
+            ]
+          : []),
         "## The note",
         "",
         note.text,
@@ -360,9 +379,24 @@ export async function fileOnGitHub(note: InboxNote, proposal: InboxProposal): Pr
           ["Work type", proposal.type],
           ["Priority", proposal.priority],
           ["Sprint", proposal.sprint ?? null],
+          [
+            "Feature",
+            proposal.feature
+              ? proposal.feature.includes(" · ") || !proposal.app
+                ? proposal.feature
+                : `${proposal.app} · ${proposal.feature}`
+              : null,
+          ],
         ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
       ),
     });
+    if (item.warnings?.length) {
+      toastManager.add({
+        type: "warning",
+        title: "Filed, but not every field was set",
+        description: item.warnings.join(" "),
+      });
+    }
     return {
       ...note,
       state: "filed",
@@ -401,6 +435,8 @@ export function InboxStrip(props: {
   readonly onStartChat: (item: DeskItem) => void;
   /** The sprint running now, for Expedite. */
   readonly currentSprint: string | null;
+  /** The app's planner, told at once when Rigo sends it a note. */
+  readonly plannerFor?: (app: string) => CardChatState | null;
   /** Starts a triage chat that proposes a route for each new note. */
   readonly onSort: () => void;
 }) {
@@ -438,6 +474,7 @@ export function InboxStrip(props: {
               onOpenChat={props.onOpenChat}
               onStartChat={props.onStartChat}
               currentSprint={props.currentSprint}
+              {...(props.plannerFor ? { plannerFor: props.plannerFor } : {})}
             />
           ))}
         </ul>
@@ -482,8 +519,11 @@ export function InboxCard(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onStartChat: (item: DeskItem) => void;
   readonly currentSprint: string | null;
+  /** The app's planner, told at once when Rigo sends it a note. */
+  readonly plannerFor?: (app: string) => CardChatState | null;
 }) {
   const { note } = props;
+  const sendToChat = useSendToChat();
   const [editing, setEditing] = useState<InboxProposal | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -493,6 +533,16 @@ export function InboxCard(props: {
     try {
       const filed = await file(note, proposal, props.chats, props.onOpenChat);
       saveInboxNote(filed);
+      const planner =
+        filed.state === "planner" && filed.proposal?.app
+          ? (props.plannerFor?.(filed.proposal.app) ?? null)
+          : null;
+      if (planner) {
+        void sendToChat(
+          planner,
+          `From Rigo's inbox (${from(note)}):\n\n${note.text}\n\nTurn it into goals or items as fits the app's direction, and tell me in one line what you did.`,
+        );
+      }
       setEditing(null);
       if (startChat) {
         // The item it was filed as (or added to), so a new chat can start on it right away.

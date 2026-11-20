@@ -486,10 +486,18 @@ export function createDesk({ dataRoot, project, token, log }) {
         story: readStory(body),
       };
       snapshot.items.push(item);
+      // The issue exists now: a field GitHub won't take (a feature name it doesn't know) is
+      // reported back, not a reason to fail the whole filing.
+      const warnings = [];
       for (const [name, value] of Object.entries(fields ?? {})) {
-        if (value) await this.setField(item.itemId, name, value);
+        if (!value) continue;
+        try {
+          await this.setField(item.itemId, name, value);
+        } catch (error) {
+          warnings.push(`${name}: ${error.message ?? error}`);
+        }
       }
-      return item;
+      return warnings.length ? { ...item, warnings } : item;
     },
     /** Adds a comment to an issue or pull request, by its URL. */
     async addComment(url, body) {

@@ -305,7 +305,7 @@ const ACT_TYPES = ["Bug", "Story", "Support"] as const;
  * Priority mode for a note: pick the kind and the app, and it's filed as a P1 item in the current
  * sprint with a chat starting on it right away.
  */
-function ActNow(props: {
+export function ActNow(props: {
   readonly note: InboxNote;
   readonly apps: ReadonlyArray<string>;
   readonly items: ReadonlyArray<DeskItem>;

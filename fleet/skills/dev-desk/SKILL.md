@@ -218,7 +218,8 @@ chat proposes where each goes; Rigo approves each one on the Board, which files 
 ```sh
 node ~/.claude/skills/dev-desk/desk.mjs inbox                                   # notes waiting to be sorted
 node ~/.claude/skills/dev-desk/desk.mjs propose <id> comment --item <url> --reason "<why>"
-node ~/.claude/skills/dev-desk/desk.mjs propose <id> new --repo <owner/repo> --app "<app>" --type Bug --priority P2 --title "<plain title>" --reason "<why>"
+node ~/.claude/skills/dev-desk/desk.mjs propose <id> new --repo <owner/repo> --app "<app>" --type Story --priority P2 --title "<plain title>" \
+  --feature "Bid intake" --story "As an estimator, I can …, so that …" --criteria "<checkable>|<checkable>" --reason "<why>"
 node ~/.claude/skills/dev-desk/desk.mjs propose <id> planner --app "<app>" --reason "<why>"
 node ~/.claude/skills/dev-desk/desk.mjs propose <id> dismiss --reason "<why>"
 node ~/.claude/skills/dev-desk/desk.mjs capture "<what Rigo was told>" --who Maddy --source "In person" --app "BizDev Leads"
@@ -226,6 +227,11 @@ node ~/.claude/skills/dev-desk/desk.mjs capture "<what Rigo was told>" --who Mad
 
 - **Triage proposes, never files.** Search existing issues first so nothing is filed twice;
   prefer adding to an open item over a new one.
+- **New items land aligned:** give each its feature (one the app already has; `context` lists
+  them) and each Story a user story and acceptance criteria a test sheet can check. Then it shows
+  in the right feature on the Sprint page, not under "needs setting up".
+- **When Rigo approves a note for a planner, the planner is told right away** ("From Rigo's
+  inbox: …"): turn it into goals or items, and say in one line what you did.
 - **Planners** see notes sent to them under "From Rigo's inbox" in `context`; turn each into
   goals or items as fits the app's direction, and tell Rigo what you did.
 - Use `capture` when Rigo mentions a request in a chat that isn't about the current work.

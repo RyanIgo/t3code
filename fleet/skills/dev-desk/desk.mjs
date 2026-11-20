@@ -504,18 +504,43 @@ async function inbox() {
   }
 }
 
-/** `propose <id> <comment|new|planner|dismiss> [--item url] [--repo o/r] [--app a] [--type t] [--priority p] [--title t] --reason r` */
+/**
+ * `propose <id> <comment|new|planner|dismiss> [--item url] [--repo o/r] [--app a] [--type t]
+ * [--priority p] [--title t] [--sprint s] [--feature f] [--story "As …"] [--criteria "a|b|c"] --reason r`
+ */
 async function propose(id, action, options) {
   const actions = ["comment", "new", "planner", "dismiss"];
   if (!id || !actions.includes(action)) {
     fail(
-      `Usage: node desk.mjs propose <note id> <${actions.join("|")}> [--item <url>] [--repo <owner/repo>] [--app "<app>"] [--type <type>] [--priority <P0-P3>] [--title "<title>"] --reason "<why>"`,
+      `Usage: node desk.mjs propose <note id> <${actions.join("|")}> [--item <url>] [--repo <owner/repo>] [--app "<app>"] [--type <type>] [--priority <P0-P3>] [--title "<title>"] [--sprint "<sprint>"] [--feature "<feature>"] [--story "As <who>, I can <what>, so that <why>."] [--criteria "<one>|<two>"] --reason "<why>"`,
     );
   }
   const given = flags(options);
   if (action === "comment" && !/^https:\/\/github\.com\//.test(given.item ?? ""))
     fail("comment needs --item <issue or PR url>.");
   if (action === "new" && (!given.repo || !given.title)) fail("new needs --repo and --title.");
+  const criteria = (given.criteria ?? "")
+    .split("|")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .slice(0, 12);
+  if (action === "new" && given.feature) {
+    // Check the feature against the project's options, so filing doesn't drop it.
+    const desk = (await call("/fleet/desk")).body ?? {};
+    const app = given.app ?? null;
+    const known = (desk.options?.Feature ?? []).filter(
+      (name) => !app || name.startsWith(`${app} · `),
+    );
+    const full = given.feature.includes(" · ") ? given.feature : `${app} · ${given.feature}`;
+    if (known.length && !known.includes(full)) {
+      console.log(
+        `"${full}" isn't a Feature on the project yet; the item will be filed without it. Known for ${app ?? "this app"}: ${known.map((name) => name.split(" · ").slice(1).join(" · ")).join(", ")}.`,
+      );
+    }
+  }
+  if (action === "new" && given.type === "Story" && criteria.length === 0) {
+    console.log("A Story needs --criteria a test sheet can check, so it lands ready to build.");
+  }
   let found = false;
   await changeNotes((doc, at) => {
     const note = doc.inbox?.[id];
@@ -533,6 +558,9 @@ async function propose(id, action, options) {
         priority: given.priority ?? null,
         title: given.title ?? null,
         sprint: given.sprint ?? null,
+        feature: given.feature ?? null,
+        story: given.story ?? null,
+        criteria,
         reason: given.reason ?? "",
       },
       updatedAt: at,

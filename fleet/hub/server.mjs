@@ -755,7 +755,7 @@ async function handleDesk(pathname, req, res) {
       const fields = Object.fromEntries(
         Object.entries(body?.fields ?? {}).filter(
           ([name, value]) =>
-            ["App", "Work type", "Priority", "Status", "Sprint"].includes(name) &&
+            ["App", "Work type", "Priority", "Status", "Sprint", "Feature"].includes(name) &&
             typeof value === "string",
         ),
       );

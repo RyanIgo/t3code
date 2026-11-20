@@ -10,6 +10,9 @@ import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { toastManager } from "../ui/toast";
+import { InboxCard, QuickNoteForm } from "./DeskInbox";
+import { ActNow } from "./DeskMobile";
 import { cn } from "../../lib/utils";
 import type { CardChatState } from "./boardCards.logic";
 import {
@@ -30,6 +33,7 @@ import {
   noteAt,
   openDecisions,
   type DeskNotes,
+  type InboxNote,
   type PlanLine,
   waitingReports,
 } from "./deskNotes.logic";
@@ -54,13 +58,14 @@ import {
 const DAY = 86_400_000;
 const GENERAL = "General";
 
-type NeedKind = "test" | "decide" | "todo" | "wrap";
+type NeedKind = "test" | "triage" | "decide" | "todo" | "wrap";
 const NEED_KINDS: ReadonlyArray<{
   readonly id: NeedKind;
   readonly label: string;
   readonly hint: string;
 }> = [
   { id: "test", label: "Test & merge", hint: "a chat finished and waits on you" },
+  { id: "triage", label: "Sort & file", hint: "notes you took: approve where each goes" },
   { id: "decide", label: "Decide & answer", hint: "the planner or a chat needs your call" },
   { id: "todo", label: "To do", hint: "only you can do these" },
   { id: "wrap", label: "Wrap up", hint: "closed, but something's still open" },
@@ -378,8 +383,16 @@ export function SprintCockpit(props: {
   readonly onStartPlanner: () => void;
   /** The status board this page replaces, for when Rigo wants the columns. */
   readonly onShowBoard: () => void;
+  /** For the inbox's notes on this app: where they can be filed, and the chats to send them to. */
+  readonly apps: ReadonlyArray<string>;
+  readonly sprints: ReadonlyArray<string>;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly plannerFor: (app: string) => CardChatState | null;
+  /** Starts the triage chat that proposes where each note goes. */
+  readonly onSortInbox: () => void;
 }) {
   const [view, setView] = useState<"needs" | "progress">("needs");
+  const [requesting, setRequesting] = useState(false);
   const [groupBy, setGroupBy] = useState<"kind" | "feature">("kind");
   const groups = featureGroups(props.items, props.sprint, props.app, props.signalsFor);
   const moving = groups.flatMap((group) => group.stories);
@@ -429,7 +442,14 @@ export function SprintCockpit(props: {
             {goal ?? "No sprint goal yet: the planner proposes one as a decision."}
           </p>
         </div>
-        <div role="group" aria-label="Sprint at a glance" className="flex flex-wrap gap-1.5">
+        <div
+          role="group"
+          aria-label="Sprint at a glance"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          <Button size="sm" variant="outline" onClick={() => setRequesting(true)}>
+            + Request
+          </Button>
           <Pulse value={needCount} label="need you" tone="you" />
           <Pulse value={working} label="agents working" tone="agent" />
           <Pulse value={unstarted} label="not started" tone="todo" />
@@ -500,7 +520,87 @@ export function SprintCockpit(props: {
         </div>
         <PlannerPane {...props} />
       </div>
+      {requesting ? (
+        <RequestDialog
+          app={props.app}
+          apps={props.apps}
+          items={props.items}
+          sprint={props.sprint}
+          onClose={() => setRequesting(false)}
+          onStartChat={props.onStartChat}
+          onSortInbox={props.onSortInbox}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * A request for this app: a note in the inbox first, then either started right away (filed as P1
+ * in this sprint with a chat on it) or left for triage.
+ */
+function RequestDialog(props: {
+  readonly app: string;
+  readonly apps: ReadonlyArray<string>;
+  readonly items: ReadonlyArray<DeskItem>;
+  readonly sprint: DeskSprint;
+  readonly onClose: () => void;
+  readonly onStartChat: (item: DeskItem) => void;
+  readonly onSortInbox: () => void;
+}) {
+  const [saved, setSaved] = useState<InboxNote | null>(null);
+  return (
+    <Dialog open onOpenChange={(next) => !next && props.onClose()}>
+      <DialogPopup className="sm:max-w-lg">
+        {saved ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Saved to the inbox</DialogTitle>
+            </DialogHeader>
+            <DialogPanel>
+              <div className="flex flex-col gap-3 text-sm">
+                <p>
+                  It's in your inbox for {props.app}. Start it now, or leave it for triage to file
+                  in the right feature with criteria.
+                </p>
+                <ActNow
+                  note={saved}
+                  apps={[props.app]}
+                  items={props.items}
+                  currentSprint={props.sprint.title}
+                  onStarted={(item) => {
+                    props.onClose();
+                    props.onStartChat(item);
+                  }}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={props.onClose}>
+                    Leave it for triage
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      props.onClose();
+                      props.onSortInbox();
+                    }}
+                  >
+                    Sort the inbox now
+                  </Button>
+                </div>
+              </div>
+            </DialogPanel>
+          </>
+        ) : (
+          <QuickNoteForm
+            apps={props.apps}
+            defaultApp={props.app}
+            onClose={props.onClose}
+            onSaved={setSaved}
+          />
+        )}
+      </DialogPopup>
+    </Dialog>
   );
 }
 
@@ -657,12 +757,29 @@ interface NeedInput {
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onStartChat: (item: DeskItem) => void;
+  readonly sprint: DeskSprint;
+  readonly apps: ReadonlyArray<string>;
+  readonly sprints: ReadonlyArray<string>;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly plannerFor: (app: string) => CardChatState | null;
+  readonly onSortInbox: () => void;
 }
 
 /** Everything that waits on Rigo in this app's sprint, each once, with its one action. */
 function useNeedRows(input: NeedInput): Need[] {
   const sendToChat = useSendToChat();
   const [openDecision, setOpenDecision] = useState<string | null>(null);
+  // Asking closes the window: the answer arrives in the planner chat beside the list.
+  const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
+  const askedPlanner = (key: string) => {
+    setOpenDecision(null);
+    setAsked((current) => new Set([...current, key]));
+    toastManager.add({
+      type: "info",
+      title: "Asked the planner",
+      description: "Its answer comes in the planner chat on the right.",
+    });
+  };
   const sheets = useHubSheets();
   const featureOf = (item: DeskItem | null | undefined) =>
     (item ? featureName(item) : null) ?? GENERAL;
@@ -820,6 +937,64 @@ function useNeedRows(input: NeedInput): Need[] {
     }
   }
   const { answer, tellMore } = useDecisionActions(input.planner, input.app);
+  // Notes Rigo took about this app: sort them, or approve where triage says they go.
+  for (const note of Object.values(input.notes.inbox)) {
+    if (note.state !== "new" && note.state !== "proposed") continue;
+    if ((note.proposal?.app ?? note.app) !== input.app) continue;
+    const key = `note:${note.id}`;
+    const proposal = note.proposal;
+    const where = !proposal
+      ? "not sorted yet"
+      : proposal.action === "new"
+        ? `proposed: new ${proposal.type ?? "item"}${proposal.priority ? ` ${proposal.priority}` : ""}${proposal.title ? `, "${proposal.title}"` : ""}`
+        : proposal.action === "comment"
+          ? "proposed: add to an existing item"
+          : proposal.action === "planner"
+            ? "proposed: hand to the planner"
+            : proposal.action === "chat"
+              ? "proposed: send to a chat"
+              : "proposed: dismiss";
+    rows.push({
+      key,
+      kind: "triage",
+      title: (note.text.split("\n")[0] ?? note.text).slice(0, 160),
+      meta: [note.who, note.source, where].filter(Boolean).join(" · "),
+      feature: proposal?.feature ?? GENERAL,
+      ...(proposal
+        ? {
+            dialog: {
+              title: "Where this note goes",
+              open: openDecision === key,
+              onOpenChange: (next: boolean) => setOpenDecision(next ? key : null),
+            },
+            info: (
+              <ul className="flex flex-col">
+                <InboxCard
+                  note={note}
+                  items={input.items}
+                  apps={input.apps}
+                  sprints={input.sprints}
+                  chats={input.chats}
+                  onOpenChat={(chat) => {
+                    setOpenDecision(null);
+                    input.onOpenChat(chat);
+                  }}
+                  onStartChat={(item) => {
+                    setOpenDecision(null);
+                    input.onStartChat(item);
+                  }}
+                  currentSprint={input.sprint.title}
+                  plannerFor={input.plannerFor}
+                />
+              </ul>
+            ),
+          }
+        : {}),
+      action: proposal
+        ? button("Review", () => setOpenDecision(key), true)
+        : button("Sort", input.onSortInbox),
+    });
+  }
   if (input.planner) {
     const planner = input.planner;
     for (const decision of openDecisions(input.notes, input.app)) {
@@ -828,7 +1003,11 @@ function useNeedRows(input: NeedInput): Need[] {
         key: `decision:${decision.id}`,
         kind: "decide",
         title: decision.question,
-        meta: decision.recommended ? `rec: ${decision.recommended}` : "from the planner",
+        meta: asked.has(decision.id)
+          ? "Asked for more: the planner is updating this card"
+          : decision.recommended
+            ? `rec: ${decision.recommended}`
+            : "from the planner",
         feature: featureOfUrls([decision.itemUrl, ...decision.links]),
         action: button("Answer", () => setOpenDecision(decision.id), true),
         dialog: {
@@ -852,7 +1031,10 @@ function useNeedRows(input: NeedInput): Need[] {
               answer(asked, choice, note);
               setOpenDecision(null);
             }}
-            onTellMore={() => tellMore(decision)}
+            onTellMore={() => {
+              tellMore(decision);
+              askedPlanner(decision.id);
+            }}
           />
         ),
       });
@@ -867,16 +1049,20 @@ function useNeedRows(input: NeedInput): Need[] {
         void sendToChat(planner, `Done: ${line.text}`);
         setOpenDecision(null);
       };
-      const ask = () =>
+      const ask = () => {
         void sendToChat(
           planner,
           `About "${line.text}": what exactly do you need from me, and where do I do it? Answer in a line or two, with the link.`,
         );
+        askedPlanner(key);
+      };
       rows.push({
         key,
         kind: "todo",
         title: line.text,
-        meta: line.why ?? "from the planner",
+        meta: asked.has(key)
+          ? "Asked the planner: its answer comes in the planner chat"
+          : (line.why ?? "from the planner"),
         feature: featureOfUrls([line.itemUrl]),
         dialog: {
           title: "Your to-do",
@@ -905,12 +1091,13 @@ function useNeedRows(input: NeedInput): Need[] {
             onOpenItem={input.onOpenItem}
             onDone={done}
             onAsk={ask}
-            onAskSteps={() =>
+            onAskSteps={() => {
               void sendToChat(
                 planner,
                 `Rewrite your line "${line.text}" so I can do it without asking: add "why" (why it matters now, in a sentence), "how" (numbered steps with the exact screen, menu, command and values) and "links" (every page, issue, PR or sheet I need), then plan set. Reply here in one line when it's done.`,
-              )
-            }
+              );
+              askedPlanner(key);
+            }}
           />
         ),
         action: (

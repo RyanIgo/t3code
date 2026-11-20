@@ -126,6 +126,10 @@ export interface InboxProposal {
   readonly sprint?: string | null;
   /** A chat ("<environmentId>:<threadId>") that also gets the note, or the only place it goes. */
   readonly chat?: string | null;
+  /** For "new": its feature (without the app), user story and acceptance criteria. */
+  readonly feature?: string | null;
+  readonly story?: string | null;
+  readonly criteria?: ReadonlyArray<string>;
   /** One plain sentence on why. */
   readonly reason: string;
 }
@@ -711,6 +715,13 @@ function readProposal(value: unknown): InboxProposal | null {
     title: short(raw.title, 200),
     sprint: short(raw.sprint, 80),
     chat: typeof raw.chat === "string" && /^[\w-]+:[\w-]+$/.test(raw.chat) ? raw.chat : null,
+    feature: short(raw.feature, 120),
+    story: short(raw.story, 1000),
+    criteria: (Array.isArray(raw.criteria) ? raw.criteria : [])
+      .flatMap((entry: unknown) =>
+        typeof entry === "string" && entry.trim() ? [entry.trim().slice(0, 300)] : [],
+      )
+      .slice(0, 12),
     reason: short(raw.reason, 500) ?? "",
   };
 }

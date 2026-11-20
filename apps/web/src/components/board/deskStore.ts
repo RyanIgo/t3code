@@ -162,8 +162,13 @@ export async function createDeskItem(input: {
   readonly title: string;
   readonly body: string;
   readonly fields: Readonly<Record<string, string>>;
-}): Promise<{ readonly url: string; readonly number: number }> {
-  const { item } = await post<{ item: { url: string; number: number } }>(
+}): Promise<{
+  readonly url: string;
+  readonly number: number;
+  /** Fields GitHub wouldn't take (the issue was still filed). */
+  readonly warnings?: ReadonlyArray<string>;
+}> {
+  const { item } = await post<{ item: { url: string; number: number; warnings?: string[] } }>(
     "/fleet/desk/items",
     input,
   );

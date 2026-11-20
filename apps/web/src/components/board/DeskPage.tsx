@@ -647,6 +647,16 @@ export function DeskPage(props: {
           onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
           onStartPlanner={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
           onShowBoard={() => setStatusBoard(true)}
+          apps={apps}
+          sprints={plannedSprints(view.sprints ?? [], nowMs).map((entry) => entry.title)}
+          chats={props.chats}
+          plannerFor={plannerOf}
+          onSortInbox={() =>
+            setLauncher({
+              kind: "inbox",
+              count: Object.values(notes.notes.inbox).filter((note) => note.state === "new").length,
+            })
+          }
         />
       );
     }
@@ -1074,6 +1084,7 @@ export function DeskPage(props: {
                 onOpenChat={openChat}
                 onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
                 currentSprint={sprint?.title ?? null}
+                plannerFor={plannerOf}
                 onSort={() =>
                   setLauncher({
                     kind: "inbox",
