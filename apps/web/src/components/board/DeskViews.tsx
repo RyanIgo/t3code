@@ -453,6 +453,9 @@ export function DeskModal(props: {
     show("chats");
   };
   const tabbed = item !== null || (props.pr !== undefined && props.pr !== null);
+  // A planner or sprint chat on its own is a planning session: the plan beside the conversation.
+  const planning = item === null && props.roster !== undefined && props.roster !== null;
+  const [planPane, setPlanPane] = useState<"plan" | "chat">("plan");
   const shownKey = shown && !draft ? chatKeyOf(shown) : null;
   // The chat's own details card is remembered open per chat; here its facts are the line above
   // the conversation, so it starts closed and opens only from its button.
@@ -547,189 +550,241 @@ export function DeskModal(props: {
             Close
           </Button>
         </header>
-        {tabbed ? (
-          <nav
-            aria-label="Item"
-            className="flex shrink-0 items-end gap-1 overflow-x-auto border-b border-border px-3"
-          >
-            {(
-              [
-                ["details", "Details", null],
-                ["chats", "Chats", related.length || null],
-                ["review", "Review", sheets.length || null],
-              ] as const
-            ).map(([id, label, count]) => (
-              <button
-                key={id}
-                type="button"
-                aria-current={tab === id ? "page" : undefined}
-                className={cn(
-                  "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
-                  tab === id
-                    ? "border-foreground font-medium text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-                onClick={() => show(id)}
-              >
-                {label}
-                {count ? <span className="ms-1 text-xs text-muted-foreground">{count}</span> : null}
-              </button>
-            ))}
-          </nav>
-        ) : (
-          <div className="border-b border-border" />
-        )}
-        {item &&
-        needsWrapUp(item, { chats: props.ownChats, focused: false, sheet: sheetSignal }) ? (
-          <WrapUpPanel
-            item={item}
-            chats={props.ownChats}
-            sheet={sheetSignal}
-            onOpenChat={openChatHere}
-            onReview={() => show("review")}
-          />
-        ) : null}
-        {tabbed && tab === "details" ? (
-          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
-            <div className="mx-auto flex max-w-4xl flex-col">
-              {props.pr ? <PrPanel pr={props.pr} chat={shown ?? null} /> : null}
-              {item ? (
-                <ItemDetails
-                  key={item.itemId}
-                  item={item}
-                  view={props.view}
-                  onOpenItem={props.onOpenItem}
-                />
-              ) : null}
+        {planning ? (
+          <div className="flex min-h-0 flex-1 flex-col border-t border-border lg:flex-row">
+            <div className="flex shrink-0 gap-1 border-b border-border px-3 py-1.5 lg:hidden">
+              {(["plan", "chat"] as const).map((pane) => (
+                <Button
+                  key={pane}
+                  size="xs"
+                  variant={planPane === pane ? "secondary" : "ghost"}
+                  onClick={() => setPlanPane(pane)}
+                >
+                  {pane === "plan" ? "Plan" : "Chat"}
+                </Button>
+              ))}
             </div>
-          </div>
-        ) : null}
-        {tabbed && tab === "review" && item ? (
-          <ReviewTab
-            item={item}
-            sheets={sheets}
-            allChats={props.allChats}
-            onChat={focused ?? shown}
-            onOpenChat={openChatHere}
-          />
-        ) : null}
-        {chatsSeen || !tabbed ? (
-          <section
-            className={cn(
-              "relative min-h-0 min-w-0 flex-1 flex-col",
-              !tabbed || tab === "chats" ? "flex" : "hidden",
-            )}
-          >
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 sm:hidden">
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {draft ? "New chat" : shown ? chatTitle(shown.title) : "No chat on it yet"}
-              </span>
-              <Button
-                variant="ghost"
-                size="xs"
-                aria-expanded={phoneControls}
-                onClick={() => setPhoneControls(!phoneControls)}
-              >
-                {phoneControls ? "Done" : "⋯"}
-              </Button>
-            </div>
-            <div
+            <aside
+              aria-label="Sprint plan"
               className={cn(
-                "flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2",
-                !phoneControls && "max-sm:hidden",
+                "flex min-h-0 flex-col border-border lg:w-[26rem] lg:shrink-0 lg:border-e",
+                planPane === "chat" && "max-lg:hidden",
               )}
             >
-              {item ? (
-                <OnItRow
-                  item={item}
-                  notes={notes}
-                  allChats={props.allChats}
-                  related={related}
-                  shown={shown}
-                  onShow={openChatHere}
-                />
-              ) : null}
-              {related.length > 1 || props.draft || item ? (
-                <div className="flex items-center gap-1 overflow-x-auto">
-                  {props.draft ? (
-                    <Button
-                      variant={draft ? "secondary" : "ghost"}
-                      size="xs"
-                      onClick={() => setShowDraft(true)}
-                    >
-                      New chat
-                    </Button>
-                  ) : null}
-                  {(related.length > 1 ? related : []).map((chat) => (
-                    <Button
-                      key={chatKeyOf(chat)}
-                      variant={
-                        !draft && shown && chatKeyOf(shown) === chatKeyOf(chat)
-                          ? "secondary"
-                          : "ghost"
-                      }
-                      size="xs"
-                      onClick={() => openChatHere(chat)}
-                    >
-                      <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
-                    </Button>
-                  ))}
-                  <span className="ms-auto flex shrink-0 items-center gap-1">
-                    {shown && !draft ? (
-                      <span className="max-sm:hidden">
-                        <PinMenu
-                          chatKey={chatKeyOf(shown)}
-                          notes={notes}
-                          choices={pinChoices(item, props.view.apps ?? [])}
-                        />
-                      </span>
+              {props.roster}
+            </aside>
+            <section
+              className={cn(
+                "relative flex min-h-0 min-w-0 flex-1 flex-col",
+                planPane === "plan" && "max-lg:hidden",
+              )}
+            >
+              <ChatEmbedContext value>
+                {shown ? (
+                  <ChatView
+                    key={chatKeyOf(shown)}
+                    environmentId={shown.environmentId as EnvironmentId}
+                    threadId={shown.threadId as ThreadId}
+                    routeKind="server"
+                    reserveTitleBarControlInset={false}
+                  />
+                ) : null}
+              </ChatEmbedContext>
+            </section>
+          </div>
+        ) : (
+          <>
+            {tabbed ? (
+              <nav
+                aria-label="Item"
+                className="flex shrink-0 items-end gap-1 overflow-x-auto border-b border-border px-3"
+              >
+                {(
+                  [
+                    ["details", "Details", null],
+                    ["chats", "Chats", related.length || null],
+                    ["review", "Review", sheets.length || null],
+                  ] as const
+                ).map(([id, label, count]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-current={tab === id ? "page" : undefined}
+                    className={cn(
+                      "-mb-px cursor-pointer border-b-2 px-3 py-2 text-sm",
+                      tab === id
+                        ? "border-foreground font-medium text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                    onClick={() => show(id)}
+                  >
+                    {label}
+                    {count ? (
+                      <span className="ms-1 text-xs text-muted-foreground">{count}</span>
                     ) : null}
-                    {item ? (
-                      <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
-                        <PlusIcon />
-                        New or linked chat
-                      </Button>
-                    ) : null}
-                  </span>
-                </div>
-              ) : null}
-              {props.roster ?? null}
-              {shown && !draft ? (
-                <WorkPanel chat={shown} notes={notes} items={props.view.items} sheets={hubSheets} />
-              ) : null}
-            </div>
-            <ChatEmbedContext value>
-              {draft ? (
-                <ChatView
-                  key={draft.draftId}
-                  environmentId={draft.environmentId}
-                  threadId={draft.threadId}
-                  routeKind="draft"
-                  draftId={draft.draftId}
-                  reserveTitleBarControlInset={false}
-                />
-              ) : shown ? (
-                <ChatView
-                  key={chatKeyOf(shown)}
-                  environmentId={shown.environmentId as EnvironmentId}
-                  threadId={shown.threadId as ThreadId}
-                  routeKind="server"
-                  reserveTitleBarControlInset={false}
-                />
-              ) : (
-                <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
-                  No T3 chat is working on this yet.
+                  </button>
+                ))}
+              </nav>
+            ) : (
+              <div className="border-b border-border" />
+            )}
+            {item &&
+            needsWrapUp(item, { chats: props.ownChats, focused: false, sheet: sheetSignal }) ? (
+              <WrapUpPanel
+                item={item}
+                chats={props.ownChats}
+                sheet={sheetSignal}
+                onOpenChat={openChatHere}
+                onReview={() => show("review")}
+              />
+            ) : null}
+            {tabbed && tab === "details" ? (
+              <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
+                <div className="mx-auto flex max-w-4xl flex-col">
+                  {props.pr ? <PrPanel pr={props.pr} chat={shown ?? null} /> : null}
                   {item ? (
-                    <ChatAboutButton
-                      onClick={() => props.onChat(item)}
-                      label="Start or link a chat"
+                    <ItemDetails
+                      key={item.itemId}
+                      item={item}
+                      view={props.view}
+                      onOpenItem={props.onOpenItem}
                     />
                   ) : null}
                 </div>
-              )}
-            </ChatEmbedContext>
-          </section>
-        ) : null}
+              </div>
+            ) : null}
+            {tabbed && tab === "review" && item ? (
+              <ReviewTab
+                item={item}
+                sheets={sheets}
+                allChats={props.allChats}
+                onChat={focused ?? shown}
+                onOpenChat={openChatHere}
+              />
+            ) : null}
+            {chatsSeen || !tabbed ? (
+              <section
+                className={cn(
+                  "relative min-h-0 min-w-0 flex-1 flex-col",
+                  !tabbed || tab === "chats" ? "flex" : "hidden",
+                )}
+              >
+                <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 sm:hidden">
+                  <span className="min-w-0 flex-1 truncate text-sm">
+                    {draft ? "New chat" : shown ? chatTitle(shown.title) : "No chat on it yet"}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    aria-expanded={phoneControls}
+                    onClick={() => setPhoneControls(!phoneControls)}
+                  >
+                    {phoneControls ? "Done" : "⋯"}
+                  </Button>
+                </div>
+                <div
+                  className={cn(
+                    "flex shrink-0 flex-col gap-2 border-b border-border px-3 py-2",
+                    !phoneControls && "max-sm:hidden",
+                  )}
+                >
+                  {item ? (
+                    <OnItRow
+                      item={item}
+                      notes={notes}
+                      allChats={props.allChats}
+                      related={related}
+                      shown={shown}
+                      onShow={openChatHere}
+                    />
+                  ) : null}
+                  {related.length > 1 || props.draft || item ? (
+                    <div className="flex items-center gap-1 overflow-x-auto">
+                      {props.draft ? (
+                        <Button
+                          variant={draft ? "secondary" : "ghost"}
+                          size="xs"
+                          onClick={() => setShowDraft(true)}
+                        >
+                          New chat
+                        </Button>
+                      ) : null}
+                      {(related.length > 1 ? related : []).map((chat) => (
+                        <Button
+                          key={chatKeyOf(chat)}
+                          variant={
+                            !draft && shown && chatKeyOf(shown) === chatKeyOf(chat)
+                              ? "secondary"
+                              : "ghost"
+                          }
+                          size="xs"
+                          onClick={() => openChatHere(chat)}
+                        >
+                          <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
+                        </Button>
+                      ))}
+                      <span className="ms-auto flex shrink-0 items-center gap-1">
+                        {shown && !draft ? (
+                          <span className="max-sm:hidden">
+                            <PinMenu
+                              chatKey={chatKeyOf(shown)}
+                              notes={notes}
+                              choices={pinChoices(item, props.view.apps ?? [])}
+                            />
+                          </span>
+                        ) : null}
+                        {item ? (
+                          <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
+                            <PlusIcon />
+                            New or linked chat
+                          </Button>
+                        ) : null}
+                      </span>
+                    </div>
+                  ) : null}
+                  {shown && !draft ? (
+                    <WorkPanel
+                      chat={shown}
+                      notes={notes}
+                      items={props.view.items}
+                      sheets={hubSheets}
+                    />
+                  ) : null}
+                </div>
+                <ChatEmbedContext value>
+                  {draft ? (
+                    <ChatView
+                      key={draft.draftId}
+                      environmentId={draft.environmentId}
+                      threadId={draft.threadId}
+                      routeKind="draft"
+                      draftId={draft.draftId}
+                      reserveTitleBarControlInset={false}
+                    />
+                  ) : shown ? (
+                    <ChatView
+                      key={chatKeyOf(shown)}
+                      environmentId={shown.environmentId as EnvironmentId}
+                      threadId={shown.threadId as ThreadId}
+                      routeKind="server"
+                      reserveTitleBarControlInset={false}
+                    />
+                  ) : (
+                    <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                      No T3 chat is working on this yet.
+                      {item ? (
+                        <ChatAboutButton
+                          onClick={() => props.onChat(item)}
+                          label="Start or link a chat"
+                        />
+                      ) : null}
+                    </div>
+                  )}
+                </ChatEmbedContext>
+              </section>
+            ) : null}
+          </>
+        )}
       </DialogPopup>
     </Dialog>
   );

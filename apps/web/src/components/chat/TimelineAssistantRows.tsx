@@ -1,5 +1,6 @@
 import { extractArtifactLinks } from "@t3tools/shared/artifacts";
 import { ArtifactFrame } from "./ArtifactFrame";
+import { ChatEmbedContext } from "./ChatEmbedContext";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { type RunId } from "@t3tools/contracts";
 import { canForkProjectedAssistantItem } from "@t3tools/client-runtime/state/thread-workflows";
@@ -26,6 +27,7 @@ import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./time
 import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
 
 export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const embeddedInDesk = use(ChatEmbedContext);
   const ctx = use(TimelineRowCtx);
   const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
 
@@ -56,15 +58,31 @@ export function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind
           </AssistantCitationSource>
         </div>
         {!row.message.streaming && messageText.includes("/a/")
-          ? extractArtifactLinks(messageText).map((artifact) => (
-              <div key={artifact.id} className="mt-2">
-                <ArtifactFrame
-                  artifact={artifact}
-                  threadRef={ctx.threadRef ?? undefined}
-                  onSendMessage={ctx.onSendAppMessage}
-                />
-              </div>
-            ))
+          ? extractArtifactLinks(messageText).map((artifact) =>
+              embeddedInDesk ? (
+                // Fleet fork: in the Board's window a page is a one-line link, not a full sheet.
+                <a
+                  key={artifact.id}
+                  href={artifact.url}
+                  target="_blank"
+                  rel="noopener"
+                  className="mt-2 flex w-fit max-w-full items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent"
+                >
+                  <span className="truncate">{artifact.title}</span>
+                  <span aria-hidden className="text-muted-foreground">
+                    ↗
+                  </span>
+                </a>
+              ) : (
+                <div key={artifact.id} className="mt-2">
+                  <ArtifactFrame
+                    artifact={artifact}
+                    threadRef={ctx.threadRef ?? undefined}
+                    onSendMessage={ctx.onSendAppMessage}
+                  />
+                </div>
+              ),
+            )
           : null}
         {ctx.onOpenTurnDiff ? (
           <AssistantChangedFilesSection

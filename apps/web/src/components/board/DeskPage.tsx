@@ -77,7 +77,7 @@ import { StatusSyncBar } from "./DeskWrapUp";
 import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
-import { AgentsView, SprintRoster } from "./DeskAgents";
+import { AgentsView, PlanPane } from "./DeskAgents";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
@@ -753,14 +753,18 @@ export function DeskPage(props: {
       view.sprints?.find((entry) => entry.title === link?.sprint) ?? sprint ?? null;
     if (!rosterApp || !rosterSprint) return null;
     return (
-      <SprintRoster
+      <PlanPane
         app={rosterApp}
         sprint={rosterSprint}
         goal={notes.notes.sprintGoals[rosterSprint.title]?.[rosterApp]?.text ?? null}
+        nowMs={nowMs}
         items={items}
-        chatsFor={chatsFor}
+        chatsFor={ownChatsOf}
+        signalsFor={signalsFor}
         onOpenItem={(entry) => setModal({ itemId: entry.itemId, chat: null, sequence: [] })}
         onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+        prs={prs}
+        onOpenPr={openPr}
       />
     );
   };

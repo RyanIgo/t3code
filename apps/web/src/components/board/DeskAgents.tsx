@@ -13,12 +13,16 @@ import {
   deskRef,
   type DeskSprint,
   deskTitle,
+  type ItemSignals,
+  needsWrapUp,
+  sprintStatus,
   workKind,
 } from "./desk.logic";
 import { CHAT_ROLE_LABEL, CHAT_ROLES, type DeskNotes } from "./deskNotes.logic";
 import { saveChatRole } from "./deskNotesStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { moveFocus } from "./DeskWork";
+import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 import { buildWorkSidebar, type WorkRow } from "./sidebarWork.logic";
 
@@ -340,78 +344,161 @@ export function AgentsView(props: {
 }
 
 /**
- * Fleet fork: the sprint roster a planner or sprint chat shows above its conversation: each of
- * the app's sprint items, the chat on it and its state, with a way in (open it) or to staff it.
+ * Fleet fork: the plan side of a planning session (a planner or sprint chat opened on its own).
+ * What's waiting on Rigo first, then what's next in the sprint with the chat on each, then Done
+ * folded. The conversation sits beside it; nothing here repeats in the chat.
  */
-export function SprintRoster(props: {
+export function PlanPane(props: {
   readonly app: string;
   readonly sprint: DeskSprint;
   readonly goal: string | null;
+  readonly nowMs: number;
   readonly items: ReadonlyArray<DeskItem>;
+  /** The item's own chats (recorded on it, started from it, named after it). */
   readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly signalsFor: (item: DeskItem) => ItemSignals;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onStartChat: (item: DeskItem) => void;
+  /** The app's pull requests, for the ones waiting to be merged or sent back. */
+  readonly prs: ReadonlyArray<DeskPr>;
+  readonly onOpenPr: (pr: DeskPr) => void;
 }) {
-  const nowMs = minuteTickToMs(useNowMinute());
-  const rows = props.items
-    .filter(
-      (item) =>
-        item.app === props.app &&
-        item.sprint?.title === props.sprint.title &&
-        item.kind !== "pr" &&
-        item.workType !== "Tracking",
-    )
-    .toSorted((a, b) => Number(isOpenWork(b)) - Number(isOpenWork(a)));
+  const day = 86_400_000;
+  const daysLeft = Math.max(
+    0,
+    Math.ceil(
+      (Date.parse(props.sprint.startDate) + props.sprint.duration * day - props.nowMs) / day,
+    ),
+  );
+  const inSprint = props.items.filter(
+    (item) =>
+      item.app === props.app &&
+      item.sprint?.title === props.sprint.title &&
+      item.kind !== "pr" &&
+      item.workType !== "Tracking",
+  );
+  const status = (item: DeskItem) => sprintStatus(item, props.signalsFor(item));
+  // What only Rigo can move: a question or result from the item's chat, a wrap-up, or urgent
+  // work nobody has started.
+  const ask = (item: DeskItem): { label: string; action: "open" | "start" } | null => {
+    const chat = props.chatsFor(item)[0];
+    if (needsWrapUp(item, props.signalsFor(item))) return { label: "Wrap up", action: "open" };
+    if (chat?.needsYou) return { label: "Answer", action: "open" };
+    if (chat?.column === "done") return { label: "Read result", action: "open" };
+    if (!chat && isOpenWork(item) && (item.priority === "P0" || item.priority === "P1")) {
+      return { label: "Start a chat", action: "start" };
+    }
+    return null;
+  };
+  const waiting = inSprint.filter((item) => ask(item) !== null);
+  const prsWaiting = props.prs.filter(
+    (pr) =>
+      pr.app === props.app &&
+      (pr.stage === "ready" || pr.stage === "fix") &&
+      !isDependencyUpdate(pr),
+  );
+  const order: Record<string, number> = { "In Review": 0, "In Progress": 1, Todo: 2 };
+  const next = inSprint
+    .filter((item) => isOpenWork(item) && ask(item) === null)
+    .toSorted((a, b) => (order[status(a)] ?? 9) - (order[status(b)] ?? 9));
+  const done = inSprint.filter((item) => !isOpenWork(item) && ask(item) === null);
+  const row = (item: DeskItem, right: ReactNode) => (
+    <li key={item.itemId} className="flex min-w-0 items-center gap-2 py-1.5">
+      <button
+        type="button"
+        onClick={() => props.onOpenItem(item)}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
+      >
+        <TypeTag kind={workKind(item)} />
+        <span className="truncate">{deskTitle(item)}</span>
+      </button>
+      {right}
+    </li>
+  );
   return (
-    <details open className="rounded-lg border border-border bg-muted/40 text-sm">
-      <summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground">
-        {props.sprint.title} roster · {props.app} · {rows.filter(isOpenWork).length} open
-        {props.goal ? ` · goal: ${props.goal}` : ""}
-      </summary>
-      <ul className="flex flex-col divide-y divide-border border-t border-border px-3">
-        {rows.map((item) => {
-          const chat = props.chatsFor(item)[0];
-          return (
-            <li
-              key={item.itemId}
-              className="grid grid-cols-1 items-center gap-1 py-1.5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto]"
-            >
-              <button
-                type="button"
-                onClick={() => props.onOpenItem(item)}
-                className="flex min-w-0 cursor-pointer items-center gap-1.5 text-left hover:underline"
-              >
-                <TypeTag kind={workKind(item)} />
-                <span className="truncate">{deskTitle(item)}</span>
-              </button>
-              {chat ? (
-                <span className="flex min-w-0 items-center gap-1.5">
-                  <span className="truncate text-xs">{chatTitle(chat.title)}</span>
-                  <ChatBadge chat={chat} nowMs={nowMs} />
-                </span>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  {isOpenWork(item) ? "No chat" : "Done"}
-                </span>
-              )}
-              {chat ? (
-                <Button size="xs" variant="ghost" onClick={() => props.onOpenItem(item)}>
-                  Open
+    <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-4">
+      <header className="flex flex-col gap-1">
+        <span className="text-sm font-semibold">
+          {props.app} · {props.sprint.title} · {daysLeft} days left
+        </span>
+        {props.goal ? (
+          <span className="text-xs text-muted-foreground">Goal: {props.goal}</span>
+        ) : (
+          <span className="text-xs text-muted-foreground">No sprint goal yet.</span>
+        )}
+      </header>
+      <section className="flex flex-col">
+        <DeskHeading>Waiting on you · {waiting.length + prsWaiting.length}</DeskHeading>
+        {prsWaiting.length > 0 ? (
+          <ul className="flex flex-col divide-y divide-border">
+            {prsWaiting.map((pr) => (
+              <li key={pr.url} className="flex min-w-0 items-center gap-2 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => props.onOpenPr(pr)}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
+                >
+                  <span className="shrink-0 text-xs text-muted-foreground">PR #{pr.number}</span>
+                  <span className="truncate">{pr.title}</span>
+                </button>
+                <Button size="xs" variant="outline" onClick={() => props.onOpenPr(pr)}>
+                  {pr.stage === "ready" ? "Merge" : "Send back"}
                 </Button>
-              ) : isOpenWork(item) ? (
-                <Button size="xs" variant="outline" onClick={() => props.onStartChat(item)}>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {waiting.length === 0 && prsWaiting.length === 0 ? (
+          <p className="py-1 text-xs text-muted-foreground">Nothing in this sprint waits on you.</p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-border">
+            {waiting.map((item) => {
+              const needed = ask(item);
+              return row(
+                item,
+                <Button
+                  size="xs"
+                  variant={needed?.action === "start" ? "default" : "outline"}
+                  onClick={() =>
+                    needed?.action === "start" ? props.onStartChat(item) : props.onOpenItem(item)
+                  }
+                >
+                  {needed?.label}
+                </Button>,
+              );
+            })}
+          </ul>
+        )}
+      </section>
+      <section className="flex flex-col">
+        <DeskHeading>Next up · {next.length}</DeskHeading>
+        <ul className="flex flex-col divide-y divide-border">
+          {next.map((item) => {
+            const chat = props.chatsFor(item)[0];
+            return row(
+              item,
+              chat ? (
+                <ChatBadge chat={chat} nowMs={props.nowMs} />
+              ) : (
+                <Button size="xs" variant="ghost" onClick={() => props.onStartChat(item)}>
                   Start a chat
                 </Button>
-              ) : (
-                <span />
-              )}
-            </li>
-          );
-        })}
-        {rows.length === 0 ? (
-          <li className="py-2 text-xs text-muted-foreground">Nothing planned for this sprint.</li>
+              ),
+            );
+          })}
+        </ul>
+        {next.length === 0 ? (
+          <p className="py-1 text-xs text-muted-foreground">Nothing else open in this sprint.</p>
         ) : null}
-      </ul>
-    </details>
+      </section>
+      <details>
+        <summary className="cursor-pointer text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+          Done this sprint · {done.length}
+        </summary>
+        <ul className="flex flex-col divide-y divide-border">
+          {done.map((item) => row(item, null))}
+        </ul>
+      </details>
+    </div>
   );
 }

@@ -3207,13 +3207,7 @@ export default function ChatView(props: ChatViewProps) {
         threadRef={activeThreadRef}
         state={deviceState}
       />
-      {rightPanelControlsAtRoot ? (
-        embeddedInDesk ? (
-          <span className="contents max-sm:hidden">{panelLayoutControls}</span>
-        ) : (
-          panelLayoutControls
-        )
-      ) : null}
+      {rightPanelControlsAtRoot ? (embeddedInDesk ? null : panelLayoutControls) : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -3230,7 +3224,6 @@ export default function ChatView(props: ChatViewProps) {
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
           className={cn(
-            embeddedInDesk && "max-sm:hidden",
             "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
             isElectron
               ? cn(
@@ -3241,6 +3234,9 @@ export default function ChatView(props: ChatViewProps) {
                 )
               : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
             COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            // The Board's window shows the title and its own controls; the chat's header row and
+            // its details panel would repeat them.
+            embeddedInDesk && "hidden",
           )}
         >
           {isElectron && rightPanelControlsAtRoot ? (
@@ -3734,73 +3730,77 @@ export default function ChatView(props: ChatViewProps) {
               onConfirm={handleSwitchCheckoutToThreadStable}
             />
 
-            <ThreadDetailsPanel
-              anchor={threadPanelPopoverAnchorRef}
-              handle={threadPanelPopoverHandle}
-              forceNewWorktree={multipleModelSelections !== null}
-              environmentId={activeThread.environmentId}
-              threadId={activeThread.id}
-              projectId={activeThread.projectId}
-              worktreePath={activeThread.worktreePath}
-              isServerThread={isServerThread}
-              {...(draftId ? { draftId } : {})}
-              activeProjectName={activeProject?.title}
-              activeProjectScripts={activeProject ? activeProjectScripts : undefined}
-              preferredScriptId={
-                activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
-              }
-              keybindings={keybindings}
-              availableEditors={availableEditors}
-              showOpenInPicker={showOpenInPicker}
-              openInShortcutEnabled={
-                !(
-                  rightPanelOpen &&
-                  renderedRightPanelSurface?.kind === "file" &&
-                  renderedRightPanelSurface.attachment === undefined
-                )
-              }
-              gitCwd={gitCwd}
-              isGitRepo={isGitRepo}
-              envLocked={envLocked}
-              availableEnvironments={logicalProjectEnvironments}
-              autoEnvironmentLabel={autoEnvironmentLabel}
-              onAutoEnvironment={
-                draftId &&
-                !envLocked &&
-                canAutoBalanceEnvironments &&
-                loadBalancingSettings.loadBalancingEnabled
-                  ? onAutoEnvironmentStable
-                  : undefined
-              }
-              {...(canChangeEnvironment ? { onEnvironmentChange: onEnvironmentChangeStable } : {})}
-              onEnvModeChange={onEnvModeChangeStable}
-              envMode={envMode}
-              {...(canOverrideServerThreadEnvMode
-                ? {
-                    activeThreadBranchOverride: activeThreadBranch,
-                    onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
-                  }
-                : {})}
-              startFromOrigin={startFromOrigin}
-              onStartFromOriginChange={onStartFromOriginChange}
-              {...(canCheckoutPullRequestIntoThread
-                ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
-                : {})}
-              onComposerFocusRequest={scheduleComposerFocusStable}
-              {...(isServerThread && isGitRepo
-                ? { onOpenChanges: openChangesFromThreadPanelStable }
-                : {})}
-              onRunProjectScript={runProjectScriptStable}
-              onAddProjectScript={saveProjectScriptStable}
-              onUpdateProjectScript={updateProjectScriptStable}
-              onDeleteProjectScript={deleteProjectScriptStable}
-              usage={{
-                providerInstanceId: activeProviderInstanceId,
-                providers: providerStatuses,
-                sources: serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES,
-                contextWindow: activeContextWindow,
-              }}
-            />
+            {embeddedInDesk ? null : (
+              <ThreadDetailsPanel
+                anchor={threadPanelPopoverAnchorRef}
+                handle={threadPanelPopoverHandle}
+                forceNewWorktree={multipleModelSelections !== null}
+                environmentId={activeThread.environmentId}
+                threadId={activeThread.id}
+                projectId={activeThread.projectId}
+                worktreePath={activeThread.worktreePath}
+                isServerThread={isServerThread}
+                {...(draftId ? { draftId } : {})}
+                activeProjectName={activeProject?.title}
+                activeProjectScripts={activeProject ? activeProjectScripts : undefined}
+                preferredScriptId={
+                  activeProject ? (lastInvokedScriptByProjectId[activeProject.id] ?? null) : null
+                }
+                keybindings={keybindings}
+                availableEditors={availableEditors}
+                showOpenInPicker={showOpenInPicker}
+                openInShortcutEnabled={
+                  !(
+                    rightPanelOpen &&
+                    renderedRightPanelSurface?.kind === "file" &&
+                    renderedRightPanelSurface.attachment === undefined
+                  )
+                }
+                gitCwd={gitCwd}
+                isGitRepo={isGitRepo}
+                envLocked={envLocked}
+                availableEnvironments={logicalProjectEnvironments}
+                autoEnvironmentLabel={autoEnvironmentLabel}
+                onAutoEnvironment={
+                  draftId &&
+                  !envLocked &&
+                  canAutoBalanceEnvironments &&
+                  loadBalancingSettings.loadBalancingEnabled
+                    ? onAutoEnvironmentStable
+                    : undefined
+                }
+                {...(canChangeEnvironment
+                  ? { onEnvironmentChange: onEnvironmentChangeStable }
+                  : {})}
+                onEnvModeChange={onEnvModeChangeStable}
+                envMode={envMode}
+                {...(canOverrideServerThreadEnvMode
+                  ? {
+                      activeThreadBranchOverride: activeThreadBranch,
+                      onActiveThreadBranchOverrideChange: setPendingServerThreadBranch,
+                    }
+                  : {})}
+                startFromOrigin={startFromOrigin}
+                onStartFromOriginChange={onStartFromOriginChange}
+                {...(canCheckoutPullRequestIntoThread
+                  ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
+                  : {})}
+                onComposerFocusRequest={scheduleComposerFocusStable}
+                {...(isServerThread && isGitRepo
+                  ? { onOpenChanges: openChangesFromThreadPanelStable }
+                  : {})}
+                onRunProjectScript={runProjectScriptStable}
+                onAddProjectScript={saveProjectScriptStable}
+                onUpdateProjectScript={updateProjectScriptStable}
+                onDeleteProjectScript={deleteProjectScriptStable}
+                usage={{
+                  providerInstanceId: activeProviderInstanceId,
+                  providers: providerStatuses,
+                  sources: serverConfig?.usageLimitSources ?? EMPTY_USAGE_LIMIT_SOURCES,
+                  contextWindow: activeContextWindow,
+                }}
+              />
+            )}
 
             <PullRequestThreadDialogHost
               threadKey={activeThreadKey}

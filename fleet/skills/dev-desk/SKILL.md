@@ -74,12 +74,12 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
 Every chat works at one level, recorded on the Desk and shown on the Board. Rigo talks to the
 level that owns the question; a chat answers only at its own level.
 
-| Level                                  | Owns                                                                                                                                  | Does not                                                       |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| **Today** (one a day)                  | Rigo's priorities across apps for the day                                                                                             | plan an app's sprint or write code                             |
-| **Planner** (one per app)              | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test                            |
-| **Work** (one item)                    | one issue or PR: code, PR, test sheet, wrap-up                                                                                        | change the plan, pick its own next item, take on a second item |
-| **Helper** (a subagent or a side task) | the job its parent gave it                                                                                                            | talk to Rigo; its results and questions go to its parent       |
+| Level                                  | Owns                                                                                                                                  | Does not                                                                                                                   |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| **Today** (one a day)                  | Rigo's priorities across apps for the day                                                                                             | plan an app's sprint or write code                                                                                         |
+| **Planner** (one per app)              | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test, or publish test sheets (the item's work chat does; the sheet shows in its Review tab) |
+| **Work** (one item)                    | one issue or PR: code, PR, test sheet, wrap-up                                                                                        | change the plan, pick its own next item, take on a second item                                                             |
+| **Helper** (a subagent or a side task) | the job its parent gave it                                                                                                            | talk to Rigo; its results and questions go to its parent                                                                   |
 
 ```sh
 node ~/.claude/skills/dev-desk/desk.mjs role planner --app "BizDev Leads"            # this chat is BizDev's planner
