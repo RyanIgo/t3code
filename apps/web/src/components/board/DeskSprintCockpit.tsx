@@ -398,6 +398,17 @@ function useNeedRows(input: NeedInput): Need[] {
   const featureOf = (item: DeskItem | null | undefined) =>
     (item ? featureName(item) : null) ?? GENERAL;
   const byUrl = (url: string | null) => input.items.find((item) => item.url === url) ?? null;
+  // A link may be an issue, or a PR whose issue (or own Feature field) names the feature.
+  const featureOfUrls = (urls: ReadonlyArray<string | null>) => {
+    for (const url of urls) {
+      const item = byUrl(url);
+      if (item && featureName(item)) return featureName(item) ?? GENERAL;
+      const pr = input.prs.find((entry) => entry.url === url);
+      const fromPr = pr ? ((pr.item ? featureName(pr.item) : null) ?? featureName(pr)) : null;
+      if (fromPr) return fromPr;
+    }
+    return GENERAL;
+  };
   const checklist = input.planner ? (input.notes.work[input.planner.threadId]?.plan ?? []) : [];
   const agentsOn = new Set(
     checklist.flatMap((line) =>
@@ -412,8 +423,15 @@ function useNeedRows(input: NeedInput): Need[] {
     </Button>
   );
 
+  // A PR the planner put to Rigo as a decision shows once, as that decision.
+  const decided = new Set(
+    openDecisions(input.notes, input.app).flatMap((decision) => [
+      decision.itemUrl,
+      ...decision.links,
+    ]),
+  );
   for (const pr of input.prs) {
-    if (pr.app !== input.app || isDependencyUpdate(pr)) continue;
+    if (pr.app !== input.app || isDependencyUpdate(pr) || decided.has(pr.url)) continue;
     if (!(pr.stage === "ready" || (pr.stage === "fix" && !agentsOn.has(pr.url)))) continue;
     const sheet = pr.item ? input.signalsFor(pr.item).sheet : null;
     const toTest = sheet !== null && sheet.unchecked > 0;
@@ -431,7 +449,7 @@ function useNeedRows(input: NeedInput): Need[] {
       ]
         .filter(Boolean)
         .join(" · "),
-      feature: featureOf(pr.item),
+      feature: featureOfUrls([pr.item?.url ?? null, pr.url]),
       action: button(
         toTest ? "Test" : pr.stage === "ready" ? "Merge" : "Send back",
         () => input.onOpenPr(pr),
@@ -472,7 +490,7 @@ function useNeedRows(input: NeedInput): Need[] {
     } else if (signals.sheet && signals.sheet.unchecked > 0) {
       add(
         "test",
-        `${label}: run the test sheet`,
+        `Run the test sheet: ${label}`,
         `${signals.sheet.unchecked} checks left`,
         button("Test", () => input.onOpenItem(item)),
       );
@@ -496,14 +514,13 @@ function useNeedRows(input: NeedInput): Need[] {
   if (input.planner) {
     const planner = input.planner;
     for (const decision of openDecisions(input.notes, input.app)) {
-      const item = byUrl(decision.itemUrl ?? decision.links[0] ?? null);
       const open = openDecision === decision.id;
       rows.push({
         key: `decision:${decision.id}`,
         kind: "decide",
         title: decision.question,
         meta: decision.recommended ? `rec: ${decision.recommended}` : "from the planner",
-        feature: featureOf(item),
+        feature: featureOfUrls([decision.itemUrl, ...decision.links]),
         action: button(
           open ? "Close" : "Answer",
           () => setOpenDecision(open ? null : decision.id),
@@ -535,7 +552,7 @@ function useNeedRows(input: NeedInput): Need[] {
         kind: "todo",
         title: line.text,
         meta: "from the planner",
-        feature: featureOf(byUrl(line.itemUrl)),
+        feature: featureOfUrls([line.itemUrl]),
         action: (
           <span className="flex gap-1">
             {button("Done", () => {
