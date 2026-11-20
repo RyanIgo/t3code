@@ -20,6 +20,7 @@ import {
   withNextStep,
   withDecisionAnswer,
   withPlanLineDone,
+  withReportsSent,
   type ChatRole,
   withRole,
   withSheet,
@@ -192,6 +193,14 @@ export function saveDecisionAnswer(id: string, choice: string, note: string | nu
   save(
     withDecisionAnswer(snapshot.notes, id, choice, note, new Date().toISOString()),
     "Couldn't save the answer",
+  );
+}
+
+/** Records that a planner got its chats' waiting reports. */
+export function saveReportsSent(plannerId: string, threadIds: ReadonlyArray<string>) {
+  save(
+    withReportsSent(snapshot.notes, plannerId, threadIds, new Date().toISOString()),
+    "Couldn't record the update",
   );
 }
 

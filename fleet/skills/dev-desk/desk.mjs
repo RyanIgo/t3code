@@ -440,7 +440,7 @@ async function plan(action, rest) {
     }));
   await changeNotes((doc, at) => {
     const mine = doc.work[threadId] ?? { items: [], next: null };
-    doc.work[threadId] = { ...mine, plan: clean, updatedAt: at };
+    doc.work[threadId] = { ...mine, plan: clean, planAt: at, updatedAt: at };
   });
   console.log(
     `Checklist saved: ${clean.length} lines, ${clean.filter((line) => !line.done).length} open.`,
@@ -704,6 +704,157 @@ async function agents(given) {
   );
 }
 
+/** How long a planner gets between automatic updates; reports in between wait and go together. */
+const UPDATE_EVERY_MS = 3 * 60_000;
+
+/** The planner a chat reports to: a helper's parent, else its app's planner. */
+function plannerOf(doc, desk, threadId) {
+  const work = doc.work?.[threadId];
+  if (!work) return null;
+  if (work.role === "helper" && work.parent) {
+    const parent = doc.work?.[work.parent];
+    if (parent?.role === "planner") return work.parent;
+    return parent ? plannerOf(doc, desk, work.parent) : null;
+  }
+  const open = (work.items ?? []).findLast((span) => span.until === null);
+  const app = work.app ?? desk.items?.find((item) => item.url === open?.url)?.app ?? null;
+  if (!app) return null;
+  const planners = Object.entries(doc.work ?? {})
+    .filter(([, entry]) => entry.role === "planner" && entry.app === app)
+    .sort(([, a], [, b]) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
+  return planners[0]?.[0] ?? null;
+}
+
+/** The last thing the chat said, from the hook's input or the end of its transcript. */
+function lastMessage(input) {
+  if (typeof input.last_assistant_message === "string") return input.last_assistant_message;
+  try {
+    const raw = NodeFS.readFileSync(input.transcript_path, "utf8").slice(-400_000);
+    for (const line of raw.trim().split("\n").reverse()) {
+      try {
+        const entry = JSON.parse(line);
+        const content = entry.message?.content;
+        if (entry.type !== "assistant" || !Array.isArray(content)) continue;
+        const text = content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+        if (text.trim()) return text;
+      } catch {}
+    }
+  } catch {}
+  return "";
+}
+
+/** One planner's waiting reports as one message. */
+function digestFor(doc, desk, plannerId) {
+  const byUrl = new Map((desk.items ?? []).map((item) => [item.url, item]));
+  const waiting = Object.entries(doc.work ?? {}).filter(
+    ([threadId, work]) =>
+      work.report && !work.report.sentAt && plannerOf(doc, desk, threadId) === plannerId,
+  );
+  if (waiting.length === 0) return null;
+  const parts = waiting.map(([threadId, work]) => {
+    const open = (work.items ?? []).findLast((span) => span.until === null);
+    const item = open ? byUrl.get(open.url) : null;
+    const name = item
+      ? `${item.repo?.split("/").pop()}#${item.number} ${item.title}`
+      : `chat ${threadId}`;
+    return [
+      `### ${name} (${work.role ?? "work"} chat ${threadId}, ${work.report.at.slice(11, 16)} UTC)`,
+      `Next: ${work.next ?? "not set"}`,
+      `Said: ${work.report.text}`,
+    ].join("\n");
+  });
+  return {
+    threadIds: waiting.map(([threadId]) => threadId),
+    message: [
+      `[Desk update] ${waiting.length === 1 ? "A chat you run" : `${waiting.length} chats you run`} finished a turn:`,
+      "",
+      parts.join("\n\n"),
+      "",
+      "Update your checklist (plan set) if the picture changed, and act on anything that needs you. Don't reply to the chat unless it needs something. Reply here in one line, or not at all.",
+    ].join("\n"),
+  };
+}
+
+/**
+ * `report --hook`: the Stop hook every Claude chat on a fleet machine runs at the end of a turn
+ * (install-client.sh adds it). A work chat or helper's turn is recorded on the Desk for its
+ * planner and sent to it, so the planner hears without the chat remembering to tell it. Returns
+ * at once; the work happens in a detached process. Never fails the turn.
+ */
+async function reportHook() {
+  if (!process.env.T3CODE_THREAD_ID) return;
+  let input = {};
+  try {
+    input = JSON.parse(NodeFS.readFileSync(0, "utf8") || "{}");
+  } catch {}
+  if (input.stop_hook_active) return;
+  const file = NodePath.join(NodeOS.tmpdir(), `desk-report-${process.pid}-${Date.now()}.json`);
+  NodeFS.writeFileSync(file, JSON.stringify({ message: lastMessage(input) }));
+  NodeChildProcess.spawn(process.execPath, [process.argv[1], "report", "--from", file], {
+    detached: true,
+    stdio: "ignore",
+    env: process.env,
+  }).unref();
+}
+
+/** `report --from <file>` (from the hook) or `report deliver`: record this turn, then deliver. */
+async function report(options) {
+  const given = flags(options);
+  const threadId = thisThread();
+  let said = "";
+  if (given.from) {
+    try {
+      said = JSON.parse(NodeFS.readFileSync(given.from, "utf8")).message ?? "";
+      NodeFS.rmSync(given.from, { force: true });
+    } catch {}
+  }
+  // Only chats on the Desk as work chats or helpers report; everything else stops here, cheaply.
+  const before = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const role = before.work?.[threadId]?.role;
+  if (role !== "work" && role !== "helper") return;
+  const desk = (await call("/fleet/desk")).body ?? {};
+  const plannerId = plannerOf(before, desk, threadId);
+  if (!plannerId) return;
+  const text = said.replace(/\s+/g, " ").trim().slice(0, 700) || "(no message)";
+  await changeNotes((doc, at) => {
+    // updatedAt moves too: the Board merges each chat's entry by it and would keep a stale copy.
+    if (doc.work[threadId])
+      doc.work[threadId] = {
+        ...doc.work[threadId],
+        report: { at, text, sentAt: null },
+        updatedAt: at,
+      };
+  });
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const last = Date.parse(doc.work?.[plannerId]?.updatesSentAt ?? "") || 0;
+  if (Date.now() - last < UPDATE_EVERY_MS) return; // the next turn, or the Board, sends it
+  const digest = digestFor(doc, desk, plannerId);
+  if (!digest) return;
+  const sent = NodeChildProcess.spawnSync("t3", ["thread", "send", plannerId, "-"], {
+    input: digest.message,
+    encoding: "utf8",
+    timeout: 30_000,
+    env: { ...process.env, PATH: `${process.env.PATH}:${NodeOS.homedir()}/.local/bin` },
+  });
+  // A planner on another machine isn't reachable from here: the Board delivers it instead.
+  if (sent.status !== 0) return;
+  await changeNotes((next, at) => {
+    for (const id of digest.threadIds) {
+      if (next.work[id]?.report)
+        next.work[id] = {
+          ...next.work[id],
+          report: { ...next.work[id].report, sentAt: at },
+          updatedAt: at,
+        };
+    }
+    if (next.work[plannerId])
+      next.work[plannerId] = { ...next.work[plannerId], updatesSentAt: at, updatedAt: at };
+  });
+}
+
 const [command, first, ...rest] = process.argv.slice(2);
 if (command === "context") await context(first);
 else if (command === "note") await note(first, rest.join(" "));
@@ -717,6 +868,8 @@ else if (command === "plan") await plan(first, rest);
 else if (command === "agents") await agents(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
 else if (command === "capture") await capture(first, rest);
+else if (command === "report" && first === "--hook") await reportHook().catch(() => {});
+else if (command === "report") await report([first, ...rest]);
 else
   fail(
     'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | plan set|show',

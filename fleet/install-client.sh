@@ -73,6 +73,31 @@ install_agent_skills() {
   done
 }
 
+# Claude chats here report each finished turn to their planner (dev-desk's `report --hook`), so
+# the planner hears without the chat remembering to tell it. Adds a Stop hook to the user's
+# Claude settings once; leaves everything else in them as it is.
+install_report_hook() {
+  local settings="$HOME/.claude/settings.json"
+  [[ -d "$HOME/.claude" ]] || return 0
+  node - "$settings" <<'NODE'
+const fs = require("node:fs");
+const file = process.argv[2];
+const command = 'node "$HOME/.claude/skills/dev-desk/desk.mjs" report --hook';
+let settings = {};
+try { settings = JSON.parse(fs.readFileSync(file, "utf8")); } catch (error) {
+  if (error.code !== "ENOENT") { console.error(`Left ${file} alone: it isn't valid JSON.`); process.exit(0); }
+}
+settings.hooks ??= {};
+settings.hooks.Stop ??= [];
+const present = settings.hooks.Stop.some((group) =>
+  (group.hooks ?? []).some((hook) => /dev-desk\/desk\.mjs"? report --hook/.test(String(hook.command ?? ""))));
+if (present) { console.log("Turn reports to planners: already on."); process.exit(0); }
+settings.hooks.Stop.push({ hooks: [{ type: "command", command, timeout: 10 }] });
+fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+console.log("Turn reports to planners: on (a Stop hook in ~/.claude/settings.json).");
+NODE
+}
+
 restart_service() {
   if t3 service status 2>/dev/null | grep -qi "installed"; then
     t3 service restart
@@ -140,6 +165,7 @@ if [[ ! -f "$dist_dir/index.html" ]]; then
 fi
 
 install_agent_skills
+install_report_hook
 if [[ -n "$hub" ]]; then
   mkdir -p "$HOME/.config/t3-fleet"
   printf '%s\n' "$hub" > "$HOME/.config/t3-fleet/hub-url"

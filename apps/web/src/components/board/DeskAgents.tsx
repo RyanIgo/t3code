@@ -26,6 +26,7 @@ import {
   noteAt,
   goalOf,
   openDecisions,
+  waitingReports,
   type PlannerDecision,
 } from "./deskNotes.logic";
 import { saveChatRole, saveDecisionAnswer, saveDeskNote, savePlanLineDone } from "./deskNotesStore";
@@ -393,7 +394,13 @@ export function PlanPane(props: {
     .filter((entry) => entry.app === props.app && entry.answer !== null)
     .toSorted((a, b) => (b.answer?.at ?? "").localeCompare(a.answer?.at ?? ""))
     .slice(0, 5);
-  const checklist = props.notes.work[props.planner.threadId]?.plan ?? [];
+  const plannerWork = props.notes.work[props.planner.threadId];
+  const checklist = plannerWork?.plan ?? [];
+  const waitingUpdates =
+    waitingReports(
+      props.notes,
+      (url) => props.items.find((item) => item.url === url)?.app ?? null,
+    ).get(props.planner.threadId)?.length ?? 0;
   const answer = (decision: PlannerDecision, choice: string, note: string | null) => {
     saveDecisionAnswer(decision.id, choice, note);
     // A proposed sprint goal: the first option takes it as written; a note is Rigo's own wording.
@@ -631,9 +638,33 @@ export function PlanPane(props: {
           </ul>
         )}
       </section>
+      <section className="flex flex-col">
+        <DeskHeading>The planner's plan · {agentLines.length} under way</DeskHeading>
+        <div className="flex items-center gap-2 pb-1 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1">
+            {plannerWork
+              ? `Updated ${formatFleetBoardAge(plannerWork.planAt ?? plannerWork.updatedAt, props.nowMs) ?? "just now"} ago`
+              : "No plan yet"}
+            {waitingUpdates > 0
+              ? ` · ${waitingUpdates} chat ${waitingUpdates === 1 ? "update" : "updates"} on the way`
+              : ""}
+          </span>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() =>
+              void sendToChat(
+                props.planner,
+                "Catch up: check the chats you run (desk.mjs agents, and t3_thread_read on any that moved since your last checklist), rewrite your checklist with plan set, and tell me in three lines what moved.",
+              )
+            }
+          >
+            Catch up
+          </Button>
+        </div>
+      </section>
       {agentLines.length > 0 || doneLines.length > 0 ? (
         <section className="flex flex-col">
-          <DeskHeading>The planner's plan · {agentLines.length} under way</DeskHeading>
           <ul className="flex flex-col">
             {agentLines.map((line) => (
               <li key={line.text} className="flex items-start gap-2 py-1 text-sm">

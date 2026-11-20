@@ -100,6 +100,13 @@ node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                   
   thread id>`. A work chat that needs a decision asks its planner; the planner asks Rigo.
 - **Work chats** finish one item. More work found along the way becomes a note to the planner
   (or `capture`), not a second item in the same chat.
+- **Turns report themselves.** At the end of every turn of a work chat or helper, a hook records
+  what it said and its `next` step for its planner and sends them as a "[Desk update]" message
+  (batched, at most one every few minutes). So keep `next` true; you don't need to tell the
+  planner what you did. Message it yourself only for a question or a decision it must make.
+- **Planners** treat a "[Desk update]" as news, not a request: update the checklist (`plan set`)
+  if the picture changed, act if something needs you, and otherwise end the turn with one line
+  or nothing. Don't reply to the chat unless it needs something.
 - **Rigo scoping with a work chat** is expected: shape the feature with him, write what was
   agreed into the issue (acceptance criteria, "Where it stands"), add a `note` for anything the
   next chat should know, and tell the planner in one queued line (`t3_thread_send`) so its plan

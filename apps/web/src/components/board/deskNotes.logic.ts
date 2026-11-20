@@ -164,6 +164,12 @@ export interface DeskChatWork {
   readonly plan?: ReadonlyArray<PlanLine>;
   /** The sprint a planner runs; each sprint gets a new planner. */
   readonly sprint?: string | null;
+  /** A work chat's or helper's last turn, recorded for its planner; sentAt once delivered. */
+  readonly report?: { readonly at: string; readonly text: string; readonly sentAt: string | null };
+  /** When a planner last rewrote its checklist. */
+  readonly planAt?: string | null;
+  /** When a planner last got its chats' reports. */
+  readonly updatesSentAt?: string | null;
   readonly updatedAt: string;
 }
 
@@ -505,6 +511,21 @@ function readDecisions(value: unknown): Record<string, PlannerDecision> {
   );
 }
 
+/** A chat's last turn report, spread into its work entry (nothing when there's none). */
+function readReport(value: unknown): Pick<DeskChatWork, "report"> {
+  if (typeof value !== "object" || value === null) return {};
+  const report = value as Record<string, unknown>;
+  const text = short(report.text, 1000);
+  if (typeof report.at !== "string" || !text) return {};
+  return {
+    report: {
+      at: report.at,
+      text,
+      sentAt: typeof report.sentAt === "string" ? report.sentAt : null,
+    },
+  };
+}
+
 function readPlan(value: unknown): PlanLine[] | null {
   if (!Array.isArray(value)) return null;
   return value
@@ -553,6 +574,65 @@ export function plannerTodos(notes: DeskNotes, app: string | null = null): Plann
           .map((line) => ({ threadId, app: work.app ?? null, line }))
       : [],
   );
+}
+
+/** The planner a chat reports to: a helper's parent (or its parent's planner), else its app's newest planner. */
+function plannerFor(
+  notes: DeskNotes,
+  threadId: string,
+  appOfUrl: (url: string) => string | null,
+  seen: ReadonlySet<string> = new Set(),
+): string | null {
+  const work = notes.work[threadId];
+  if (!work || seen.has(threadId)) return null;
+  if (work.role === "helper" && work.parent) {
+    if (notes.work[work.parent]?.role === "planner") return work.parent;
+    return plannerFor(notes, work.parent, appOfUrl, new Set([...seen, threadId]));
+  }
+  const open = work.items.findLast((span) => span.until === null);
+  const app = work.app ?? (open ? appOfUrl(open.url) : null);
+  if (!app) return null;
+  return (
+    Object.entries(notes.work)
+      .filter(([, entry]) => entry.role === "planner" && entry.app === app)
+      .toSorted(([, a], [, b]) => b.updatedAt.localeCompare(a.updatedAt))[0]?.[0] ?? null
+  );
+}
+
+/** Each planner's reports from its chats that haven't reached it yet, oldest first. */
+export function waitingReports(
+  notes: DeskNotes,
+  appOfUrl: (url: string) => string | null,
+): Map<string, Array<{ readonly threadId: string; readonly work: DeskChatWork }>> {
+  const out = new Map<string, Array<{ readonly threadId: string; readonly work: DeskChatWork }>>();
+  for (const [threadId, work] of Object.entries(notes.work)) {
+    if (!work.report || work.report.sentAt) continue;
+    const planner = plannerFor(notes, threadId, appOfUrl);
+    if (!planner) continue;
+    out.set(planner, [...(out.get(planner) ?? []), { threadId, work }]);
+  }
+  for (const list of out.values()) {
+    list.sort((a, b) => (a.work.report?.at ?? "").localeCompare(b.work.report?.at ?? ""));
+  }
+  return out;
+}
+
+/** Marks reports delivered to a planner. */
+export function withReportsSent(
+  notes: DeskNotes,
+  plannerId: string,
+  threadIds: ReadonlyArray<string>,
+  at: string,
+): DeskNotes {
+  const work = { ...notes.work };
+  for (const id of threadIds) {
+    const entry = work[id];
+    if (entry?.report)
+      work[id] = { ...entry, report: { ...entry.report, sentAt: at }, updatedAt: at };
+  }
+  const planner = work[plannerId];
+  if (planner) work[plannerId] = { ...planner, updatesSentAt: at, updatedAt: at };
+  return { ...notes, work };
 }
 
 /** Ticks a planner's checklist line (matched by its text) done. */
@@ -718,6 +798,11 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
             ...(typeof work.sprint === "string" && work.sprint.trim()
               ? { sprint: work.sprint.slice(0, 80) }
               : {}),
+            ...readReport(work.report),
+            ...(typeof work.updatesSentAt === "string"
+              ? { updatesSentAt: work.updatesSentAt }
+              : {}),
+            ...(typeof work.planAt === "string" ? { planAt: work.planAt } : {}),
             updatedAt: work.updatedAt,
           },
         ],

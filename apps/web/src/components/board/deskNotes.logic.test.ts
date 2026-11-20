@@ -15,6 +15,8 @@ import {
   untitledTodayChats,
   plannerTodos,
   goalOf,
+  waitingReports,
+  withReportsSent,
   withPlanLineDone,
   withFocus,
   withNote,
@@ -214,6 +216,56 @@ describe("desk notes", () => {
     const ticked = withPlanLineDone(notes, "planner-one", "Test the sheet", at);
     expect(plannerTodos(ticked)).toEqual([]);
     expect(withPlanLineDone(notes, "planner-one", "Missing", at)).toBe(notes);
+  });
+
+  it("routes chats' turn reports to their planner until they're sent", () => {
+    const at = "2026-11-20T10:00:00Z";
+    const report = { at, text: "PR opened", sentAt: null };
+    const notes = {
+      ...EMPTY_DESK_NOTES,
+      work: {
+        "planner-one": {
+          items: [],
+          next: null,
+          role: "planner" as const,
+          app: "Precon",
+          updatedAt: at,
+        },
+        "work-chat-1": {
+          items: [{ url: "https://github.com/o/r/issues/1", from: at, until: null }],
+          next: null,
+          role: "work" as const,
+          report,
+          updatedAt: at,
+        },
+        "helper-chat": {
+          items: [],
+          next: null,
+          role: "helper" as const,
+          parent: "work-chat-1",
+          report,
+          updatedAt: at,
+        },
+        "work-other-app": {
+          items: [],
+          next: null,
+          role: "work" as const,
+          app: "Materials",
+          report,
+          updatedAt: at,
+        },
+      },
+    };
+    const appOfUrl = (url: string) => (url.endsWith("/1") ? "Precon" : null);
+    const waiting = waitingReports(notes, appOfUrl);
+    expect(waiting.get("planner-one")?.map((entry) => entry.threadId)).toEqual([
+      "work-chat-1",
+      "helper-chat",
+    ]);
+    expect(waiting.size).toBe(1);
+    const sent = withReportsSent(notes, "planner-one", ["work-chat-1", "helper-chat"], at);
+    expect(waitingReports(sent, appOfUrl).size).toBe(0);
+    expect(sent.work["planner-one"]?.updatesSentAt).toBe(at);
   });
 
   it("takes the goal out of a planner's wrapped question", () => {

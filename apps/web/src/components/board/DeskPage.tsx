@@ -74,6 +74,7 @@ import {
   useDeskNotes,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
+import { useDeliverReports } from "./deskReports";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
 import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
@@ -269,6 +270,7 @@ export function DeskPage(props: {
   const items = view?.items ?? [];
   const nowMs = minuteTickToMs(useNowMinute());
   const sprint = currentSprint(view?.sprints ?? [], nowMs);
+  useDeliverReports(notes.notes, items, props.pinnable, nowMs);
   // A Desk link followed while already here (e.g. from a chat in the work window) only changes
   // the fragment; apply it the same way and clear it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for `#desk=…` fragment changes in the browser's address
