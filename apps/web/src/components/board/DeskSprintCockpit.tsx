@@ -8,9 +8,12 @@ import { type ReactNode, useState } from "react";
 import ChatView from "../ChatView";
 import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { Button } from "../ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { cn } from "../../lib/utils";
 import type { CardChatState } from "./boardCards.logic";
 import {
+  chatStatus,
+  chatTitle,
   type DeskItem,
   type DeskSprint,
   deskRef,
@@ -18,14 +21,15 @@ import {
   type ItemSignals,
   needsWrapUp,
   workKind,
+  wrapUpLeft,
 } from "./desk.logic";
 import { BigPicture, DecisionCard, useDecisionActions } from "./DeskAgents";
 import { noteAt, openDecisions, type DeskNotes, waitingReports } from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
-import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
+import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
 import { useSendToChat } from "./deskSend";
-import { useHubSheets } from "./deskSheets";
+import { type SheetSummary, sheetsForItem, useHubSheets } from "./deskSheets";
 import { formatFleetBoardAge } from "./fleetBoard.logic";
 import {
   featureGroups,
@@ -63,6 +67,157 @@ interface Need {
   readonly action: ReactNode;
   /** Opens under the row (a decision's card). */
   readonly detail?: ReactNode;
+  /** The pop-up behind the row's title: why it's here and what's behind it. */
+  readonly info?: ReactNode;
+}
+
+/** What's behind a row in Needs you: the item, its PR and the chat that worked on it. */
+interface NeedContext {
+  readonly why: string;
+  readonly item: DeskItem | null;
+  readonly pr: DeskPr | null;
+  readonly chat: CardChatState | null;
+}
+
+function NeedInfo(props: {
+  readonly context: NeedContext;
+  /** Laid out in the page (an opened story) rather than in a pop-up. */
+  readonly inline?: boolean;
+  readonly notes: DeskNotes;
+  readonly sheets: ReadonlyArray<SheetSummary>;
+  readonly nowMs: number;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onOpenPr: (pr: DeskPr) => void;
+  readonly onOpenItem: (item: DeskItem) => void;
+}) {
+  const { item, pr, chat, why } = props.context;
+  const work = chat ? props.notes.work[chat.threadId] : undefined;
+  const sheet = item ? (sheetsForItem(props.sheets, item, props.notes)[0] ?? null) : null;
+  const checked = sheet
+    ? sheet.counts.pass + sheet.counts.fail + sheet.counts.skip + sheet.counts.blocked
+    : 0;
+  const part = (title: string, body: ReactNode) => (
+    <section className="flex flex-col gap-1 border-t border-border pt-2">
+      <DeskHeading>{title}</DeskHeading>
+      {body}
+    </section>
+  );
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2 text-sm",
+        !props.inline && "max-h-[70vh] w-96 max-w-full overflow-y-auto",
+      )}
+    >
+      {why ? <p>{why}</p> : null}
+      {item?.plain && (item.plain.what || item.plain.where)
+        ? part(
+            "In plain words",
+            <dl className="flex flex-col gap-0.5 text-xs">
+              {item.plain.what ? <dd>{item.plain.what}</dd> : null}
+              {item.plain.why ? (
+                <dd className="text-muted-foreground">Why: {item.plain.why}</dd>
+              ) : null}
+              {item.plain.where ? (
+                <dd className="text-muted-foreground">Where it stands: {item.plain.where}</dd>
+              ) : null}
+            </dl>,
+          )
+        : null}
+      {chat
+        ? part(
+            "The chat on it",
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">
+                {chatTitle(chat.title)} · {chatStatus(chat).label}
+                {chat.since ? ` · ${formatFleetBoardAge(chat.since, props.nowMs) ?? ""} ago` : ""}
+              </span>
+              {work?.next ? <span>Next: {work.next}</span> : null}
+              {work?.report?.text ? (
+                <span className="text-muted-foreground">Last said: {work.report.text}</span>
+              ) : null}
+              <Button
+                size="xs"
+                variant="outline"
+                className="self-start"
+                onClick={() => props.onOpenChat(chat)}
+              >
+                Open the chat
+              </Button>
+            </div>,
+          )
+        : null}
+      {pr
+        ? part(
+            `PR #${pr.number}`,
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">{pr.title}</span>
+              <span>
+                {PR_STAGES.find((stage) => stage.id === pr.stage)?.label ?? pr.stage}
+                {pr.checks ? ` · checks ${pr.checks}` : ""}
+                {pr.mergeable === "conflicting" ? " · merge conflicts" : ""}
+              </span>
+              {pr.reasons.length > 0 ? (
+                <ul className="list-disc ps-4 text-muted-foreground">
+                  {pr.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+              <Button
+                size="xs"
+                variant="outline"
+                className="self-start"
+                onClick={() => props.onOpenPr(pr)}
+              >
+                Open the PR
+              </Button>
+            </div>,
+          )
+        : null}
+      {sheet
+        ? part(
+            "Test sheet",
+            <div className="flex flex-col gap-1 text-xs">
+              <span className="font-medium">{sheet.title}</span>
+              <span>
+                {checked} of {sheet.counts.total} checked
+                {sheet.counts.fail ? ` · ${sheet.counts.fail} failed` : ""}
+              </span>
+              <span className="flex gap-1.5">
+                <a
+                  href={`/a/${sheet.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  Open the sheet ↗
+                </a>
+                {item ? (
+                  <button
+                    type="button"
+                    className="cursor-pointer text-primary hover:underline"
+                    onClick={() => props.onOpenItem(item)}
+                  >
+                    Review it with the app
+                  </button>
+                ) : null}
+              </span>
+            </div>,
+          )
+        : null}
+      {item ? (
+        <Button
+          size="xs"
+          variant="ghost"
+          className="self-start"
+          onClick={() => props.onOpenItem(item)}
+        >
+          Open {deskRef(item) ?? "the item"}
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 const STEP_CLASS: Record<StepState, string> = {
@@ -423,6 +578,25 @@ function useNeedRows(input: NeedInput): Need[] {
   );
   const rows: Need[] = [];
   const shown = new Set<string>();
+  const prOf = (item: DeskItem | null) =>
+    item
+      ? (input.prs.find(
+          (pr) =>
+            pr.item?.itemId === item.itemId ||
+            item.pullRequests.some((link) => link.url === pr.url),
+        ) ?? null)
+      : null;
+  const info = (context: NeedContext) => (
+    <NeedInfo
+      context={context}
+      notes={input.notes}
+      sheets={sheets}
+      nowMs={input.nowMs}
+      onOpenChat={input.onOpenChat}
+      onOpenPr={input.onOpenPr}
+      onOpenItem={input.onOpenItem}
+    />
+  );
   const button = (label: string, onClick: () => void, primary = false) => (
     <Button size="xs" variant={primary ? "default" : "outline"} onClick={onClick}>
       {label}
@@ -461,6 +635,16 @@ function useNeedRows(input: NeedInput): Need[] {
         .filter(Boolean)
         .join(" · "),
       feature: featureOfUrls([pr.item?.url ?? null, pr.url]),
+      info: info({
+        why: toTest
+          ? "Its chat finished and made a test sheet. Run the sheet; if it passes, merge."
+          : pr.stage === "ready"
+            ? "Checks passed and it can merge. Merging can't be undone."
+            : `It can't merge as it is${pr.reasons.length ? `: ${pr.reasons.join("; ")}` : ""}. Send it back to its chat to fix.`,
+        item: pr.item,
+        pr,
+        chat: pr.chats[0] ?? (pr.item ? (input.chatsFor(pr.item)[0] ?? null) : null),
+      }),
       action: button(
         toTest ? "Test" : pr.stage === "ready" ? "Merge" : "Send back",
         () => input.onOpenPr(pr),
@@ -473,7 +657,7 @@ function useNeedRows(input: NeedInput): Need[] {
     const signals = input.signalsFor(item);
     const chat = input.chatsFor(item)[0];
     const label = `${deskRef(item) ?? ""} ${deskTitle(item)}`.trim();
-    const add = (kind: NeedKind, title: string, meta: string, action: ReactNode) => {
+    const add = (kind: NeedKind, title: string, meta: string, action: ReactNode, why: string) => {
       if (item.url) shown.add(item.url);
       rows.push({
         key: `item:${item.itemId}`,
@@ -482,6 +666,7 @@ function useNeedRows(input: NeedInput): Need[] {
         meta,
         feature: featureOf(item),
         action,
+        info: info({ why, item, pr: prOf(item), chat: chat ?? null }),
       });
     };
     if (needsWrapUp(item, signals)) {
@@ -490,6 +675,7 @@ function useNeedRows(input: NeedInput): Need[] {
         label,
         "closed; something's still open",
         button("Wrap up", () => input.onOpenItem(item)),
+        `The issue is closed, but something isn't finished: ${wrapUpLeft(item, signals).join("; ") || "see the item"}.`,
       );
     } else if (chat?.needsYou) {
       add(
@@ -497,6 +683,7 @@ function useNeedRows(input: NeedInput): Need[] {
         label,
         "its chat is asking you",
         button("Answer", () => input.onOpenChat(chat), true),
+        "Its chat stopped to ask you something. Open it to answer.",
       );
     } else if (signals.sheet && signals.sheet.unchecked > 0) {
       add(
@@ -504,6 +691,7 @@ function useNeedRows(input: NeedInput): Need[] {
         `Run the test sheet: ${label}`,
         `${signals.sheet.unchecked} checks left`,
         button("Test", () => input.onOpenItem(item)),
+        "A test sheet is ready with checks only you can do.",
       );
     } else if (chat?.column === "done") {
       add(
@@ -511,6 +699,7 @@ function useNeedRows(input: NeedInput): Need[] {
         label,
         "its chat finished: read the result",
         button("Read result", () => input.onOpenChat(chat)),
+        "Its chat finished a turn with a result for you to read.",
       );
     } else if (!chat && isOpenWork(item) && (item.priority === "P0" || item.priority === "P1")) {
       add(
@@ -518,6 +707,7 @@ function useNeedRows(input: NeedInput): Need[] {
         label,
         `${item.priority} and no chat on it`,
         button("Start a chat", () => input.onStartChat(item), true),
+        `It's ${item.priority} in this sprint and no chat is on it yet.`,
       );
     }
   }
@@ -564,6 +754,14 @@ function useNeedRows(input: NeedInput): Need[] {
         title: line.text,
         meta: "from the planner",
         feature: featureOfUrls([line.itemUrl]),
+        info: info({
+          why: "Your planner wrote this down as something only you can do. Done tells it you did; Ask gets the specifics.",
+          item: byUrl(line.itemUrl),
+          pr: input.prs.find((pr) => pr.url === line.itemUrl) ?? prOf(byUrl(line.itemUrl)),
+          chat: byUrl(line.itemUrl)
+            ? (input.chatsFor(byUrl(line.itemUrl) as DeskItem)[0] ?? null)
+            : null,
+        }),
         action: (
           <span className="flex gap-1">
             {button("Done", () => {
@@ -640,7 +838,25 @@ function NeedsList(props: {
                 <li key={row.key} className="flex flex-col gap-2 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-sm font-medium">{row.title}</span>
+                      {row.info ? (
+                        <Popover>
+                          <PopoverTrigger
+                            render={
+                              <button
+                                type="button"
+                                className="cursor-pointer text-start text-sm font-medium hover:underline"
+                              />
+                            }
+                          >
+                            {row.title}
+                          </PopoverTrigger>
+                          <PopoverPopup align="start" aria-label={row.title}>
+                            {row.info}
+                          </PopoverPopup>
+                        </Popover>
+                      ) : (
+                        <span className="text-sm font-medium">{row.title}</span>
+                      )}
                       <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                         <span className="rounded bg-muted px-1.5 text-2xs font-semibold text-foreground">
                           {section.tag(row)}
@@ -672,8 +888,11 @@ function ProgressByFeature(props: {
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly needsByFeature: () => void;
+  readonly notes: DeskNotes;
+  readonly nowMs: number;
 }) {
   const sendToChat = useSendToChat();
+  const sheets = useHubSheets();
   const [open, setOpen] = useState<string | null>(null);
   const gaps = props.groups
     .flatMap((group) => [...group.stories])
@@ -829,29 +1048,16 @@ function ProgressByFeature(props: {
                             No acceptance criteria yet.
                           </p>
                         )}
-                        <span className="flex flex-wrap gap-1.5">
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => props.onOpenItem(item)}
-                          >
-                            Open item
-                          </Button>
-                          {pr ? (
-                            <Button size="xs" variant="outline" onClick={() => props.onOpenPr(pr)}>
-                              PR #{pr.number}
-                            </Button>
-                          ) : null}
-                          {chat ? (
-                            <Button
-                              size="xs"
-                              variant="outline"
-                              onClick={() => props.onOpenChat(chat)}
-                            >
-                              Open its chat
-                            </Button>
-                          ) : null}
-                        </span>
+                        <NeedInfo
+                          inline
+                          context={{ why: "", item, pr, chat: chat ?? null }}
+                          notes={props.notes}
+                          sheets={sheets}
+                          nowMs={props.nowMs}
+                          onOpenChat={props.onOpenChat}
+                          onOpenPr={props.onOpenPr}
+                          onOpenItem={props.onOpenItem}
+                        />
                       </div>
                     ) : null}
                   </li>
