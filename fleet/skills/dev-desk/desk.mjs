@@ -415,11 +415,51 @@ async function agents(given) {
       next: work.next ?? null,
     };
   });
+  // Chats the Board knows only from how they were started or pinned: started about an app or a
+  // sprint, or pinned as an app's planner, count as planners; started from an item, as work.
+  const recorded = new Set(rows.map((row) => row.threadId));
+  const inferred = new Map();
+  for (const [key, link] of Object.entries(doc.links ?? {})) {
+    const threadId = key.split(":").pop();
+    if (!threadId || recorded.has(threadId)) continue;
+    if (link.kind === "app" || link.kind === "sprint") {
+      inferred.set(threadId, { role: "planner", app: link.app ?? null, about: link.about });
+    } else if (link.kind === "item" && link.itemUrl) {
+      const item = byUrl.get(link.itemUrl);
+      inferred.set(threadId, {
+        role: "work",
+        app: item?.app ?? link.app ?? null,
+        about: link.about,
+        item,
+      });
+    }
+  }
+  for (const [place, pins] of Object.entries(doc.pins ?? {})) {
+    if (!place.startsWith("app:")) continue;
+    for (const [key, pin] of Object.entries(pins)) {
+      const threadId = key.split(":").pop();
+      if (!threadId || recorded.has(threadId) || !pin.pinned || pin.role !== "planner") continue;
+      inferred.set(threadId, { ...inferred.get(threadId), role: "planner", app: place.slice(4) });
+    }
+  }
+  for (const [threadId, guess] of inferred) {
+    rows.push({
+      threadId,
+      role: guess.role,
+      app: guess.app,
+      item: guess.item,
+      parent: null,
+      next: null,
+      inferred: true,
+      about: guess.about,
+    });
+  }
   const apps = only ? [only] : [...new Set(rows.map((row) => row.app).filter(Boolean))].sort();
   for (const app of apps) {
     const mine = rows.filter((row) => row.app === app);
     console.log(`## ${app}`);
     const planners = mine.filter((row) => row.role === "planner");
+    // Sprint chats and app chats both read as planners until reconciled.
     if (planners.length === 0) console.log("! No planner recorded.");
     if (planners.length > 1)
       console.log(
@@ -436,8 +476,9 @@ async function agents(given) {
         issues.push("its item is done: wrap up and settle");
       if (row.role === "helper" && !row.parent) issues.push("helper with no parent");
       if (!row.role) issues.push("no role recorded");
+      if (row.inferred) issues.push("record it with role … --thread " + row.threadId);
       console.log(
-        `- ${row.threadId.slice(0, 8)} ${row.role ?? "?"}${row.item ? ` on ${row.item.repo}#${row.item.number} ${row.item.title}` : ""}${row.parent ? ` (helps ${row.parent.slice(0, 8)})` : ""}${row.next ? ` · next: ${row.next}` : ""}${issues.length ? `  ! ${issues.join("; ")}` : ""}`,
+        `- ${row.threadId.slice(0, 8)} ${row.role ?? "?"}${row.inferred ? " (inferred, not recorded)" : ""}${row.about ? ` "${row.about.slice(0, 60)}"` : ""}${row.item ? ` on ${row.item.repo}#${row.item.number} ${row.item.title}` : ""}${row.parent ? ` (helps ${row.parent.slice(0, 8)})` : ""}${row.next ? ` · next: ${row.next}` : ""}${issues.length ? `  ! ${issues.join("; ")}` : ""}`,
       );
     }
     console.log("");
