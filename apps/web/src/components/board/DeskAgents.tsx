@@ -360,6 +360,28 @@ export function AgentsView(props: {
   );
 }
 
+/** Answering a planner's question, or asking it for more, from anywhere on the Board. */
+export function useDecisionActions(planner: CardChatState | null, app: string) {
+  const sendToChat = useSendToChat();
+  const send = (text: string) => (planner ? void sendToChat(planner, text) : undefined);
+  return {
+    answer: (decision: PlannerDecision, choice: string, note: string | null) => {
+      saveDecisionAnswer(decision.id, choice, note);
+      // A proposed sprint goal: the first option takes it as written; a note is Rigo's own wording.
+      const goal =
+        note?.trim() || (choice === decision.options[0] ? goalOf(decision.question) : null);
+      if (decision.goalFor && goal) {
+        saveDeskNote({ kind: "sprintGoal", sprint: decision.goalFor, app }, goal);
+      }
+      send(`Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`);
+    },
+    tellMore: (decision: PlannerDecision) =>
+      send(
+        `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
+      ),
+  };
+}
+
 /**
  * Fleet fork: the plan side of a planning session (a planner or sprint chat opened on its own).
  * What's waiting on Rigo first, then what's next in the sprint with the chat on each, then Done
@@ -401,19 +423,7 @@ export function PlanPane(props: {
       props.notes,
       (url) => props.items.find((item) => item.url === url)?.app ?? null,
     ).get(props.planner.threadId)?.length ?? 0;
-  const answer = (decision: PlannerDecision, choice: string, note: string | null) => {
-    saveDecisionAnswer(decision.id, choice, note);
-    // A proposed sprint goal: the first option takes it as written; a note is Rigo's own wording.
-    const goal =
-      note?.trim() || (choice === decision.options[0] ? goalOf(decision.question) : null);
-    if (decision.goalFor && goal) {
-      saveDeskNote({ kind: "sprintGoal", sprint: decision.goalFor, app: props.app }, goal);
-    }
-    void sendToChat(
-      props.planner,
-      `Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`,
-    );
-  };
+  const { answer, tellMore } = useDecisionActions(props.planner, props.app);
   const day = 86_400_000;
   const daysLeft = Math.max(
     0,
@@ -538,12 +548,7 @@ export function PlanPane(props: {
               nowMs={props.nowMs}
               onOpenChat={props.onOpenChat}
               onAnswer={answer}
-              onTellMore={() =>
-                void sendToChat(
-                  props.planner,
-                  `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
-                )
-              }
+              onTellMore={() => tellMore(decision)}
             />
           ))}
           {decided.length > 0 ? (
@@ -737,7 +742,7 @@ export function PlanPane(props: {
  * Fleet fork: Rigo's big picture for an app's sprint, above the plan: what matters, what to leave
  * alone, who's waiting on whom. Markdown, with pictures pasted in; the planner works from it.
  */
-function BigPicture(props: {
+export function BigPicture(props: {
   readonly app: string;
   readonly sprint: string;
   readonly note: DeskNote | null;
@@ -938,7 +943,7 @@ function LinkedThing(props: {
  * with their state now, what each option does and whether it can be undone, its options (the
  * recommended one marked) and a note. "Tell me more" asks the planner to explain it.
  */
-function DecisionCard(props: {
+export function DecisionCard(props: {
   readonly decision: PlannerDecision;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sheets: ReadonlyArray<SheetSummary>;

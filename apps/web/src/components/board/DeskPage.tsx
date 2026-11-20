@@ -74,6 +74,7 @@ import {
   useDeskNotes,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
+import { SprintCockpit } from "./DeskSprintCockpit";
 import { useDeliverReports } from "./deskReports";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
@@ -253,6 +254,8 @@ export function DeskPage(props: {
   // When the user last said they were caught up; 0 means never (then: the last 8 hours).
   const [caughtUp, setCaughtUp] = useLocalStorage("t3-fleet:caught-up", 0, Schema.Number);
   const [query, setQuery] = useState("");
+  // An app's Sprint tab opens on its sprint page; the status columns stay one click away.
+  const [statusBoard, setStatusBoard] = useState(false);
   const [showBumps, setShowBumps] = useState(false);
   // Fleet fork: on a phone the Board is three screens (Now, Work, Sprint) and a bottom bar.
   const phone = useMediaQuery("max-sm");
@@ -596,9 +599,56 @@ export function DeskPage(props: {
   const upcoming = plannedSprints(view.sprints ?? [], nowMs);
   const planned = new Set(upcoming.map((entry) => entry.title));
 
+  // The app's planner for the shown sprint: one recorded for this sprint first, else the newest.
+  const plannerOf = (name: string): CardChatState | null => {
+    const recorded = Object.entries(notes.notes.work)
+      .filter(([, work]) => work.role === "planner" && work.app === name)
+      .toSorted(
+        ([, a], [, b]) =>
+          Number(b.sprint === sprintShown?.title) - Number(a.sprint === sprintShown?.title) ||
+          b.updatedAt.localeCompare(a.updatedAt),
+      );
+    for (const [threadId] of recorded) {
+      const chat = props.pinnable.find((entry) => entry.threadId === threadId);
+      if (chat) return chat;
+    }
+    const pinned = Object.entries(notes.notes.pins[`app:${name}`] ?? {}).find(
+      ([, pin]) => pin.pinned && pin.role === "planner",
+    )?.[0];
+    return (
+      props.pinnable.find((entry) => `${entry.environmentId}:${entry.threadId}` === pinned) ?? null
+    );
+  };
   const sprintPanel = () => {
     if (!sprintShown) {
       return <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>;
+    }
+    if (app && !statusBoard) {
+      return (
+        <SprintCockpit
+          app={app}
+          sprint={sprintShown}
+          nowMs={nowMs}
+          items={items}
+          notes={notes.notes}
+          prs={prs}
+          signalsFor={signalsFor}
+          chatsFor={ownChatsOf}
+          relatedChatsFor={(entry) =>
+            chatsForItem(entry, props.pinnable, linksByChat, {
+              focused: focusedThreads(notes.notes, entry.url),
+              repoOf: chatRepo,
+            })
+          }
+          planner={plannerOf(app)}
+          onOpenItem={openItemIn([])}
+          onOpenPr={openPr}
+          onOpenChat={openChat}
+          onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+          onStartPlanner={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
+          onShowBoard={() => setStatusBoard(true)}
+        />
+      );
     }
     const board = buildSprintBoard(items, sprintShown, { app, query }, signalsFor);
     // Where GitHub's Status lags the board; updated together once Rigo approves the list.
@@ -617,62 +667,71 @@ export function DeskPage(props: {
       ids(board[status]),
     );
     return (
-      <SprintView
-        view={view}
-        sprint={sprintShown}
-        nowMs={nowMs}
-        notes={notes.notes}
-        app={app}
-        onSprint={setChosenSprint}
-        onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
-        pinned={
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {app ? (
+      <>
+        {app && statusBoard ? (
+          <div className="px-4 pt-2">
+            <Button size="xs" variant="outline" onClick={() => setStatusBoard(false)}>
+              ← Back to the sprint page
+            </Button>
+          </div>
+        ) : null}
+        <SprintView
+          view={view}
+          sprint={sprintShown}
+          nowMs={nowMs}
+          notes={notes.notes}
+          app={app}
+          onSprint={setChosenSprint}
+          onChat={() => setLauncher({ kind: "sprint", sprint: sprintShown, app })}
+          pinned={
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              {app ? (
+                <PinnedStrip
+                  framed
+                  title={`Planning: ${app}`}
+                  hint="Whole-app chats, such as the planner"
+                  place={{ kind: "app", app }}
+                  notes={notes.notes}
+                  chats={props.pinnable}
+                  onOpenChat={openChat}
+                  empty={`Nothing pinned to ${app} yet. Pin the app's planner chat to see it here.`}
+                />
+              ) : null}
               <PinnedStrip
                 framed
-                title={`Planning: ${app}`}
-                hint="Whole-app chats, such as the planner"
-                place={{ kind: "app", app }}
+                title={`${sprintShown.title}${app ? ` · ${app}` : ""}`}
+                hint="This sprint's work: development, bug fixes, features"
+                place={{ kind: "sprint", sprint: sprintShown.title, app }}
                 notes={notes.notes}
                 chats={props.pinnable}
                 onOpenChat={openChat}
-                empty={`Nothing pinned to ${app} yet. Pin the app's planner chat to see it here.`}
+                empty={`Nothing pinned to this sprint yet. Use Chat about this sprint, or Pin on a chat.`}
               />
-            ) : null}
-            <PinnedStrip
-              framed
-              title={`${sprintShown.title}${app ? ` · ${app}` : ""}`}
-              hint="This sprint's work: development, bug fixes, features"
-              place={{ kind: "sprint", sprint: sprintShown.title, app }}
-              notes={notes.notes}
-              chats={props.pinnable}
-              onOpenChat={openChat}
-              empty={`Nothing pinned to this sprint yet. Use Chat about this sprint, or Pin on a chat.`}
-            />
-          </div>
-        }
-        board={
-          <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-            {behind.length > 0 ? (
-              <StatusSyncBar
-                changes={behind.map(({ entry, status }) => ({
-                  itemId: entry.itemId,
-                  label: `${deskRef(entry) ?? "item"} ${deskTitle(entry)}`,
-                  from: entry.status ?? "Todo",
-                  to: status,
-                }))}
-              />
-            ) : null}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {SPRINT_STATUSES.map((status) => (
-                <StatusColumn key={status} status={status} count={board[status].length}>
-                  {board[status].map((entry) => card(entry, true, sequence))}
-                </StatusColumn>
-              ))}
             </div>
-          </DndContext>
-        }
-      />
+          }
+          board={
+            <DndContext sensors={sensors} onDragEnd={onDragEnd}>
+              {behind.length > 0 ? (
+                <StatusSyncBar
+                  changes={behind.map(({ entry, status }) => ({
+                    itemId: entry.itemId,
+                    label: `${deskRef(entry) ?? "item"} ${deskTitle(entry)}`,
+                    from: entry.status ?? "Todo",
+                    to: status,
+                  }))}
+                />
+              ) : null}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {SPRINT_STATUSES.map((status) => (
+                  <StatusColumn key={status} status={status} count={board[status].length}>
+                    {board[status].map((entry) => card(entry, true, sequence))}
+                  </StatusColumn>
+                ))}
+              </div>
+            </DndContext>
+          }
+        />
+      </>
     );
   };
 
