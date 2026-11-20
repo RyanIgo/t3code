@@ -5,10 +5,12 @@
  */
 import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem } from "./desk.logic";
-import { chatFocus, dayKey, type DeskNotes } from "./deskNotes.logic";
+import { chatFocus, type ChatRole, chatRoleOf, dayKey, type DeskNotes } from "./deskNotes.logic";
 
 export interface WorkRow {
   readonly chat: CardChatState;
+  /** The chat's level, recorded or inferred; null when the Desk can't tell. */
+  readonly role: ChatRole | null;
   /** The item the chat is on, when the Desk knows it. */
   readonly item: DeskItem | null;
   readonly app: string | null;
@@ -73,13 +75,6 @@ export function buildWorkSidebar(input: {
     }
     return null;
   };
-  const isPlanner = (chat: CardChatState) => {
-    const link = input.notes.links[key(chat)];
-    if (link && (link.kind === "app" || link.kind === "sprint")) return true;
-    return Object.entries(input.notes.pins).some(
-      ([place, pins]) => place.startsWith("app:") && pins[key(chat)]?.role === "planner",
-    );
-  };
 
   let todayRow: WorkRow | null = null;
   const needsYou: WorkRow[] = [];
@@ -94,9 +89,11 @@ export function buildWorkSidebar(input: {
   };
   for (const chat of input.chats) {
     const link = input.notes.links[key(chat)];
-    const item = itemFor(chat);
-    const app = item?.app ?? link?.app ?? input.appOfRepo(chat);
-    const row: WorkRow = { chat, item, app };
+    const role = chatRoleOf(input.notes, chat);
+    const item = role === "planner" ? null : itemFor(chat);
+    const app =
+      item?.app ?? input.notes.work[chat.threadId]?.app ?? link?.app ?? input.appOfRepo(chat);
+    const row: WorkRow = { chat, role, item, app };
     const busy = chat.working || chat.needsYou;
     if (link?.kind === "today") {
       if (link.day === today) todayRow = row;
@@ -118,7 +115,7 @@ export function buildWorkSidebar(input: {
       continue;
     }
     const target = group(app ?? "Other");
-    if (isPlanner(chat)) target.planners.push(row);
+    if (role === "planner") target.planners.push(row);
     else if (item) target.work.push(row);
     else target.loose.push(row);
   }

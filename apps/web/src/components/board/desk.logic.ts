@@ -317,6 +317,33 @@ export function chatsForItem(
     );
 }
 
+/**
+ * The chats an item counts as its own: recorded on it, started from it on the Desk, or named
+ * after it by a planner. A chat that only touched its PR or card is related, not its own, so it
+ * neither moves the card nor holds up its wrap-up.
+ */
+export function ownChats(
+  item: DeskItem,
+  chats: ReadonlyArray<CardChatState>,
+  own: {
+    readonly focused: ReadonlySet<string>;
+    /** "<environmentId>:<threadId>" of chats started or linked from this item. */
+    readonly linked: ReadonlySet<string>;
+    readonly repoOf: (chat: CardChatState) => string | null;
+  },
+): CardChatState[] {
+  const repo = item.repo?.split("/").pop() ?? null;
+  return chats.filter(
+    (chat) =>
+      own.focused.has(chat.threadId) ||
+      own.linked.has(`${chat.environmentId}:${chat.threadId}`) ||
+      (item.number !== null &&
+        repo !== null &&
+        chat.title.match(/^#(\d+)\b/)?.[1] === String(item.number) &&
+        own.repoOf(chat) === repo),
+  );
+}
+
 /** The sprint running on `now`, else the next one to start. */
 export function currentSprint(sprints: ReadonlyArray<DeskSprint>, now: number): DeskSprint | null {
   const day = 86_400_000;

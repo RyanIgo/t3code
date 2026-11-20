@@ -241,6 +241,8 @@ async function focus(given, options) {
     doc.work[threadId] = {
       ...mine,
       items: [...mine.items, { url: item.url, from: at, until: null }].slice(-50),
+      role: mine.role === "helper" ? "helper" : "work",
+      ...(item.app ? { app: item.app } : {}),
       updatedAt: at,
     };
   });
@@ -358,15 +360,104 @@ async function capture(text, options) {
   console.log(`Saved to Rigo's inbox as ${id}.`);
 }
 
+const ROLES = ["today", "planner", "work", "helper"];
+
+/** `role <today|planner|work|helper> [--app "<app>"] [--parent <thread id>] [--thread <id>]` */
+async function role(value, options) {
+  if (!ROLES.includes(value)) {
+    fail(
+      'Usage: node desk.mjs role <planner|work|helper|today> [--app "<app>"] [--parent <thread id>] [--thread <thread id>]',
+    );
+  }
+  const given = flags(options);
+  const threadId = given.thread ?? thisThread();
+  if (!/^[\w-]{8,64}$/.test(threadId)) fail("--thread needs a chat's thread id.");
+  if (value === "planner" && !given.app) fail("A planner needs --app: the application it plans.");
+  if (value === "helper" && !given.parent && !given.thread) {
+    fail("A helper names its parent chat: --parent <thread id>.");
+  }
+  let app = given.app ?? null;
+  if (app) app = resolveApp((await call("/fleet/desk")).body, app);
+  await changeNotes((doc, at) => {
+    const current = doc.work[threadId] ?? { items: [], next: null };
+    doc.work[threadId] = {
+      ...current,
+      role: value,
+      ...(app ? { app } : {}),
+      ...(given.parent ? { parent: given.parent } : {}),
+      updatedAt: at,
+    };
+  });
+  console.log(
+    `${given.thread ? `Chat ${threadId.slice(0, 8)}` : "This chat"} is now a ${value}${app ? ` for ${app}` : ""}.`,
+  );
+}
+
+/**
+ * \`agents [app]\`: the chats the Desk has a record of, by app and level, with what's off: no
+ * planner or two, work chats on no open item, helpers with no parent. Pair it with t3_thread_list
+ * to find the chats that have no record yet.
+ */
+async function agents(given) {
+  const desk = (await call("/fleet/desk")).body;
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const only = given ? resolveApp(desk, given) : null;
+  const byUrl = new Map((desk.items ?? []).map((item) => [item.url, item]));
+  const rows = Object.entries(doc.work ?? {}).map(([threadId, work]) => {
+    const open = (work.items ?? []).findLast((span) => span.until === null);
+    const item = open ? byUrl.get(open.url) : undefined;
+    return {
+      threadId,
+      role: work.role ?? null,
+      app: work.app ?? item?.app ?? null,
+      item,
+      parent: work.parent ?? null,
+      next: work.next ?? null,
+    };
+  });
+  const apps = only ? [only] : [...new Set(rows.map((row) => row.app).filter(Boolean))].sort();
+  for (const app of apps) {
+    const mine = rows.filter((row) => row.app === app);
+    console.log(`## ${app}`);
+    const planners = mine.filter((row) => row.role === "planner");
+    if (planners.length === 0) console.log("! No planner recorded.");
+    if (planners.length > 1)
+      console.log(
+        `! ${planners.length} planners: keep one; make the others helpers (role helper --parent <planner>) or settle them.`,
+      );
+    for (const row of mine) {
+      const issues = [];
+      if (row.role === "work" && !row.item) issues.push("work chat on no open item");
+      if (
+        row.role === "work" &&
+        row.item &&
+        (row.item.state !== "open" || row.item.status === "Done")
+      )
+        issues.push("its item is done: wrap up and settle");
+      if (row.role === "helper" && !row.parent) issues.push("helper with no parent");
+      if (!row.role) issues.push("no role recorded");
+      console.log(
+        `- ${row.threadId.slice(0, 8)} ${row.role ?? "?"}${row.item ? ` on ${row.item.repo}#${row.item.number} ${row.item.title}` : ""}${row.parent ? ` (helps ${row.parent.slice(0, 8)})` : ""}${row.next ? ` · next: ${row.next}` : ""}${issues.length ? `  ! ${issues.join("; ")}` : ""}`,
+      );
+    }
+    console.log("");
+  }
+  console.log(
+    "Chats with no record don't show here: list them with t3_thread_list and give each a role.",
+  );
+}
+
 const [command, first, ...rest] = process.argv.slice(2);
 if (command === "context") await context(first);
 else if (command === "note") await note(first, rest.join(" "));
 else if (command === "focus") await focus(first, rest);
 else if (command === "next") await nextStep([first, ...rest].join(" "));
 else if (command === "inbox") await inbox();
+else if (command === "role") await role(first, rest);
+else if (command === "agents") await agents(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
 else if (command === "capture") await capture(first, rest);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>"',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>" | role <level> … | agents [app]',
   );

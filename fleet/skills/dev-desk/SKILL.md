@@ -69,6 +69,55 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
   delegate_task), and names the chat after its item ("#229 Compliance: …"). When it moves a
   chat to other work, it tells the chat, and the chat runs `focus` itself.
 
+## Levels: who does what
+
+Every chat works at one level, recorded on the Desk and shown on the Board. Rigo talks to the
+level that owns the question; a chat answers only at its own level.
+
+| Level                                  | Owns                                                                                                                                  | Does not                                                       |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| **Today** (one a day)                  | Rigo's priorities across apps for the day                                                                                             | plan an app's sprint or write code                             |
+| **Planner** (one per app)              | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test                            |
+| **Work** (one item)                    | one issue or PR: code, PR, test sheet, wrap-up                                                                                        | change the plan, pick its own next item, take on a second item |
+| **Helper** (a subagent or a side task) | the job its parent gave it                                                                                                            | talk to Rigo; its results and questions go to its parent       |
+
+```sh
+node ~/.claude/skills/dev-desk/desk.mjs role planner --app "BizDev Leads"            # this chat is BizDev's planner
+node ~/.claude/skills/dev-desk/desk.mjs role helper --parent <parent thread id>     # this chat helps that one
+node ~/.claude/skills/dev-desk/desk.mjs role work --thread <id>                     # (a planner, for a chat it started)
+node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                        # the app's chats by level, and what's off
+```
+
+- **At the start of a chat**, know your level: a chat started from an item is Work (`focus`
+  records it); from an app or sprint, Planner; delegated by another chat, Helper. If nothing
+  says, ask Rigo in one line, then record it with `role`.
+- **Stay at your level.** When Rigo asks something that belongs to another level, say so in one
+  line ("That's the BizDev planner's call: sprint priorities"), put his message in that chat's
+  message box with `t3_thread_send` (queue, don't steer) when you can reach it, and give him its
+  link. Don't answer it yourself.
+- **Planners** name the work chats they start "#<n> <plain title>", run `focus <item> --thread <id>`
+  and `role work --thread <id>` for each, and give delegated chats `role helper --parent <your
+  thread id>`. A work chat that needs a decision asks its planner; the planner asks Rigo.
+- **Work chats** finish one item. More work found along the way becomes a note to the planner
+  (or `capture`), not a second item in the same chat.
+
+### Reconciling an app's chats (planners)
+
+When Rigo asks you to reconcile, or once a week:
+
+1. `desk.mjs agents "<app>"` for the chats on record and what's off.
+2. `t3_thread_list` (all projects, and each linked machine) for the app's repos, to find chats
+   with no record.
+3. Give each chat one level: `role … --thread <id>`; for work chats also `focus <item> --thread <id>`.
+   A chat doing several levels' jobs keeps the one it's mostly doing; what's left goes to a new
+   chat or back to you.
+4. One planner per app. If there are two, keep the one with the current plan; the other gets
+   `role helper --parent <kept planner>` and a message to hand over and stop.
+5. Send each chat one short message with its level and the contract above (queued, never
+   interrupting work).
+6. Show Rigo a table: chat · level · item · state · what changed, and flag anything you weren't
+   sure about. Ask before settling or stopping any chat.
+
 ## Rigo's inbox
 
 Rigo jots quick notes from email, meetings and hallway asks into an inbox on the Desk. A triage

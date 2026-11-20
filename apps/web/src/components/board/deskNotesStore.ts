@@ -18,6 +18,8 @@ import {
   type InboxNote,
   withInboxNote,
   withNextStep,
+  type ChatRole,
+  withRole,
   withSheet,
 } from "./deskNotes.logic";
 import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
@@ -180,6 +182,18 @@ export function saveDeskFocus(itemUrl: string, threadId: string | null) {
   save(
     withFocus(snapshot.notes, itemUrl, threadId, new Date().toISOString()),
     "Couldn't move the chat",
+  );
+}
+
+/** Records a chat's (thread id's) level; null clears it back to what the Desk infers. */
+export function saveChatRole(
+  threadId: string,
+  role: ChatRole | null,
+  extra: { readonly app?: string | null; readonly parent?: string | null } = {},
+) {
+  save(
+    withRole(snapshot.notes, threadId, role, new Date().toISOString(), extra),
+    "Couldn't set the chat's role",
   );
 }
 

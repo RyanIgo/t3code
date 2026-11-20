@@ -15,7 +15,8 @@ import {
   deskTitle,
   workKind,
 } from "./desk.logic";
-import type { DeskNotes } from "./deskNotes.logic";
+import { CHAT_ROLE_LABEL, CHAT_ROLES, type DeskNotes } from "./deskNotes.logic";
+import { saveChatRole } from "./deskNotesStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { moveFocus } from "./DeskWork";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
@@ -71,6 +72,55 @@ function MoveMenu(props: {
       </MenuPopup>
     </Menu>
   );
+}
+
+/** Sets a chat's level (or clears it back to what the Desk infers). */
+function RoleMenu(props: { readonly row: WorkRow }) {
+  return (
+    <Menu>
+      <MenuTrigger render={<Button variant="ghost" size="xs" />}>
+        {props.row.role ? CHAT_ROLE_LABEL[props.row.role] : "No role"}
+      </MenuTrigger>
+      <MenuPopup align="end">
+        <MenuGroup>
+          <MenuGroupLabel>{chatTitle(props.row.chat.title)} is</MenuGroupLabel>
+          {CHAT_ROLES.map((role) => (
+            <MenuItem
+              key={role}
+              onClick={() =>
+                saveChatRole(
+                  props.row.chat.threadId,
+                  role,
+                  role === "planner" ? { app: props.row.app } : {},
+                )
+              }
+            >
+              {CHAT_ROLE_LABEL[role]}
+              {role === props.row.role ? " ✓" : ""}
+            </MenuItem>
+          ))}
+          <MenuItem onClick={() => saveChatRole(props.row.chat.threadId, null)}>
+            Let the Desk decide
+          </MenuItem>
+        </MenuGroup>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+/** Work rows with each helper right under the chat it helps. */
+function withHelpersUnderParents(rows: ReadonlyArray<WorkRow>, notes: DeskNotes): WorkRow[] {
+  const parentOf = (row: WorkRow) =>
+    row.role === "helper" ? (notes.work[row.chat.threadId]?.parent ?? null) : null;
+  const present = new Set(rows.map((row) => row.chat.threadId));
+  const top = rows.filter((row) => {
+    const parent = parentOf(row);
+    return !parent || !present.has(parent);
+  });
+  return top.flatMap((row) => [
+    row,
+    ...rows.filter((other) => parentOf(other) === row.chat.threadId),
+  ]);
 }
 
 /**
@@ -176,11 +226,19 @@ export function AgentsView(props: {
           >
             <div className="flex min-w-0 flex-col gap-1.5 lg:border-e lg:border-border lg:pe-3">
               <DeskHeading>{band.app}</DeskHeading>
+              {band.planners.length > 1 ? (
+                <span className="text-xs text-warning-foreground">
+                  {band.planners.length} planners: keep one, make the others helpers or settle them.
+                </span>
+              ) : null}
               {band.planners.length > 0 ? (
                 band.planners.map((row) => (
                   <div key={row.chat.threadId} className="flex min-w-0 flex-col gap-0.5">
                     {chatLabel(row, true)}
-                    <ChatBadge chat={row.chat} nowMs={nowMs} />
+                    <span className="flex items-center gap-1">
+                      <ChatBadge chat={row.chat} nowMs={nowMs} />
+                      <RoleMenu row={row} />
+                    </span>
                   </div>
                 ))
               ) : (
@@ -198,12 +256,17 @@ export function AgentsView(props: {
               )}
             </div>
             <ul className="flex min-w-0 flex-col divide-y divide-border">
-              {band.work.map((row) => (
+              {withHelpersUnderParents(band.work, props.notes).map((row) => (
                 <li
                   key={row.chat.threadId}
                   className="grid grid-cols-1 items-center gap-1.5 py-1.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_auto]"
                 >
                   <span className="flex min-w-0 items-center gap-2">
+                    {row.role === "helper" ? (
+                      <span aria-hidden className="text-muted-foreground">
+                        ↳
+                      </span>
+                    ) : null}
                     {chatLabel(row)}
                     <ChatBadge chat={row.chat} nowMs={nowMs} />
                   </span>
@@ -213,7 +276,10 @@ export function AgentsView(props: {
                     </span>
                     {row.item ? itemLabel(row.item) : null}
                   </span>
-                  <MoveMenu chat={row.chat} choices={choices} label="Move" />
+                  <span className="flex items-center gap-1">
+                    <RoleMenu row={row} />
+                    <MoveMenu chat={row.chat} choices={choices} label="Move" />
+                  </span>
                 </li>
               ))}
               {band.unstaffed.map((item) => (
@@ -252,7 +318,8 @@ export function AgentsView(props: {
                         >
                           {chatLabel(row)}
                           <ChatBadge chat={row.chat} nowMs={nowMs} />
-                          <span className="ms-auto">
+                          <span className="ms-auto flex items-center gap-1">
+                            <RoleMenu row={row} />
                             <MoveMenu chat={row.chat} choices={choices} label="Put on an item" />
                           </span>
                         </li>

@@ -40,6 +40,7 @@ import {
   deskTitle,
   groupWork,
   type ItemSignals,
+  ownChats,
   needsWrapUp,
   plannedSprints,
   SPRINT_STATUSES,
@@ -63,7 +64,13 @@ import {
   untitledTodayChats,
 } from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
-import { saveDeskFocus, saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNotesStore";
+import {
+  saveChatRole,
+  saveDeskFocus,
+  saveDeskLink,
+  saveDeskPin,
+  useDeskNotes,
+} from "./deskNotesStore";
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
@@ -448,6 +455,14 @@ export function DeskPage(props: {
         }
       }
       if (context.kind !== "inbox") saveDeskLink(key, contextLink(context, sprint));
+      // A chat started from the Desk takes the level of where it started.
+      if (context.kind === "app" || context.kind === "sprint") {
+        saveChatRole(created.threadId, "planner", { app: context.app });
+      } else if (context.kind === "today") {
+        saveChatRole(created.threadId, "today");
+      } else if (context.kind === "inbox") {
+        saveChatRole(created.threadId, "helper");
+      }
       if (context.kind === "item" && context.item.url) {
         saveDeskFocus(context.item.url, created.threadId);
       }
@@ -521,8 +536,19 @@ export function DeskPage(props: {
     />
   );
   const ids = (list: ReadonlyArray<DeskItem>) => list.map((entry) => entry.itemId);
+  const ownChatsOf = (entry: DeskItem) =>
+    ownChats(entry, props.chats, {
+      focused: focusedThreads(notes.notes, entry.url),
+      linked: new Set(
+        Object.entries(notes.notes.links)
+          .filter(([, link]) => link.itemUrl !== null && link.itemUrl === entry.url)
+          .map(([key]) => key),
+      ),
+      repoOf: chatRepo,
+    });
   const signalsFor = (entry: DeskItem): ItemSignals => {
-    const chats = chatsFor(entry);
+    // Only the item's own chats move its card or hold up its wrap-up.
+    const chats = ownChatsOf(entry);
     const sheet = sheetsForItem(hubSheets, entry, notes.notes)[0];
     return {
       chats,
@@ -747,6 +773,7 @@ export function DeskPage(props: {
           pr={modal.pr ?? null}
           chat={modal.chat}
           allChats={props.pinnable}
+          ownChats={modalItem ? ownChatsOf(modalItem) : []}
           tab={modal.tab}
           roster={rosterFor(modal.chat)}
           chats={

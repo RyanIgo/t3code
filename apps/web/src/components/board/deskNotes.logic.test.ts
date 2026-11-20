@@ -7,6 +7,8 @@ import {
   parseDeskNotes,
   pinnedChats,
   chatFocus,
+  chatRoleOf,
+  withRole,
   focusedChat,
   todayChatFor,
   untitledTodayChats,
@@ -201,5 +203,38 @@ describe("desk notes", () => {
     notes = withFocus(notes, b, null, "2026-11-19T13:00:00Z");
     expect(focusedChat(notes, b)).toBeNull();
     expect(parseDeskNotes(JSON.stringify(notes)).work).toEqual(notes.work);
+  });
+
+  it("records a chat's level, infers one when none is recorded, and focus makes a work chat", () => {
+    const chat = { environmentId: "env", threadId: "planner-chat-1" };
+    let notes = withRole(EMPTY_DESK_NOTES, chat.threadId, "planner", "2026-11-20T10:00:00Z", {
+      app: "Precon",
+    });
+    expect(chatRoleOf(notes, chat)).toBe("planner");
+    expect(notes.work[chat.threadId]?.app).toBe("Precon");
+    expect(parseDeskNotes(JSON.stringify(notes)).work[chat.threadId]?.role).toBe("planner");
+
+    notes = withRole(notes, chat.threadId, null, "2026-11-20T10:05:00Z");
+    expect(chatRoleOf(notes, chat)).toBeNull();
+
+    const worker = { environmentId: "env", threadId: "work-chat-22" };
+    notes = withFocus(
+      notes,
+      "https://github.com/o/r/issues/7",
+      worker.threadId,
+      "2026-11-20T11:00:00Z",
+    );
+    expect(chatRoleOf(notes, worker)).toBe("work");
+    notes = withRole(notes, worker.threadId, "helper", "2026-11-20T11:05:00Z", {
+      parent: chat.threadId,
+    });
+    notes = withFocus(
+      notes,
+      "https://github.com/o/r/issues/8",
+      worker.threadId,
+      "2026-11-20T11:10:00Z",
+    );
+    expect(chatRoleOf(notes, worker)).toBe("helper");
+    expect(notes.work[worker.threadId]?.parent).toBe(chat.threadId);
   });
 });

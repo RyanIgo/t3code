@@ -18,6 +18,7 @@ import { chatStatus, chatTitle, deskTitle } from "./desk.logic";
 import { deskFragment } from "./deskChat.logic";
 import { useOpenDesk } from "./DeskChat";
 import { useDeskNotes } from "./deskNotesStore";
+import { CHAT_ROLE_LABEL } from "./deskNotes.logic";
 import { useDesk } from "./deskStore";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 import { buildWorkSidebar, type WorkRow } from "./sidebarWork.logic";
@@ -140,6 +141,7 @@ export function SidebarWork() {
           </span>
           <span className="truncate text-2xs text-muted-foreground">
             {[
+              entry.role ? CHAT_ROLE_LABEL[entry.role] : "No role",
               options.showApp ? entry.app : null,
               entry.item ? chatTitle(entry.chat.title) : null,
               machine.get(entry.chat.environmentId as EnvironmentId) ?? null,

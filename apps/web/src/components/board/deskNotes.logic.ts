@@ -102,8 +102,23 @@ export interface DeskFocusSpan {
 export interface DeskChatWork {
   readonly items: ReadonlyArray<DeskFocusSpan>;
   readonly next: string | null;
+  /** The chat's level: the day's chat, an app's planner, one item's work chat, or a helper. */
+  readonly role?: ChatRole;
+  /** The app a planner plans (or a work chat or helper belongs to). */
+  readonly app?: string | null;
+  /** A helper's parent chat (thread id), whose questions and results it goes through. */
+  readonly parent?: string | null;
   readonly updatedAt: string;
 }
+
+export const CHAT_ROLES = ["today", "planner", "work", "helper"] as const;
+export type ChatRole = (typeof CHAT_ROLES)[number];
+export const CHAT_ROLE_LABEL: Record<ChatRole, string> = {
+  today: "Today",
+  planner: "Planner",
+  work: "Work",
+  helper: "Helper",
+};
 
 /** A chat pinned to a place. Unpinning keeps the entry (pinned: false) so devices agree. */
 export interface DeskPin {
@@ -457,6 +472,13 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
             items: items.slice(-MAX_SPANS),
             next:
               typeof work.next === "string" && work.next.trim() ? work.next.slice(0, 500) : null,
+            ...(CHAT_ROLES.includes(work.role as ChatRole) ? { role: work.role as ChatRole } : {}),
+            ...(typeof work.app === "string" && work.app.trim()
+              ? { app: work.app.slice(0, 120) }
+              : {}),
+            ...(typeof work.parent === "string" && /^[\w-]{8,64}$/.test(work.parent)
+              ? { parent: work.parent }
+              : {}),
             updatedAt: work.updatedAt,
           },
         ],
@@ -564,8 +586,11 @@ export function withFocus(
     close(chatKey, () => false);
     const current = work[chatKey];
     work[chatKey] = {
+      ...current,
       items: [...(current?.items ?? []), { url: itemUrl, from: at, until: null }].slice(-MAX_SPANS),
       next: current?.next ?? null,
+      // Putting a chat on an item makes it that item's work chat (a helper stays a helper).
+      role: current?.role === "helper" ? "helper" : "work",
       updatedAt: at,
     };
   }
@@ -585,12 +610,64 @@ export function withNextStep(
     work: {
       ...notes.work,
       [chatKey]: {
+        ...current,
         items: current?.items ?? [],
         next: next?.trim() ? next.trim().slice(0, 500) : null,
         updatedAt: at,
       },
     },
   };
+}
+
+/** Records a chat's (thread id's) level, and for a planner its app, for a helper its parent. */
+export function withRole(
+  notes: DeskNotes,
+  threadId: string,
+  role: ChatRole | null,
+  at: string,
+  extra: { readonly app?: string | null; readonly parent?: string | null } = {},
+): DeskNotes {
+  const current = notes.work[threadId];
+  const { role: _old, ...rest } = current ?? { items: [], next: null, updatedAt: at };
+  return {
+    ...notes,
+    work: {
+      ...notes.work,
+      [threadId]: {
+        ...rest,
+        ...(role ? { role } : {}),
+        ...(extra.app !== undefined ? { app: extra.app } : {}),
+        ...(extra.parent !== undefined ? { parent: extra.parent } : {}),
+        updatedAt: at,
+      },
+    },
+  };
+}
+
+/**
+ * A chat's level: the one recorded for it, else what the Desk knows (the day's chat, a chat pinned
+ * as an app's planner or started about an app or sprint, a chat on an item). Null when unknown.
+ */
+export function chatRoleOf(
+  notes: DeskNotes,
+  chat: { readonly environmentId: string; readonly threadId: string },
+): ChatRole | null {
+  const recorded = notes.work[chat.threadId]?.role;
+  if (recorded) return recorded;
+  const key = `${chat.environmentId}:${chat.threadId}`;
+  const link = notes.links[key];
+  if (link?.kind === "today" && link.day) return "today";
+  if (
+    link?.kind === "app" ||
+    link?.kind === "sprint" ||
+    Object.entries(notes.pins).some(
+      ([place, pins]) => place.startsWith("app:") && pins[key]?.role === "planner",
+    )
+  ) {
+    return "planner";
+  }
+  if (chatFocus(notes, chat.threadId) || link?.kind === "item") return "work";
+  return null;
 }
 
 /** Links (or relinks) a chat to part of the Desk. */

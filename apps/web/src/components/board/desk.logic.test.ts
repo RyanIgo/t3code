@@ -6,6 +6,7 @@ import {
   buildSprintBoard,
   chatsForApp,
   chatsForItem,
+  ownChats,
   chatStatus,
   chatWaitsOnYou,
   type DeskItem,
@@ -178,6 +179,16 @@ it("finds an item's chats through its PRs or a board card's links", () => {
     },
   );
   expect(more.map((entry) => entry.threadId)).toEqual(["focused", "by-title"]);
+  const own = ownChats(
+    { ...target, number: 5, repo: "o/r" },
+    [chat("by-pr", pr(5).url), titledChat, chat("focused", null), chat("started", null)],
+    {
+      focused: new Set(["focused"]),
+      linked: new Set(["env:started"]),
+      repoOf: () => "r",
+    },
+  );
+  expect(own.map((entry) => entry.threadId)).toEqual(["by-title", "focused", "started"]);
 });
 
 it("counts a chat as waiting like the sidebar: a question, an unread result, failing checks", () => {

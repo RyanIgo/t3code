@@ -393,6 +393,8 @@ export function DeskModal(props: {
   readonly chats: ReadonlyArray<CardChatState>;
   /** Every chat, settled ones too, to find the one on the item and to move it. */
   readonly allChats: ReadonlyArray<CardChatState>;
+  /** The item's own chats (recorded on it, started from it, named after it): only these hold up its wrap-up. */
+  readonly ownChats: ReadonlyArray<CardChatState>;
   /** A new chat started from the Desk, not sent yet: shown as a draft until it is. */
   readonly draft: {
     readonly draftId: DraftId;
@@ -577,10 +579,11 @@ export function DeskModal(props: {
         ) : (
           <div className="border-b border-border" />
         )}
-        {item && needsWrapUp(item, { chats: props.chats, focused: false, sheet: sheetSignal }) ? (
+        {item &&
+        needsWrapUp(item, { chats: props.ownChats, focused: false, sheet: sheetSignal }) ? (
           <WrapUpPanel
             item={item}
-            chats={props.chats}
+            chats={props.ownChats}
             sheet={sheetSignal}
             onOpenChat={openChatHere}
             onReview={() => show("review")}
