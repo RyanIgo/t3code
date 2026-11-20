@@ -513,9 +513,9 @@ export function DeskModal(props: {
             <DialogTitle>
               <span className="flex min-w-0 items-center gap-2 text-sm">
                 {item ? <TypeTag kind={workKind(item)} /> : null}
-                <span className="truncate">{title}</span>
+                <span className="min-w-0 max-sm:line-clamp-2 sm:truncate">{title}</span>
                 {item ? (
-                  <span className="shrink-0 text-xs font-normal text-muted-foreground">
+                  <span className="shrink-0 text-xs font-normal text-muted-foreground max-sm:hidden">
                     {[item.app, deskRef(item)].filter(Boolean).join(" · ")}
                   </span>
                 ) : null}
@@ -641,11 +641,13 @@ export function DeskModal(props: {
                   ))}
                   <span className="ms-auto flex shrink-0 items-center gap-1">
                     {shown && !draft ? (
-                      <PinMenu
-                        chatKey={chatKeyOf(shown)}
-                        notes={notes}
-                        choices={pinChoices(item, props.view.apps ?? [])}
-                      />
+                      <span className="max-sm:hidden">
+                        <PinMenu
+                          chatKey={chatKeyOf(shown)}
+                          notes={notes}
+                          choices={pinChoices(item, props.view.apps ?? [])}
+                        />
+                      </span>
                     ) : null}
                     {item ? (
                       <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>

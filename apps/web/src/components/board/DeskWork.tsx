@@ -130,7 +130,7 @@ export function OnItRow(props: {
           <Menu>
             <MenuTrigger render={<Button variant="ghost" size="xs" />}>
               <ArrowRightLeftIcon />
-              {focused ? "Move focus" : "Choose a chat"}
+              <span className="max-sm:sr-only">{focused ? "Move focus" : "Choose a chat"}</span>
             </MenuTrigger>
             <MenuPopup align="end">
               <MenuGroup>
@@ -458,8 +458,14 @@ export function ReviewTab(props: {
           </div>
         </section>
       ) : null}
+      <p className="text-sm sm:hidden">
+        Testing happens on a computer. This sheet is{" "}
+        {sheet.counts.pass + sheet.counts.fail + sheet.counts.skip + sheet.counts.blocked} of{" "}
+        {sheet.counts.total} checked
+        {sheet.counts.fail ? `, ${sheet.counts.fail} failed` : ""}.
+      </p>
       {app ? (
-        <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
+        <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm max-sm:hidden">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">App</span>
             <button
@@ -549,7 +555,7 @@ export function ReviewTab(props: {
         key={sheet.id}
         title={sheet.title}
         src={`/a/${sheet.id}`}
-        className="min-h-[32rem] w-full flex-1 rounded-lg border border-border bg-background"
+        className="min-h-[32rem] w-full flex-1 rounded-lg border border-border bg-background max-sm:hidden"
       />
     </div>
   );

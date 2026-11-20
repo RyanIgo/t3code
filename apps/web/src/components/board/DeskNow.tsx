@@ -36,7 +36,7 @@ const PR_LABEL = {
 } as const;
 
 type Tone = "success" | "error" | "warning" | "info" | "outline" | "secondary";
-type Lane = "working" | "review" | "test" | "merge";
+export type Lane = "working" | "review" | "test" | "merge";
 const LANES: ReadonlyArray<{ readonly id: Lane; readonly label: string; readonly hint: string }> = [
   { id: "working", label: "Working", hint: "Agents running now" },
   { id: "review", label: "Review", hint: "Questions, approvals, results" },
@@ -44,7 +44,7 @@ const LANES: ReadonlyArray<{ readonly id: Lane; readonly label: string; readonly
   { id: "merge", label: "Merge", hint: "Merge, close or send back" },
 ];
 
-interface Entry {
+export interface Entry {
   readonly key: string;
   readonly lane: Lane;
   readonly app: string;
@@ -64,6 +64,20 @@ const WEIGHT: Record<Lane, number> = { review: 100, merge: 10, test: 3, working:
  * on, the one that needs Rigo most first; across each band, what's working and what waits on him
  * to review, test or merge. Each row is one click to act on.
  */
+/** What the Now tab lists: the chats, items, sheets and PRs to act on, and the version bumps left out. */
+export interface NowInput {
+  readonly nowMs: number;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly waiting: ReadonlyArray<DeskItem>;
+  readonly prs: ReadonlyArray<DeskPr>;
+  readonly appOf: (chat: CardChatState) => string | null;
+  readonly apps: ReadonlyArray<string>;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onOpenItem: (item: DeskItem) => void;
+  readonly onOpenPr: (pr: DeskPr) => void;
+  readonly onOpenSheet: (sheet: SheetSummary) => void;
+}
+
 export function NowView(props: {
   readonly nowMs: number;
   readonly chats: ReadonlyArray<CardChatState>;
@@ -79,91 +93,7 @@ export function NowView(props: {
   /** Opens a test sheet in its item's Review tab, or on its own when no item matches. */
   readonly onOpenSheet: (sheet: SheetSummary) => void;
 }) {
-  const sheets = useSheetsToTest(props.nowMs);
-  const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
-  const sheetApp = (sheet: SheetSummary) => {
-    const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
-    if (chat) return appOfChat(chat);
-    const title = sheet.title.toLowerCase();
-    return props.apps.find((app) => title.includes(app.toLowerCase())) ?? OTHER;
-  };
-  const chatEntry = (chat: CardChatState, lane: Lane, badge: string, tone: Tone): Entry => ({
-    key: `chat:${chat.environmentId}:${chat.threadId}`,
-    lane,
-    app: appOfChat(chat),
-    badge,
-    tone,
-    title: chatTitle(chat.title),
-    meta: ago(props.nowMs, chat.since),
-    onClick: () => props.onOpenChat(chat),
-  });
-  const entries: Entry[] = [
-    ...props.chats
-      .filter((chat) => chat.working)
-      .map((chat) => chatEntry(chat, "working", "Working", "info")),
-    ...props.chats
-      .filter((chat) => chat.needsYou)
-      .map((chat) =>
-        chatEntry(
-          chat,
-          "review",
-          chat.asking === "subagent approval"
-            ? "Subagent approval"
-            : chat.asking === "approval"
-              ? "Approve"
-              : chat.asking === "question"
-                ? "Answer"
-                : "Needs you",
-          "warning",
-        ),
-      ),
-    ...props.chats
-      .filter((chat) => !chat.needsYou && chat.column === "done")
-      .map((chat) => chatEntry(chat, "review", "Result", "success")),
-    ...props.waiting.map((item): Entry => ({
-      key: `item:${item.itemId}`,
-      lane: "review",
-      app: item.app ?? OTHER,
-      badge: item.lane === "Blocked" ? "Blocked" : "Review",
-      tone: item.lane === "Blocked" ? "error" : "info",
-      title: deskTitle(item),
-      meta: deskRef(item) ?? "",
-      onClick: () => props.onOpenItem(item),
-    })),
-    ...sheets.map((sheet): Entry => {
-      const { total, pass, fail, skip, blocked } = sheet.counts;
-      return {
-        key: `sheet:${sheet.id}`,
-        lane: "test",
-        app: sheetApp(sheet),
-        badge: `${pass + fail + skip + blocked} of ${total}`,
-        tone: fail > 0 ? "error" : "outline",
-        title: sheet.title,
-        meta: ago(props.nowMs, sheet.updatedAt),
-        onClick: () => props.onOpenSheet(sheet),
-      };
-    }),
-    ...props.prs
-      .filter(
-        (pr) =>
-          (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
-          !isDependencyUpdate(pr),
-      )
-      .map((pr): Entry => {
-        const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
-        return {
-          key: `pr:${pr.url}`,
-          lane: "merge",
-          app: pr.app ?? OTHER,
-          badge: stage.label,
-          tone: stage.tone,
-          title: pr.title,
-          meta: `${pr.repo.split("/").pop()}#${pr.number}`,
-          onClick: () => props.onOpenPr(pr),
-        };
-      }),
-  ];
-  const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
+  const { entries, bumps } = useNowEntries(props);
   const count = (lane: Lane, of: ReadonlyArray<Entry> = entries) =>
     of.filter((entry) => entry.lane === lane).length;
   const bands = [...new Set(entries.map((entry) => entry.app))]
@@ -269,6 +199,99 @@ export function NowView(props: {
       )}
     </div>
   );
+}
+
+/** Every row the Now tab shows, across apps, with the version bumps it leaves out. */
+export function useNowEntries(props: NowInput): {
+  readonly entries: ReadonlyArray<Entry>;
+  readonly bumps: number;
+} {
+  const sheets = useSheetsToTest(props.nowMs);
+  const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
+  const sheetApp = (sheet: SheetSummary) => {
+    const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
+    if (chat) return appOfChat(chat);
+    const title = sheet.title.toLowerCase();
+    return props.apps.find((app) => title.includes(app.toLowerCase())) ?? OTHER;
+  };
+  const chatEntry = (chat: CardChatState, lane: Lane, badge: string, tone: Tone): Entry => ({
+    key: `chat:${chat.environmentId}:${chat.threadId}`,
+    lane,
+    app: appOfChat(chat),
+    badge,
+    tone,
+    title: chatTitle(chat.title),
+    meta: ago(props.nowMs, chat.since),
+    onClick: () => props.onOpenChat(chat),
+  });
+  const entries: Entry[] = [
+    ...props.chats
+      .filter((chat) => chat.working)
+      .map((chat) => chatEntry(chat, "working", "Working", "info")),
+    ...props.chats
+      .filter((chat) => chat.needsYou)
+      .map((chat) =>
+        chatEntry(
+          chat,
+          "review",
+          chat.asking === "subagent approval"
+            ? "Subagent approval"
+            : chat.asking === "approval"
+              ? "Approve"
+              : chat.asking === "question"
+                ? "Answer"
+                : "Needs you",
+          "warning",
+        ),
+      ),
+    ...props.chats
+      .filter((chat) => !chat.needsYou && chat.column === "done")
+      .map((chat) => chatEntry(chat, "review", "Result", "success")),
+    ...props.waiting.map((item): Entry => ({
+      key: `item:${item.itemId}`,
+      lane: "review",
+      app: item.app ?? OTHER,
+      badge: item.lane === "Blocked" ? "Blocked" : "Review",
+      tone: item.lane === "Blocked" ? "error" : "info",
+      title: deskTitle(item),
+      meta: deskRef(item) ?? "",
+      onClick: () => props.onOpenItem(item),
+    })),
+    ...sheets.map((sheet): Entry => {
+      const { total, pass, fail, skip, blocked } = sheet.counts;
+      return {
+        key: `sheet:${sheet.id}`,
+        lane: "test",
+        app: sheetApp(sheet),
+        badge: `${pass + fail + skip + blocked} of ${total}`,
+        tone: fail > 0 ? "error" : "outline",
+        title: sheet.title,
+        meta: ago(props.nowMs, sheet.updatedAt),
+        onClick: () => props.onOpenSheet(sheet),
+      };
+    }),
+    ...props.prs
+      .filter(
+        (pr) =>
+          (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
+          !isDependencyUpdate(pr),
+      )
+      .map((pr): Entry => {
+        const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
+        return {
+          key: `pr:${pr.url}`,
+          lane: "merge",
+          app: pr.app ?? OTHER,
+          badge: stage.label,
+          tone: stage.tone,
+          title: pr.title,
+          meta: `${pr.repo.split("/").pop()}#${pr.number}`,
+          onClick: () => props.onOpenPr(pr),
+        };
+      }),
+  ];
+  const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
+  return { entries, bumps };
 }
 
 function Row(props: {

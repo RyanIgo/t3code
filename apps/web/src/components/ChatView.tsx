@@ -111,6 +111,7 @@ import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ChatEmbedContext } from "./chat/ChatEmbedContext";
 import { ReviewGuidePane } from "./review/ReviewGuidePane";
 import { isReviewWindow, lendAppMessageSender } from "./review/reviewWindow";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
@@ -3176,6 +3177,9 @@ export default function ChatView(props: ChatViewProps) {
     />
   );
   const threadPanelHeaderControl = <ThreadPanelHeaderControl {...panelToggleControlProps} />;
+  // Fleet fork: inside the Board's item window on a phone, the window already shows the title and
+  // its own controls, so the screen-corner panel buttons and the chat's header would overlap it.
+  const embeddedInDesk = use(ChatEmbedContext);
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
       showMaximizeControl={!shouldUsePlanSidebarSheet}
@@ -3203,7 +3207,13 @@ export default function ChatView(props: ChatViewProps) {
         threadRef={activeThreadRef}
         state={deviceState}
       />
-      {rightPanelControlsAtRoot ? panelLayoutControls : null}
+      {rightPanelControlsAtRoot ? (
+        embeddedInDesk ? (
+          <span className="contents max-sm:hidden">{panelLayoutControls}</span>
+        ) : (
+          panelLayoutControls
+        )
+      ) : null}
       <div
         className={cn(
           "flex min-h-0 min-w-0 flex-col overflow-x-hidden",
@@ -3220,6 +3230,7 @@ export default function ChatView(props: ChatViewProps) {
           ref={threadPanelPopoverAnchorRef}
           data-chat-header
           className={cn(
+            embeddedInDesk && "max-sm:hidden",
             "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
             isElectron
               ? cn(

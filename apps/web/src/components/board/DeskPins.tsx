@@ -225,7 +225,7 @@ export function TodayChatBar(props: {
       ) : (
         <>
           <span className="text-sm font-medium">{title}</span>
-          <span className="text-xs text-muted-foreground">
+          <span className="text-xs text-muted-foreground max-sm:hidden">
             No chat for today yet. It helps you pick what to work on first, across every app.
           </span>
         </>

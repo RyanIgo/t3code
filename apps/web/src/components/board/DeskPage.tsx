@@ -67,7 +67,11 @@ import { saveDeskFocus, saveDeskLink, saveDeskPin, useDeskNotes } from "./deskNo
 import { PinnedStrip, TodayChatBar } from "./DeskPins";
 import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
-import { InboxStrip, QuickNoteButton } from "./DeskInbox";
+import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
+import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
+import { SidebarWork } from "./SidebarWork";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
@@ -231,6 +235,10 @@ export function DeskPage(props: {
   const [caughtUp, setCaughtUp] = useLocalStorage("t3-fleet:caught-up", 0, Schema.Number);
   const [query, setQuery] = useState("");
   const [showBumps, setShowBumps] = useState(false);
+  // Fleet fork: on a phone the Board is three screens (Now, Work, Sprint) and a bottom bar.
+  const phone = useMediaQuery("max-sm");
+  const [phoneWork, setPhoneWork] = useState(false);
+  const [phoneNote, setPhoneNote] = useState(false);
   const [kind, setKind] = useState<WorkKind | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -687,42 +695,8 @@ export function DeskPage(props: {
         Start agent
       </Button>,
     );
-  return frame(
+  const overlays = (
     <>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
-        <div className={mode === "now" ? "hidden" : "w-64 max-w-full"}>
-          <Select
-            value={app ?? ALL}
-            onValueChange={(value) => {
-              if (typeof value === "string") setStoredApp(value);
-            }}
-          >
-            <SelectTrigger aria-label="Application" size="sm">
-              <SelectValue>{app ?? "All applications"}</SelectValue>
-            </SelectTrigger>
-            <SelectPopup>
-              <SelectItem value={ALL}>All applications</SelectItem>
-              {apps.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-        {mode === "sprint" || mode === "backlog" ? (
-          <div className="w-56 max-w-full">
-            <Input
-              size="sm"
-              type="search"
-              aria-label="Search work"
-              placeholder="Search work…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-        ) : null}
-      </div>
       {modal && (modal.itemUrl === undefined || modalItem) ? (
         <DeskModal
           key={`${modal.itemId ?? ""}:${modal.chat?.threadId ?? ""}:${modal.pr?.url ?? ""}:${modal.draft?.draftId ?? ""}`}
@@ -769,6 +743,146 @@ export function DeskPage(props: {
           onClose={() => setLauncher(null)}
         />
       ) : null}
+    </>
+  );
+
+  if (phone && (phoneWork || mode === "now" || mode === "sprint")) {
+    const screen: MobileScreen = phoneWork ? "work" : mode === "sprint" ? "sprint" : "now";
+    const shownSprint = view.sprints?.find((entry) => entry.title === chosenSprint) ?? sprint;
+    const day = 86_400_000;
+    const daysLeft = shownSprint
+      ? Math.max(
+          0,
+          Math.ceil((Date.parse(shownSprint.startDate) + shownSprint.duration * day - nowMs) / day),
+        )
+      : 0;
+    const body =
+      screen === "work" ? (
+        <SidebarWork />
+      ) : screen === "sprint" ? (
+        shownSprint ? (
+          <MobileSprint
+            apps={apps}
+            app={app}
+            onApp={(next) => setStoredApp(next ?? ALL)}
+            heading={`${shownSprint.title} · ${daysLeft} days left`}
+            goal={app ? (notes.notes.sprintGoals[shownSprint.title]?.[app]?.text ?? null) : null}
+            board={buildSprintBoard(items, shownSprint, { app, query: "" }, signalsFor)}
+            chatsFor={chatsFor}
+            signalsFor={signalsFor}
+            onOpenItem={openItemIn([])}
+          />
+        ) : (
+          <p className="p-6 text-sm text-muted-foreground">The project has no sprints yet.</p>
+        )
+      ) : (
+        <MobileNow
+          nowMs={nowMs}
+          chats={props.chats}
+          waiting={waitingOnYou(items)}
+          prs={prs}
+          apps={apps}
+          appOf={appOf}
+          notes={notes.notes}
+          items={items}
+          sprints={plannedSprints(view.sprints ?? [], nowMs).map((entry) => entry.title)}
+          currentSprint={sprint?.title ?? null}
+          onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+          today={todayBar}
+          onOpenChat={openChat}
+          onOpenItem={openItemIn([])}
+          onOpenPr={openPr}
+          onOpenSheet={(sheet) => {
+            const item = itemForSheet(sheet, items, notes.notes);
+            if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
+            else openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString());
+          }}
+        />
+      );
+    return (
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          <WorkspacePageHeader electron={isElectron} className="border-b border-border">
+            <span className="min-w-0 flex-1 truncate text-base font-semibold">
+              {screen === "work" ? "Work" : screen === "sprint" ? "Sprint" : "Now"}
+            </span>
+            <Menu>
+              <MenuTrigger render={<Button variant="ghost" size="xs" />}>More</MenuTrigger>
+              <MenuPopup align="end">
+                {(
+                  [
+                    ["today", "Today"],
+                    ["backlog", "Backlog"],
+                    ["apps", "Apps"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <MenuItem
+                    key={id}
+                    onClick={() => {
+                      setPhoneWork(false);
+                      setMode(id);
+                    }}
+                  >
+                    {label}
+                  </MenuItem>
+                ))}
+                <MenuItem onClick={() => void refreshDesk()}>Refresh from GitHub</MenuItem>
+              </MenuPopup>
+            </Menu>
+          </WorkspacePageHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto">{body}</div>
+          <MobileBottomBar
+            active={screen}
+            onScreen={(next) => {
+              setPhoneWork(next === "work");
+              if (next !== "work") setMode(next);
+            }}
+            onNote={() => setPhoneNote(true)}
+          />
+        </div>
+        {phoneNote ? <QuickNoteDialog apps={apps} onClose={() => setPhoneNote(false)} /> : null}
+        {overlays}
+      </SidebarInset>
+    );
+  }
+
+  return frame(
+    <>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
+        <div className={mode === "now" ? "hidden" : "w-64 max-w-full"}>
+          <Select
+            value={app ?? ALL}
+            onValueChange={(value) => {
+              if (typeof value === "string") setStoredApp(value);
+            }}
+          >
+            <SelectTrigger aria-label="Application" size="sm">
+              <SelectValue>{app ?? "All applications"}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              <SelectItem value={ALL}>All applications</SelectItem>
+              {apps.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+        {mode === "sprint" || mode === "backlog" ? (
+          <div className="w-56 max-w-full">
+            <Input
+              size="sm"
+              type="search"
+              aria-label="Search work"
+              placeholder="Search work…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+        ) : null}
+      </div>
+      {overlays}
       {mode === "now" ? (
         <NowView
           nowMs={nowMs}
