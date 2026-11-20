@@ -237,4 +237,17 @@ describe("desk notes", () => {
     expect(chatRoleOf(notes, worker)).toBe("helper");
     expect(notes.work[worker.threadId]?.parent).toBe(chat.threadId);
   });
+  it("keeps levels for chats another chat started, whose ids contain ':' and '%'", () => {
+    const launched = "mcp:launch:c9ba14397afaa6ec6462ca1f15bc044897650cb7f649e56d5e48d4fb844391ab";
+    const delegated =
+      "thread:delegated-task:command%3Amcp%3A5fefea5a-81d8-4222-89cc-063ea08f6eac%3Adelegate-task%3A9cc97245-c630-4988-91ae-e827a3d6e7c7";
+    let notes = withRole(EMPTY_DESK_NOTES, launched, "helper", "2026-11-20T12:00:00Z", {
+      parent: delegated,
+    });
+    notes = withFocus(notes, "https://github.com/o/r/issues/9", delegated, "2026-11-20T12:05:00Z");
+    const parsed = parseDeskNotes(JSON.stringify(notes));
+    expect(parsed.work[launched]?.role).toBe("helper");
+    expect(parsed.work[launched]?.parent).toBe(delegated);
+    expect(chatRoleOf(parsed, { environmentId: "env", threadId: delegated })).toBe("work");
+  });
 });

@@ -219,7 +219,7 @@ async function focus(given, options) {
     fail("Usage: node desk.mjs focus <issue url | owner/repo#n | repo#n> [--thread <thread id>]");
   const flag = options.indexOf("--thread");
   const threadId = flag === -1 ? thisThread() : options[flag + 1];
-  if (!threadId || !/^[\w-]{8,64}$/.test(threadId)) fail("--thread needs the chat's thread id.");
+  if (!threadId || !THREAD_ID.test(threadId)) fail("--thread needs the chat's thread id.");
   const desk = (await call("/fleet/desk")).body;
   const match = given.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
   const item = (desk?.items ?? []).find((entry) =>
@@ -362,6 +362,13 @@ async function capture(text, options) {
 
 const ROLES = ["today", "planner", "work", "helper"];
 
+// T3 thread ids: a UUID for chats started from the sidebar, longer ids with ":" and "%" for chats
+// another chat started (mcp:launch:…, thread:delegated-task:…). The Board reads the same pattern.
+const THREAD_ID = /^[\w:%.-]{8,200}$/;
+
+/** A Board chat key is `<environment id>:<thread id>`; the thread id may itself contain ":". */
+const threadOfKey = (key) => key.slice(key.indexOf(":") + 1);
+
 /** `role <today|planner|work|helper> [--app "<app>"] [--parent <thread id>] [--thread <id>]` */
 async function role(value, options) {
   if (!ROLES.includes(value)) {
@@ -371,7 +378,8 @@ async function role(value, options) {
   }
   const given = flags(options);
   const threadId = given.thread ?? thisThread();
-  if (!/^[\w-]{8,64}$/.test(threadId)) fail("--thread needs a chat's thread id.");
+  if (!THREAD_ID.test(threadId)) fail("--thread needs a chat's thread id.");
+  if (given.parent && !THREAD_ID.test(given.parent)) fail("--parent needs a chat's thread id.");
   if (value === "planner" && !given.app) fail("A planner needs --app: the application it plans.");
   if (value === "helper" && !given.parent && !given.thread) {
     fail("A helper names its parent chat: --parent <thread id>.");
@@ -420,7 +428,7 @@ async function agents(given) {
   const recorded = new Set(rows.map((row) => row.threadId));
   const inferred = new Map();
   for (const [key, link] of Object.entries(doc.links ?? {})) {
-    const threadId = key.split(":").pop();
+    const threadId = threadOfKey(key);
     if (!threadId || recorded.has(threadId)) continue;
     if (link.kind === "app" || link.kind === "sprint") {
       inferred.set(threadId, { role: "planner", app: link.app ?? null, about: link.about });
@@ -437,7 +445,7 @@ async function agents(given) {
   for (const [place, pins] of Object.entries(doc.pins ?? {})) {
     if (!place.startsWith("app:")) continue;
     for (const [key, pin] of Object.entries(pins)) {
-      const threadId = key.split(":").pop();
+      const threadId = threadOfKey(key);
       if (!threadId || recorded.has(threadId) || !pin.pinned || pin.role !== "planner") continue;
       inferred.set(threadId, { ...inferred.get(threadId), role: "planner", app: place.slice(4) });
     }

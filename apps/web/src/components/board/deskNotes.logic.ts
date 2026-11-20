@@ -445,11 +445,15 @@ export function inboxToSort(notes: DeskNotes): InboxNote[] {
 
 const MAX_SPANS = 50;
 
+// T3 thread ids: a UUID for sidebar chats, longer ids with ":" and "%" for chats another chat
+// started (mcp:launch:…, thread:delegated-task:…). desk.mjs writes with the same pattern.
+const THREAD_ID = /^[\w:%.-]{8,200}$/;
+
 function readWork(value: unknown): Record<string, DeskChatWork> {
   if (typeof value !== "object" || value === null) return {};
   return Object.fromEntries(
     Object.entries(value).flatMap(([key, raw]) => {
-      if (typeof raw !== "object" || raw === null || !/^[\w-]{8,64}$/.test(key)) return [];
+      if (typeof raw !== "object" || raw === null || !THREAD_ID.test(key)) return [];
       const work = raw as Record<string, unknown>;
       if (typeof work.updatedAt !== "string") return [];
       const items = (Array.isArray(work.items) ? work.items : []).flatMap((span: unknown) => {
@@ -476,7 +480,7 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
             ...(typeof work.app === "string" && work.app.trim()
               ? { app: work.app.slice(0, 120) }
               : {}),
-            ...(typeof work.parent === "string" && /^[\w-]{8,64}$/.test(work.parent)
+            ...(typeof work.parent === "string" && THREAD_ID.test(work.parent)
               ? { parent: work.parent }
               : {}),
             updatedAt: work.updatedAt,
