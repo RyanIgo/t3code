@@ -104,7 +104,10 @@ export function storySteps(
 
   const steps: StepState[] = [defined, built, checks, tested, proven, landed];
   // The first open step says who has it now.
-  const current = steps.findIndex((step) => step !== "done" && step !== "skip");
+  // Missing criteria on work already under way is a gap to fill, not the step anyone is on.
+  const current = steps.findIndex(
+    (step, index) => step !== "done" && step !== "skip" && !(index === 0 && steps[1] !== "todo"),
+  );
   if (current !== -1 && steps[current] === "todo") {
     steps[current] = asks ? "you" : onIt ? "agent" : "todo";
   } else if (current !== -1 && asks) {

@@ -74,6 +74,13 @@ describe("storySteps", () => {
     const steps = storySteps(item({ story: null }), signals(), null);
     expect(steps[0]).toBe("todo");
     expect(steps[4]).toBe("skip");
+    // Already being built: the missing criteria stay a gap, the agent is on building.
+    const building = storySteps(
+      item({ story: null }),
+      signals({ chats: [chat({ working: true })] }),
+      null,
+    );
+    expect(building.slice(0, 2)).toEqual(["todo", "agent"]);
   });
 
   it("finishes every step once the item is closed and wrapped up", () => {

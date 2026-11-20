@@ -328,8 +328,18 @@ const STEP_CLASS: Record<StepState, string> = {
 
 /** Who an item waits on now: the first open step's state. */
 function waitingOn(steps: ReadonlyArray<StepState>): StepState {
+  // Anything waiting on Rigo (a sheet to run, a merge) is his, whatever an agent is also doing.
+  if (steps.includes("you")) return "you";
   return steps.find((step) => step !== "done" && step !== "skip") ?? "done";
 }
+
+const STEP_LABEL: Record<StepState, string> = {
+  done: "Done",
+  agent: "Agent on it",
+  you: "Waiting on you",
+  todo: "Still to come",
+  skip: "Doesn't apply",
+};
 
 const WHO_LABEL: Record<StepState, string> = {
   done: "Done",
@@ -1107,8 +1117,8 @@ function ProgressByFeature(props: {
                   <li key={item.itemId}>
                     <button
                       type="button"
-                      aria-expanded={expanded}
-                      onClick={() => setOpen(expanded ? null : item.itemId)}
+                      aria-haspopup="dialog"
+                      onClick={() => setOpen(item.itemId)}
                       className="flex w-full cursor-pointer flex-wrap items-center gap-2 px-3 py-2 text-start hover:bg-muted/40"
                     >
                       <TypeTag kind={workKind(item)} />
@@ -1164,48 +1174,112 @@ function ProgressByFeature(props: {
                         {WHO_LABEL[who]}
                       </span>
                     </button>
-                    {expanded ? (
-                      <div className="flex flex-col gap-2 px-3 pb-3">
-                        {item.story?.text ? <p className="text-xs">{item.story.text}</p> : null}
-                        {criteria.length > 0 ? (
-                          <ul className="rounded-md border border-border text-xs">
-                            {criteria.map((entry) => (
-                              <li
-                                key={entry.text}
-                                className="flex gap-2 border-t border-border px-2 py-1 first:border-t-0"
+                    <Dialog
+                      open={expanded}
+                      onOpenChange={(next) => setOpen(next ? item.itemId : null)}
+                    >
+                      <DialogPopup className="sm:max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>
+                            {deskRef(item)} {deskTitle(item)}
+                          </DialogTitle>
+                        </DialogHeader>
+                        <DialogPanel>
+                          <div className="flex flex-col gap-3 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <TypeTag kind={workKind(item)} />
+                              <span
+                                className={cn("rounded px-1.5 text-xs font-medium", WHO_CLASS[who])}
                               >
-                                <span aria-hidden className="text-muted-foreground">
-                                  {entry.done ? "☑" : "☐"}
-                                </span>
-                                <span className="flex-1">{entry.text}</span>
-                                <span
-                                  className={cn(
-                                    "rounded px-1.5 text-2xs",
-                                    entry.done ? WHO_CLASS.done : WHO_CLASS.todo,
-                                  )}
-                                >
-                                  {entry.done ? "Proven" : "Not yet"}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">
-                            No acceptance criteria yet.
-                          </p>
-                        )}
-                        <NeedInfo
-                          inline
-                          context={{ why: "", item, pr, chat: chat ?? null }}
-                          notes={props.notes}
-                          sheets={sheets}
-                          nowMs={props.nowMs}
-                          onOpenChat={props.onOpenChat}
-                          onOpenPr={props.onOpenPr}
-                          onOpenItem={props.onOpenItem}
-                        />
-                      </div>
-                    ) : null}
+                                {WHO_LABEL[who]}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {featureName(item) ?? "Not in a feature"}
+                                {item.priority ? ` · ${item.priority}` : ""}
+                              </span>
+                            </div>
+                            <ol className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                              {STORY_STEPS.map((name, index) => (
+                                <li key={name} className="flex items-center gap-2 text-xs">
+                                  <span
+                                    className={cn(
+                                      "h-2 w-6 shrink-0 rounded-sm",
+                                      STEP_CLASS[steps[index] ?? "todo"],
+                                    )}
+                                  />
+                                  <span className="flex flex-col">
+                                    <span className="font-medium">{name}</span>
+                                    <span className="text-muted-foreground">
+                                      {STEP_LABEL[steps[index] ?? "todo"]}
+                                    </span>
+                                  </span>
+                                </li>
+                              ))}
+                            </ol>
+                            {itemGaps.length > 0 ? (
+                              <p className="text-xs font-semibold text-destructive-foreground">
+                                Needs setting up: {itemGaps.join(", ")}
+                              </p>
+                            ) : null}
+                            {item.story?.text ? (
+                              <section className="flex flex-col gap-1">
+                                <DeskHeading>User story</DeskHeading>
+                                <p>{item.story.text}</p>
+                              </section>
+                            ) : null}
+                            <section className="flex flex-col gap-1">
+                              <DeskHeading>Acceptance criteria</DeskHeading>
+                              {criteria.length > 0 ? (
+                                <ul className="rounded-md border border-border text-xs">
+                                  {criteria.map((entry) => (
+                                    <li
+                                      key={entry.text}
+                                      className="flex gap-2 border-t border-border px-2 py-1.5 first:border-t-0"
+                                    >
+                                      <span aria-hidden className="text-muted-foreground">
+                                        {entry.done ? "☑" : "☐"}
+                                      </span>
+                                      <span className="flex-1">{entry.text}</span>
+                                      <span
+                                        className={cn(
+                                          "rounded px-1.5 text-2xs",
+                                          entry.done ? WHO_CLASS.done : WHO_CLASS.todo,
+                                        )}
+                                      >
+                                        {entry.done ? "Proven" : "Not yet"}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  No acceptance criteria yet.
+                                </p>
+                              )}
+                            </section>
+                            <NeedInfo
+                              inline
+                              context={{ why: "", item, pr, chat: chat ?? null }}
+                              notes={props.notes}
+                              sheets={sheets}
+                              nowMs={props.nowMs}
+                              onOpenChat={(next) => {
+                                setOpen(null);
+                                props.onOpenChat(next);
+                              }}
+                              onOpenPr={(next) => {
+                                setOpen(null);
+                                props.onOpenPr(next);
+                              }}
+                              onOpenItem={(next) => {
+                                setOpen(null);
+                                props.onOpenItem(next);
+                              }}
+                            />
+                          </div>
+                        </DialogPanel>
+                      </DialogPopup>
+                    </Dialog>
                   </li>
                 );
               })}
@@ -1224,7 +1298,9 @@ function ProgressByFeature(props: {
       {gaps.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-dashed border-destructive/40 bg-destructive/5 px-3 py-2">
           <span className="min-w-0 flex-[1_1_18rem] text-sm">
-            <b className="font-semibold">{gaps.length} items need setting up:</b>{" "}
+            <b className="font-semibold">
+              {gaps.length === 1 ? "1 item needs" : `${gaps.length} items need`} setting up:
+            </b>{" "}
             {gaps
               .map(({ item, found }) => `${deskRef(item) ?? deskTitle(item)} (${found.join(", ")})`)
               .join(" · ")}
