@@ -57,7 +57,7 @@ function openChatTerminal(chat: CardChatState) {
 const itemLine = (item: DeskItem) => `${deskRef(item) ?? "this item"}: ${deskTitle(item)}`;
 
 /** Moves an item to a chat (and tells that chat in its message box). */
-function moveFocus(item: DeskItem, chat: CardChatState) {
+export function moveFocus(item: DeskItem, chat: CardChatState) {
   if (!item.url) return;
   saveDeskFocus(item.url, chat.threadId);
   draftToChat(

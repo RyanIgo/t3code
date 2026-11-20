@@ -387,6 +387,8 @@ export function DeskModal(props: {
   readonly chat: CardChatState | null;
   /** The tab to open on; by default the one the item's column suggests. */
   readonly tab?: ItemTab | undefined;
+  /** For a planner or sprint chat opened on its own: its sprint's roster, above the chat. */
+  readonly roster?: ReactNode;
   /** The chats the Desk links to this item (or PR), best guess first. */
   readonly chats: ReadonlyArray<CardChatState>;
   /** Every chat, settled ones too, to find the one on the item and to move it. */
@@ -448,7 +450,7 @@ export function DeskModal(props: {
     setChosen(chat);
     show("chats");
   };
-  const tabbed = item !== null || props.pr !== undefined;
+  const tabbed = item !== null || (props.pr !== undefined && props.pr !== null);
   const shownKey = shown && !draft ? chatKeyOf(shown) : null;
   // The chat's own details card is remembered open per chat; here its facts are the line above
   // the conversation, so it starts closed and opens only from its button.
@@ -678,6 +680,7 @@ export function DeskModal(props: {
                   </span>
                 </div>
               ) : null}
+              {props.roster ?? null}
               {shown && !draft ? (
                 <WorkPanel chat={shown} notes={notes} items={props.view.items} sheets={hubSheets} />
               ) : null}

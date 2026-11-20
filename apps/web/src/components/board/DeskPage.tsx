@@ -70,6 +70,7 @@ import { StatusSyncBar } from "./DeskWrapUp";
 import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
+import { AgentsView, SprintRoster } from "./DeskAgents";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
@@ -98,7 +99,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "now" | "today" | "sprint" | "backlog" | "apps";
+export type DeskTab = "now" | "agents" | "today" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -695,6 +696,36 @@ export function DeskPage(props: {
         Start agent
       </Button>,
     );
+  // A planner or sprint chat opened on its own shows the roster of its app's sprint above it.
+  const rosterFor = (chat: CardChatState | null) => {
+    if (!chat || modalItem) return null;
+    const link = notes.notes.links[`${chat.environmentId}:${chat.threadId}`];
+    const plannerOf = Object.entries(notes.notes.pins).find(
+      ([place, pins]) =>
+        place.startsWith("app:") &&
+        pins[`${chat.environmentId}:${chat.threadId}`]?.role === "planner",
+    )?.[0];
+    const rosterApp =
+      link && (link.kind === "sprint" || link.kind === "app")
+        ? link.app
+        : plannerOf
+          ? plannerOf.slice("app:".length)
+          : null;
+    const rosterSprint =
+      view.sprints?.find((entry) => entry.title === link?.sprint) ?? sprint ?? null;
+    if (!rosterApp || !rosterSprint) return null;
+    return (
+      <SprintRoster
+        app={rosterApp}
+        sprint={rosterSprint}
+        goal={notes.notes.sprintGoals[rosterSprint.title]?.[rosterApp]?.text ?? null}
+        items={items}
+        chatsFor={chatsFor}
+        onOpenItem={(entry) => setModal({ itemId: entry.itemId, chat: null, sequence: [] })}
+        onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+      />
+    );
+  };
   const overlays = (
     <>
       {modal && (modal.itemUrl === undefined || modalItem) ? (
@@ -705,6 +736,7 @@ export function DeskPage(props: {
           chat={modal.chat}
           allChats={props.pinnable}
           tab={modal.tab}
+          roster={rosterFor(modal.chat)}
           chats={
             modalItem
               ? withLinked(chatsFor(modalItem), modal.pr?.chats ?? [])
@@ -811,6 +843,7 @@ export function DeskPage(props: {
               <MenuPopup align="end">
                 {(
                   [
+                    ["agents", "Agents"],
                     ["today", "Today"],
                     ["backlog", "Backlog"],
                     ["apps", "Apps"],
@@ -1003,6 +1036,25 @@ export function DeskPage(props: {
           onToggleBumps={() => setShowBumps((value) => !value)}
           stalled={stalled}
           card={stalledCard}
+        />
+      ) : mode === "agents" ? (
+        <AgentsView
+          chats={props.chats}
+          items={items}
+          notes={notes.notes}
+          apps={apps}
+          app={app}
+          sprint={sprint}
+          appOfRepo={appOf}
+          repoOf={repoOf}
+          chatsFor={chatsFor}
+          today={todayBar}
+          onOpenChat={openChat}
+          onOpenItem={openItemIn([])}
+          onStartChat={(entry) => setLauncher({ kind: "item", item: entry })}
+          onStartPlanner={(name) =>
+            setLauncher({ kind: "app", app: name, view: "overview", feature: null })
+          }
         />
       ) : mode === "apps" && focusApp ? (
         <AppView
