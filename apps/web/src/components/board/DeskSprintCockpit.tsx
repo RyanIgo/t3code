@@ -8,6 +8,7 @@ import { type ReactNode, useState } from "react";
 import ChatView from "../ChatView";
 import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { Button } from "../ui/button";
+import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { cn } from "../../lib/utils";
 import type { CardChatState } from "./boardCards.logic";
@@ -65,10 +66,10 @@ interface Need {
   readonly meta: string;
   readonly feature: string;
   readonly action: ReactNode;
-  /** Opens under the row (a decision's card). */
-  readonly detail?: ReactNode;
   /** The pop-up behind the row's title: why it's here and what's behind it. */
   readonly info?: ReactNode;
+  /** A decision: its card opens in a dialog, from the title or the Answer button. */
+  readonly dialog?: { readonly open: boolean; readonly onOpenChange: (open: boolean) => void };
 }
 
 /** What's behind a row in Needs you: the item, its PR and the chat that worked on it. */
@@ -722,12 +723,12 @@ function useNeedRows(input: NeedInput): Need[] {
         title: decision.question,
         meta: decision.recommended ? `rec: ${decision.recommended}` : "from the planner",
         feature: featureOfUrls([decision.itemUrl, ...decision.links]),
-        action: button(
-          open ? "Close" : "Answer",
-          () => setOpenDecision(open ? null : decision.id),
-          !open,
-        ),
-        detail: open ? (
+        action: button("Answer", () => setOpenDecision(decision.id), true),
+        dialog: {
+          open,
+          onOpenChange: (next) => setOpenDecision(next ? decision.id : null),
+        },
+        info: (
           <DecisionCard
             decision={decision}
             items={input.items}
@@ -735,14 +736,17 @@ function useNeedRows(input: NeedInput): Need[] {
             chatsFor={input.relatedChatsFor}
             notes={input.notes}
             nowMs={input.nowMs}
-            onOpenChat={input.onOpenChat}
+            onOpenChat={(chat) => {
+              setOpenDecision(null);
+              input.onOpenChat(chat);
+            }}
             onAnswer={(asked, choice, note) => {
               answer(asked, choice, note);
               setOpenDecision(null);
             }}
             onTellMore={() => tellMore(decision)}
           />
-        ) : undefined,
+        ),
       });
     }
     for (const line of checklist) {
@@ -838,7 +842,25 @@ function NeedsList(props: {
                 <li key={row.key} className="flex flex-col gap-2 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <div className="flex min-w-0 flex-1 flex-col">
-                      {row.info ? (
+                      {row.dialog ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => row.dialog?.onOpenChange(true)}
+                            className="cursor-pointer text-start text-sm font-medium hover:underline"
+                          >
+                            {row.title}
+                          </button>
+                          <Dialog open={row.dialog.open} onOpenChange={row.dialog.onOpenChange}>
+                            <DialogPopup className="sm:max-w-2xl">
+                              <DialogHeader>
+                                <DialogTitle>Your call</DialogTitle>
+                              </DialogHeader>
+                              <DialogPanel>{row.info}</DialogPanel>
+                            </DialogPopup>
+                          </Dialog>
+                        </>
+                      ) : row.info ? (
                         <Popover>
                           <PopoverTrigger
                             render={
@@ -866,7 +888,6 @@ function NeedsList(props: {
                     </div>
                     {row.action}
                   </div>
-                  {row.detail}
                 </li>
               ))}
             </ul>
