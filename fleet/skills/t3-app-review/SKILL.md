@@ -23,6 +23,7 @@ Set it up so the user only has to open the Review window (the two-panel icon in 
    - `app`, always: `url` (the Tailscale URL of the screen to review), `start` (the start command) and `machine`.
    - `intro`: what changed, in a sentence or two; any login or seed data needed; "If the app is down, tell me 'restart the app'."
    - One row per thing to check, only what this change touched: `title` as the user would say it, `url` with the exact page to open (path and record id included), `links` for anything else to look at (the issue, the PR, a second page), and `detail` with the steps and what to expect.
+   - **Every screen has its own address.** A row's `url` is the deepest route that lands on the thing to check (e.g. `https://bizdev.cfevans.com/#/pipeline/cbsa:16700/lead/TRC-SP2025-000513`), never the app's home page. If the screen, record, tab or modal to check has no address of its own, say so in the row's `detail` and propose making it routable (a URL the user can bookmark, share and open in a split view): routing is part of the product, and Rigo steers the app through these links.
 3. **Post in your reply**, each on its own line:
    - the app link, `http://<name>.<tailnet>.ts.net:<port>/path` (this opens it on the right),
    - the sheet's markdown link from the script (this shows the sheet),

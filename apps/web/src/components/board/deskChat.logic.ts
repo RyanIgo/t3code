@@ -103,7 +103,12 @@ export type DeskTarget =
       readonly feature: string | null;
     }
   | { readonly kind: "sprint"; readonly sprint: string; readonly app: string | null }
-  | { readonly kind: "item"; readonly url: string }
+  | {
+      readonly kind: "item";
+      readonly url: string;
+      /** The item window's tab to open on, when the link names one. */
+      readonly tab?: "details" | "chats" | "review";
+    }
   | { readonly kind: "today" };
 
 /** Reads a `#desk=…` fragment back into the place on the Desk it names. */
@@ -114,7 +119,11 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
   if (kind === "today") return { kind };
   if (kind === "item") {
     const url = params.get("url");
-    return url && url.startsWith("https://github.com/") ? { kind, url } : null;
+    const tab = params.get("tab");
+    if (!url || !url.startsWith("https://github.com/")) return null;
+    return tab === "details" || tab === "chats" || tab === "review"
+      ? { kind, url, tab }
+      : { kind, url };
   }
   if (kind === "sprint") {
     const sprint = params.get("sprint");

@@ -225,7 +225,13 @@ export function DeskPage(props: {
     readonly tab?: "details" | "chats" | "review";
   } | null>(
     deepLink?.kind === "item"
-      ? { itemId: null, chat: null, sequence: [], itemUrl: deepLink.url }
+      ? {
+          itemId: null,
+          chat: null,
+          sequence: [],
+          itemUrl: deepLink.url,
+          ...(deepLink.tab ? { tab: deepLink.tab } : {}),
+        }
       : null,
   );
   const [chosenSprint, setChosenSprint] = useState<string | null>(
@@ -262,7 +268,13 @@ export function DeskPage(props: {
       if (target.kind === "today") {
         setMode("now");
       } else if (target.kind === "item") {
-        setModal({ itemId: null, chat: null, sequence: [], itemUrl: target.url });
+        setModal({
+          itemId: null,
+          chat: null,
+          sequence: [],
+          itemUrl: target.url,
+          ...(target.tab ? { tab: target.tab } : {}),
+        });
       } else if (target.kind === "sprint") {
         setMode("sprint");
         setChosenSprint(target.sprint);

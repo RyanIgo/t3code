@@ -102,7 +102,7 @@ footer button:disabled{opacity:.6;cursor:default}
 // Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`.
 const SHEET_SCRIPT = `(function(){var a=window.t3artifact,rows=a.rows||[],V=[["pass","Pass"],["fail","Fail"],["skip","Skip"],["blocked","Blocked"]],main=document.getElementById("rows");
 document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";
-function short(u){try{var x=new URL(u);var t=x.host+x.pathname+x.search;return t.charAt(t.length-1)==="/"?t.slice(0,-1):t;}catch(e){return u;}}
+function short(u){try{var x=new URL(u);var t=x.host+(x.pathname==="/"?"":x.pathname)+x.search+x.hash;return t.length>90?t.slice(0,87)+"…":t;}catch(e){return u;}}
 if(a.app){document.getElementById("app").hidden=false;var al=document.getElementById("app-link");al.href=a.app.url;al.target="_blank";al.rel="noopener";al.textContent=short(a.app.url);
 if(a.app.start){document.getElementById("start-line").hidden=false;document.getElementById("start").textContent=a.app.start;if(a.app.machine)document.getElementById("start-label").textContent="If it doesn't load, start it on "+a.app.machine+":";
 document.getElementById("copy").onclick=function(){var b=this,c=document.getElementById("start");function sel(){var r=document.createRange();r.selectNodeContents(c);var w=getSelection();w.removeAllRanges();w.addRange(r);b.textContent="Selected: press Ctrl+C";}

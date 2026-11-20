@@ -59,7 +59,8 @@ For test plans and checklists, publish a sheet; you write no HTML.
   that starts it again, and the machine. The hub refuses a sheet without it; the Desk's Review
   tab shows them with a Copy button and a way back to this chat and its terminal. For a checklist
   with nothing running (decisions, acceptance criteria), send `"checklist": true` instead.
-- Each row links the exact page to review: `url`, and/or `links` (`{ url, label? }`, up to
+- Each row links the exact page to review, as deep as the app's routes go (path, hash route,
+  record id, tab), not just the app's home page: `url`, and/or `links` (`{ url, label? }`, up to
   10). Use full URLs with the path and record id.
 - Each row gets Pass / Fail / Skip / Blocked and a note. Up to 300 rows.
 - Give rows stable ids. To change the sheet, publish again with `"id": "<id>"` added: results for

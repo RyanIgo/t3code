@@ -469,13 +469,14 @@ export function ReviewTab(props: {
                   {result ?? "to do"}
                 </span>
                 {link ? (
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 cursor-pointer text-left text-info-foreground underline-offset-2 hover:underline"
-                    onClick={() => openExternal(link)}
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noopener"
+                    className="min-w-0 flex-1 text-info-foreground underline-offset-2 hover:underline"
                   >
                     {row.title ?? link}
-                  </button>
+                  </a>
                 ) : (
                   <span className="min-w-0 flex-1">{row.title}</span>
                 )}
@@ -494,13 +495,14 @@ export function ReviewTab(props: {
         <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm max-sm:hidden">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">App</span>
-            <button
-              type="button"
-              className="min-w-0 cursor-pointer truncate text-left text-info-foreground underline-offset-2 hover:underline"
-              onClick={() => openExternal(app.url)}
+            <a
+              href={app.url}
+              target="_blank"
+              rel="noopener"
+              className="min-w-0 truncate text-info-foreground underline-offset-2 hover:underline"
             >
               {app.url}
-            </button>
+            </a>
             <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
           </div>
           {app.machine || app.start ? (
@@ -567,13 +569,14 @@ export function ReviewTab(props: {
         {sheet.counts.blocked ? ` · ${sheet.counts.blocked} blocked` : ""}
         {uncheckedRows(sheet.counts) ? ` · ${uncheckedRows(sheet.counts)} to check` : ""}
         {" · "}
-        <button
-          type="button"
-          className="cursor-pointer underline-offset-2 hover:underline"
-          onClick={() => openExternal(pageUrl)}
+        <a
+          href={pageUrl}
+          target="_blank"
+          rel="noopener"
+          className="font-medium text-info-foreground underline-offset-2 hover:underline"
         >
-          Open in its own tab
-        </button>
+          Open the sheet in a new tab ↗
+        </a>
       </p>
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
       {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}

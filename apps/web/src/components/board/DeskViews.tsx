@@ -531,6 +531,16 @@ export function DeskModal(props: {
               </span>
             </DialogTitle>
           </div>
+          {item?.url ? (
+            <a
+              href={`/board#${new URLSearchParams({ desk: "item", url: item.url, tab }).toString()}`}
+              target="_blank"
+              rel="noopener"
+              className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline max-sm:hidden"
+            >
+              Open in a new tab ↗
+            </a>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
