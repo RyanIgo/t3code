@@ -125,6 +125,10 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **Questions are decisions, not prose.** Anything that needs Rigo's yes or no goes through
   `decide`, one per question, with the options, your recommendation and a one-line reason. His
   answer arrives in this chat as "Decision: … → <choice>". Don't also list them in your message.
+- **Write the background on the card** (`--context`, or `--context-file -` for longer text): in
+  plain words, what this is, why it's coming up now, what the items and PRs involved do for the
+  people who use the app, and what he's agreeing to. Never just issue or PR numbers: he reads
+  the card, not the code. "Tell me more" means the background wasn't enough; rewrite it.
 - **Give him what he needs to decide without asking:** `--link` every item, PR, sheet or chat it
   touches (repo#n works; the Board shows each with its state now), one `--effect` per option in
   plain words, and `--final` for any option that can't be undone (merging, deleting, emailing,

@@ -67,6 +67,8 @@ export interface PlannerDecision {
   readonly itemUrl: string | null;
   /** The items, PRs, sheets and chats it's about, shown with their live state. */
   readonly links: ReadonlyArray<string>;
+  /** Background in plain words: what this is, why now, what Rigo is agreeing to. Markdown. */
+  readonly context: string | null;
   /** Per option: what happens if Rigo picks it, and whether it can be undone. */
   readonly outcomes: ReadonlyArray<{
     readonly option: string;
@@ -457,6 +459,7 @@ function readDecisions(value: unknown): Record<string, PlannerDecision> {
             options: options.length > 0 ? options : ["Yes", "No"],
             recommended: short(entry.recommended, 80),
             itemUrl: githubUrl(entry.itemUrl),
+            context: short(entry.context, 4000),
             links: (Array.isArray(entry.links) ? entry.links : [])
               .flatMap((link) =>
                 typeof link === "string" && /^https:\/\/[^\s]+$/.test(link) ? [link] : [],

@@ -296,7 +296,7 @@ function many(list, name) {
 async function decide(question, options) {
   if (!question?.trim()) {
     fail(
-      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--id <id to update>] [--app "<app>"]',
+      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"]',
     );
   }
   const threadId = thisThread();
@@ -347,6 +347,9 @@ async function decide(question, options) {
       fail(`--final "${name}" needs an --effect for it, saying what can't be undone.`);
     }
   }
+  const context = given["context-file"]
+    ? NodeFS.readFileSync(given["context-file"] === "-" ? 0 : given["context-file"], "utf8")
+    : (given.context ?? null);
   const id = given.id ?? Math.random().toString(36).slice(2, 12);
   await changeNotes((next, at) => {
     next.decisions ??= {};
@@ -360,6 +363,7 @@ async function decide(question, options) {
       options: choices,
       links,
       outcomes,
+      context: context?.trim() ? context.trim().slice(0, 4000) : null,
       recommended: given.rec ?? null,
       itemUrl: given.item ?? null,
       createdAt: at,
@@ -368,8 +372,13 @@ async function decide(question, options) {
     };
   });
   console.log(
-    `${given.id ? "Updated" : "Asked Rigo"} (${id}): ${links.length} links, ${outcomes.length} of ${choices.length} options explained. It's in his plan, on Now and on his phone; his answer comes back here as a message.`,
+    `${given.id ? "Updated" : "Asked Rigo"} (${id}): ${context ? "background, " : "no background, "}${links.length} links, ${outcomes.length} of ${choices.length} options explained. It's in his plan, on Now and on his phone; his answer comes back here as a message.`,
   );
+  if (!context?.trim()) {
+    console.log(
+      "Add --context (or --context-file -): what this is, why now, what he's agreeing to, in plain words.",
+    );
+  }
   if (outcomes.length < choices.length) {
     console.log("Explain every option with --effect so Rigo can decide without asking.");
   }

@@ -29,6 +29,7 @@ import {
 } from "./deskNotes.logic";
 import { saveChatRole, saveDecisionAnswer, saveDeskNote } from "./deskNotesStore";
 import { useSendToChat } from "./deskSend";
+import { type SheetSummary, useHubSheets } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
 import ChatMarkdown from "../ChatMarkdown";
 import { Input } from "../ui/input";
@@ -383,6 +384,7 @@ export function PlanPane(props: {
   readonly notes: DeskNotes;
 }) {
   const sendToChat = useSendToChat();
+  const hubSheets = useHubSheets();
   const decisions = openDecisions(props.notes, props.app);
   const decided = Object.values(props.notes.decisions)
     .filter((entry) => entry.app === props.app && entry.answer !== null)
@@ -479,11 +481,12 @@ export function PlanPane(props: {
               key={decision.id}
               decision={decision}
               items={props.items}
+              sheets={hubSheets}
               onAnswer={answer}
               onTellMore={() =>
                 void sendToChat(
                   props.planner,
-                  `Before I answer "${decision.question}": explain it in plain words. What is each item and PR involved, and its state right now; what does each option change; and which of them can't be undone? Then update the decision (desk.mjs decide) with links and what each option does.`,
+                  `Before I answer "${decision.question}": I need more context. Update that decision (desk.mjs decide --id ${decision.id}) with --context: in plain words, what this is, why it's coming up now, what each item and PR involved does for the people who use the app, and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
                 )
               }
             />
@@ -705,29 +708,78 @@ function BigPicture(props: {
   );
 }
 
-const linkLabel = (url: string, items: ReadonlyArray<DeskItem>) => {
-  const item = items.find((entry) => entry.url === url);
+/**
+ * What a decision's link is, in plain words: an item's type, plain title and where it stands; a
+ * PR's title and state; a test sheet's name and checks done.
+ */
+function LinkedThing(props: {
+  readonly url: string;
+  readonly items: ReadonlyArray<DeskItem>;
+  readonly sheets: ReadonlyArray<SheetSummary>;
+}) {
+  const item = props.items.find((entry) => entry.url === props.url);
+  const sheetId = props.url.match(/\/a\/([a-z0-9]{12})/)?.[1];
+  const sheet = sheetId ? props.sheets.find((entry) => entry.id === sheetId) : undefined;
+  let kind: ReactNode = null;
+  let title: string;
+  let detail: string | null = null;
+  let state: string | null = null;
   if (item) {
-    // A PR's state is open, draft, merged or closed; an issue's is its Status until it closes.
-    const state =
+    kind =
+      item.kind === "pr" ? (
+        <span className="text-2xs text-muted-foreground">PR</span>
+      ) : (
+        <TypeTag kind={workKind(item)} />
+      );
+    title = item.plain?.what ?? deskTitle(item);
+    detail =
+      item.plain?.where ?? (item.plain?.what && item.plain.what !== item.title ? item.title : null);
+    state =
       item.kind === "pr"
         ? item.state
         : item.state === "closed" || item.status === "Done"
           ? "closed"
           : (item.status ?? "open");
-    return { text: `${deskRef(item) ?? "item"} ${deskTitle(item)}`, state };
+  } else if (sheet) {
+    kind = <span className="text-2xs text-muted-foreground">Test sheet</span>;
+    title = sheet.title;
+    const { total, pass, fail, skip, blocked } = sheet.counts;
+    detail = `${pass + fail + skip + blocked} of ${total} checked${fail ? `, ${fail} failed` : ""}`;
+  } else {
+    const pull = props.url.match(/github\.com\/[^/]+\/([^/]+)\/(pull|issues)\/(\d+)/);
+    title = pull ? `${pull[1]} ${pull[2] === "pull" ? "PR " : ""}#${pull[3]}` : props.url;
+    detail = "Not on the Desk; open it to see more.";
   }
-  const pull = url.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
-  if (pull) return { text: `${pull[1]} PR #${pull[2]}`, state: null };
-  const issue = url.match(/github\.com\/[^/]+\/([^/]+)\/issues\/(\d+)/);
-  if (issue) return { text: `${issue[1]}#${issue[2]}`, state: null };
-  if (/\/a\/[a-z0-9]{12}/.test(url)) return { text: "Test sheet", state: null };
-  try {
-    return { text: new URL(url).host, state: null };
-  } catch {
-    return { text: url, state: null };
-  }
-};
+  const ref = item ? deskRef(item) : null;
+  return (
+    <a
+      href={props.url}
+      target="_blank"
+      rel="noopener"
+      className="flex min-w-0 flex-col gap-0.5 rounded-md border border-border px-2 py-1.5 text-xs hover:bg-accent"
+    >
+      <span className="flex min-w-0 items-center gap-1.5">
+        {kind}
+        <span className="min-w-0 flex-1 font-medium text-foreground">{title}</span>
+        {state ? (
+          <span
+            className={cn(
+              "shrink-0 font-medium",
+              state === "closed" || state === "merged"
+                ? "text-success-foreground"
+                : "text-info-foreground",
+            )}
+          >
+            {state}
+          </span>
+        ) : null}
+      </span>
+      {detail || ref ? (
+        <span className="text-muted-foreground">{[ref, detail].filter(Boolean).join(" · ")}</span>
+      ) : null}
+    </a>
+  );
+}
 
 /**
  * One of a planner's questions, with what Rigo needs to answer it: the items and PRs it's about
@@ -737,6 +789,7 @@ const linkLabel = (url: string, items: ReadonlyArray<DeskItem>) => {
 function DecisionCard(props: {
   readonly decision: PlannerDecision;
   readonly items: ReadonlyArray<DeskItem>;
+  readonly sheets: ReadonlyArray<SheetSummary>;
   readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
   readonly onTellMore: () => void;
 }) {
@@ -750,34 +803,19 @@ function DecisionCard(props: {
     <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2.5">
       <span className="text-sm font-medium">{decision.question}</span>
       {decision.why ? <span className="text-xs text-muted-foreground">{decision.why}</span> : null}
+      {decision.context ? (
+        <details open className="rounded-md bg-muted/50 px-2 py-1.5 text-xs">
+          <summary className="cursor-pointer font-medium">Background</summary>
+          <div className="pt-1 [&_p]:mb-1">
+            <ChatMarkdown text={decision.context} cwd={undefined} />
+          </div>
+        </details>
+      ) : null}
       {links.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
-          {links.map((url) => {
-            const label = linkLabel(url, props.items);
-            return (
-              <a
-                key={url}
-                href={url}
-                target="_blank"
-                rel="noopener"
-                className="inline-flex max-w-full items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-2xs hover:bg-accent"
-              >
-                <span className="truncate">{label.text}</span>
-                {label.state ? (
-                  <span
-                    className={cn(
-                      "shrink-0 font-medium",
-                      label.state === "closed" || label.state === "merged"
-                        ? "text-success-foreground"
-                        : "text-info-foreground",
-                    )}
-                  >
-                    {label.state}
-                  </span>
-                ) : null}
-              </a>
-            );
-          })}
+        <div className="flex flex-col gap-1">
+          {links.map((url) => (
+            <LinkedThing key={url} url={url} items={props.items} sheets={props.sheets} />
+          ))}
         </div>
       ) : null}
       {decision.outcomes.length > 0 ? (
