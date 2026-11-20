@@ -834,7 +834,7 @@ export function BigPicture(props: {
  * What a decision's link is, in plain words: an item's type, plain title and where it stands; a
  * PR's title and state; a test sheet's name and checks done.
  */
-function LinkedThing(props: {
+export function LinkedThing(props: {
   readonly url: string;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sheets: ReadonlyArray<SheetSummary>;

@@ -320,21 +320,8 @@ async function decide(question, options) {
     .slice(0, 6);
   if (given.rec && !choices.includes(given.rec))
     fail(`--rec must be one of: ${choices.join(", ")}`);
-  // Links: URLs, or repo#n / owner/repo#n resolved to the Desk item's URL.
   const deskItems = (await call("/fleet/desk")).body?.items ?? [];
-  const links = many(options, "link").map((ref) => {
-    if (/^https:\/\//.test(ref)) return ref;
-    const match = ref.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
-    const item = match
-      ? deskItems.find(
-          (entry) =>
-            entry.number === Number(match[3]) &&
-            (entry.repo === `${match[1]}/${match[2]}` || entry.repo?.split("/")[1] === match[2]),
-        )
-      : null;
-    if (!item?.url) fail(`--link ${ref} isn't a URL or an item on the Desk.`);
-    return item.url;
-  });
+  const links = many(options, "link").map((ref) => linkUrl(ref, deskItems, "--link"));
   const finals = new Set(many(options, "final"));
   const outcomes = many(options, "effect").map((entry) => {
     const [option, ...rest] = entry.split("=>");
@@ -404,9 +391,25 @@ async function decisions(given) {
   if (all.length === 0) console.log("No decisions.");
 }
 
+/** A link as given: a URL, or repo#n / owner/repo#n resolved to the Desk item's URL. */
+function linkUrl(ref, deskItems, what) {
+  if (/^https:\/\//.test(ref)) return ref;
+  const match = ref.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
+  const item = match
+    ? deskItems.find(
+        (entry) =>
+          entry.number === Number(match[3]) &&
+          (entry.repo === `${match[1]}/${match[2]}` || entry.repo?.split("/")[1] === match[2]),
+      )
+    : null;
+  if (!item?.url) fail(`${what} ${ref} isn't a URL or an item on the Desk.`);
+  return item.url;
+}
+
 /**
  * `plan set <file.json | ->`: this planner's checklist, replaced whole, as JSON lines
- * [{ "text": "...", "who": "you|agents|<person>", "done": false, "item": "<url>" }]. `plan show` prints it.
+ * [{ "text", "who": "you|agents|<person>", "done", "item", "why", "how", "links": [] }].
+ * Rigo's lines ("you") carry why, how (markdown steps) and links. `plan show` prints it.
  */
 async function plan(action, rest) {
   const threadId = thisThread();
@@ -428,6 +431,12 @@ async function plan(action, rest) {
     fail(`The checklist isn't JSON: ${error.message}`);
   }
   if (!Array.isArray(lines)) fail("The checklist is a JSON array of { text, who, done, item }.");
+  const needsDesk = lines.some(
+    (line) =>
+      (typeof line?.item === "string" && !/^https:/.test(line.item)) ||
+      (Array.isArray(line?.links) && line.links.some((link) => !/^https:/.test(link))),
+  );
+  const deskItems = needsDesk ? ((await call("/fleet/desk")).body?.items ?? []) : [];
   const clean = lines
     .filter((line) => line && typeof line.text === "string" && line.text.trim())
     .slice(0, 40)
@@ -436,8 +445,24 @@ async function plan(action, rest) {
       who:
         typeof line.who === "string" && line.who.trim() ? line.who.trim().slice(0, 40) : "agents",
       done: line.done === true,
-      itemUrl: typeof line.item === "string" ? line.item : (line.itemUrl ?? null),
+      itemUrl:
+        typeof line.item === "string"
+          ? linkUrl(line.item, deskItems, '"item"')
+          : (line.itemUrl ?? null),
+      // Rigo's lines say why, how and where, so he can do them without asking.
+      why: typeof line.why === "string" && line.why.trim() ? line.why.trim().slice(0, 600) : null,
+      how: typeof line.how === "string" && line.how.trim() ? line.how.trim().slice(0, 3000) : null,
+      links: (Array.isArray(line.links) ? line.links : [])
+        .filter((link) => typeof link === "string")
+        .slice(0, 8)
+        .map((link) => linkUrl(link, deskItems, '"links"')),
     }));
+  const thin = clean.filter((line) => line.who === "you" && !line.done && (!line.why || !line.how));
+  if (thin.length > 0) {
+    console.log(
+      `Rigo's lines need "why" and "how": ${thin.map((line) => `"${line.text}"`).join(", ")}. Add them so he can do each without asking.`,
+    );
+  }
   await changeNotes((doc, at) => {
     const mine = doc.work[threadId] ?? { items: [], next: null };
     doc.work[threadId] = { ...mine, plan: clean, planAt: at, updatedAt: at };

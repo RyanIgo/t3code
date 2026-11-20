@@ -268,6 +268,36 @@ describe("desk notes", () => {
     expect(sent.work["planner-one"]?.updatesSentAt).toBe(at);
   });
 
+  it("keeps the why, steps and links on a planner's line for Rigo", () => {
+    const notes = parseDeskNotes(
+      JSON.stringify({
+        schemaVersion: 1,
+        work: {
+          "planner-one": {
+            items: [],
+            next: null,
+            role: "planner",
+            updatedAt: "2026-11-20T10:00:00Z",
+            plan: [
+              {
+                text: "Remove the marks",
+                who: "you",
+                why: "It unblocks the release.",
+                how: "1. Open Admin.",
+                links: ["https://example.com/admin", "not a url"],
+              },
+            ],
+          },
+        },
+      }),
+    );
+    expect(notes.work["planner-one"]?.plan?.[0]).toMatchObject({
+      why: "It unblocks the release.",
+      how: "1. Open Admin.",
+      links: ["https://example.com/admin"],
+    });
+  });
+
   it("takes the goal out of a planner's wrapped question", () => {
     expect(goalOf("Set Sprint 1's goal for the warehouse: 'Everyone sees who has what.'")).toBe(
       "Everyone sees who has what.",

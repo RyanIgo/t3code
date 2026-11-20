@@ -93,6 +93,10 @@ export interface PlanLine {
   readonly who: string;
   readonly done: boolean;
   readonly itemUrl: string | null;
+  /** For Rigo's lines: why it matters, how to do it (markdown steps) and where. */
+  readonly why?: string | null;
+  readonly how?: string | null;
+  readonly links?: ReadonlyArray<string>;
 }
 
 export const INBOX_SOURCES = [
@@ -540,6 +544,13 @@ function readPlan(value: unknown): PlanLine[] | null {
           who: short(line.who, 40) ?? "agents",
           done: line.done === true,
           itemUrl: githubUrl(line.itemUrl ?? line.item),
+          why: short(line.why, 600),
+          how: short(line.how, 3000),
+          links: (Array.isArray(line.links) ? line.links : [])
+            .flatMap((link: unknown) =>
+              typeof link === "string" && /^https:\/\/[^\s]+$/.test(link) ? [link] : [],
+            )
+            .slice(0, 8),
         },
       ];
     })

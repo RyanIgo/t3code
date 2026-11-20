@@ -24,8 +24,15 @@ import {
   workKind,
   wrapUpLeft,
 } from "./desk.logic";
-import { BigPicture, DecisionCard, useDecisionActions } from "./DeskAgents";
-import { noteAt, openDecisions, type DeskNotes, waitingReports } from "./deskNotes.logic";
+import { BigPicture, DecisionCard, LinkedThing, useDecisionActions } from "./DeskAgents";
+import ChatMarkdown from "../ChatMarkdown";
+import {
+  noteAt,
+  openDecisions,
+  type DeskNotes,
+  type PlanLine,
+  waitingReports,
+} from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
@@ -69,7 +76,11 @@ interface Need {
   /** The pop-up behind the row's title: why it's here and what's behind it. */
   readonly info?: ReactNode;
   /** A decision: its card opens in a dialog, from the title or the Answer button. */
-  readonly dialog?: { readonly open: boolean; readonly onOpenChange: (open: boolean) => void };
+  readonly dialog?: {
+    readonly title: string;
+    readonly open: boolean;
+    readonly onOpenChange: (open: boolean) => void;
+  };
 }
 
 /** What's behind a row in Needs you: the item, its PR and the chat that worked on it. */
@@ -78,6 +89,92 @@ interface NeedContext {
   readonly item: DeskItem | null;
   readonly pr: DeskPr | null;
   readonly chat: CardChatState | null;
+}
+
+/** A planner's line for Rigo: what to do, why, the steps and the links, and what's behind it. */
+function TodoDetails(props: {
+  readonly line: PlanLine;
+  readonly context: NeedContext;
+  readonly items: ReadonlyArray<DeskItem>;
+  readonly notes: DeskNotes;
+  readonly sheets: ReadonlyArray<SheetSummary>;
+  readonly nowMs: number;
+  readonly relatedChatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onOpenPr: (pr: DeskPr) => void;
+  readonly onOpenItem: (item: DeskItem) => void;
+  readonly onDone: () => void;
+  readonly onAsk: () => void;
+  readonly onAskSteps: () => void;
+}) {
+  const { line } = props;
+  const links = [...new Set([...(line.links ?? []), ...(line.itemUrl ? [line.itemUrl] : [])])];
+  const thin = !line.why || !line.how;
+  return (
+    <div className="flex flex-col gap-3 text-sm">
+      <p className="text-base font-medium">{line.text}</p>
+      <section className="flex flex-col gap-1">
+        <DeskHeading>Why</DeskHeading>
+        {line.why ? (
+          <p>{line.why}</p>
+        ) : (
+          <p className="text-muted-foreground">The planner didn't say why.</p>
+        )}
+      </section>
+      <section className="flex flex-col gap-1">
+        <DeskHeading>How</DeskHeading>
+        {line.how ? (
+          <div className="rounded-md bg-muted/50 px-3 py-2">
+            <ChatMarkdown text={line.how} cwd={undefined} />
+          </div>
+        ) : (
+          <p className="text-muted-foreground">No steps yet.</p>
+        )}
+      </section>
+      {links.length > 0 ? (
+        <section className="flex flex-col gap-1">
+          <DeskHeading>Links</DeskHeading>
+          {links.map((url) => (
+            <LinkedThing
+              key={url}
+              url={url}
+              items={props.items}
+              sheets={props.sheets}
+              chatsFor={props.relatedChatsFor}
+              notes={props.notes}
+              nowMs={props.nowMs}
+              onOpenChat={props.onOpenChat}
+            />
+          ))}
+        </section>
+      ) : null}
+      {props.context.item || props.context.pr || props.context.chat ? (
+        <NeedInfo
+          inline
+          context={props.context}
+          notes={props.notes}
+          sheets={props.sheets}
+          nowMs={props.nowMs}
+          onOpenChat={props.onOpenChat}
+          onOpenPr={props.onOpenPr}
+          onOpenItem={props.onOpenItem}
+        />
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+        <Button size="sm" onClick={props.onDone}>
+          Done
+        </Button>
+        <Button size="sm" variant="outline" onClick={props.onAsk}>
+          Ask a question
+        </Button>
+        {thin ? (
+          <Button size="sm" variant="ghost" onClick={props.onAskSteps}>
+            Ask the planner for the why and the steps
+          </Button>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function NeedInfo(props: {
@@ -725,6 +822,7 @@ function useNeedRows(input: NeedInput): Need[] {
         feature: featureOfUrls([decision.itemUrl, ...decision.links]),
         action: button("Answer", () => setOpenDecision(decision.id), true),
         dialog: {
+          title: "Your call",
           open,
           onOpenChange: (next) => setOpenDecision(next ? decision.id : null),
         },
@@ -752,36 +850,63 @@ function useNeedRows(input: NeedInput): Need[] {
     for (const line of checklist) {
       if (line.who !== "you" || line.done) continue;
       if (line.itemUrl && shown.has(line.itemUrl)) continue;
+      const item = byUrl(line.itemUrl);
+      const key = `todo:${line.text}`;
+      const done = () => {
+        savePlanLineDone(planner.threadId, line.text);
+        void sendToChat(planner, `Done: ${line.text}`);
+        setOpenDecision(null);
+      };
+      const ask = () =>
+        void sendToChat(
+          planner,
+          `About "${line.text}": what exactly do you need from me, and where do I do it? Answer in a line or two, with the link.`,
+        );
       rows.push({
-        key: `todo:${line.text}`,
+        key,
         kind: "todo",
         title: line.text,
-        meta: "from the planner",
+        meta: line.why ?? "from the planner",
         feature: featureOfUrls([line.itemUrl]),
-        info: info({
-          why: "Your planner wrote this down as something only you can do. Done tells it you did; Ask gets the specifics.",
-          item: byUrl(line.itemUrl),
-          pr: input.prs.find((pr) => pr.url === line.itemUrl) ?? prOf(byUrl(line.itemUrl)),
-          chat: byUrl(line.itemUrl)
-            ? (input.chatsFor(byUrl(line.itemUrl) as DeskItem)[0] ?? null)
-            : null,
-        }),
+        dialog: {
+          title: "Your to-do",
+          open: openDecision === key,
+          onOpenChange: (next) => setOpenDecision(next ? key : null),
+        },
+        info: (
+          <TodoDetails
+            line={line}
+            context={{
+              why: "",
+              item,
+              pr: input.prs.find((pr) => pr.url === line.itemUrl) ?? prOf(item),
+              chat: item ? (input.chatsFor(item)[0] ?? null) : null,
+            }}
+            items={input.items}
+            notes={input.notes}
+            sheets={sheets}
+            nowMs={input.nowMs}
+            relatedChatsFor={input.relatedChatsFor}
+            onOpenChat={(chat) => {
+              setOpenDecision(null);
+              input.onOpenChat(chat);
+            }}
+            onOpenPr={input.onOpenPr}
+            onOpenItem={input.onOpenItem}
+            onDone={done}
+            onAsk={ask}
+            onAskSteps={() =>
+              void sendToChat(
+                planner,
+                `Rewrite your line "${line.text}" so I can do it without asking: add "why" (why it matters now, in a sentence), "how" (numbered steps with the exact screen, menu, command and values) and "links" (every page, issue, PR or sheet I need), then plan set. Reply here in one line when it's done.`,
+              )
+            }
+          />
+        ),
         action: (
           <span className="flex gap-1">
-            {button("Done", () => {
-              savePlanLineDone(planner.threadId, line.text);
-              void sendToChat(planner, `Done: ${line.text}`);
-            })}
-            <Button
-              size="xs"
-              variant="ghost"
-              onClick={() =>
-                void sendToChat(
-                  planner,
-                  `About "${line.text}": what exactly do you need from me, and where do I do it? Answer in a line or two, with the link.`,
-                )
-              }
-            >
+            {button("Done", done)}
+            <Button size="xs" variant="ghost" onClick={ask}>
               Ask
             </Button>
           </span>
@@ -854,7 +979,7 @@ function NeedsList(props: {
                           <Dialog open={row.dialog.open} onOpenChange={row.dialog.onOpenChange}>
                             <DialogPopup className="sm:max-w-2xl">
                               <DialogHeader>
-                                <DialogTitle>Your call</DialogTitle>
+                                <DialogTitle>{row.dialog.title}</DialogTitle>
                               </DialogHeader>
                               <DialogPanel>{row.info}</DialogPanel>
                             </DialogPopup>

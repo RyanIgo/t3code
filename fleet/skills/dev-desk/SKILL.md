@@ -149,7 +149,10 @@ node ~/.claude/skills/dev-desk/desk.mjs decide "Settle the 4 finished warehouse 
   --effect "Not now=>Nothing changes; they stay in Wrap up"
 node ~/.claude/skills/dev-desk/desk.mjs plan set - <<'JSON'
 [{"text":"12 chats given a level","who":"done","done":true},
- {"text":"Sign off before the Dec 1 flip","who":"you","item":"https://github.com/cfevans/cfe-data-warehouse/issues/115"},
+ {"text":"Remove template 7's Raw marks","who":"you","item":"cfe-data-warehouse#219",
+  "why":"Enforcement is on and the watch is clean; the temporary marks now only widen access.",
+  "how":"1. Open Admin → Access → Templates → 7 (Contract Admin).\n2. Untick Raw on each table that has it.\n3. Save, then press Done here.",
+  "links":["https://<the app>/admin/access/templates/7","cfe-data-warehouse#116"]},
  {"text":"AP roles agreed","who":"Admin team"},
  {"text":"#229, #238, #245 in progress","who":"agents"}]
 JSON
@@ -173,12 +176,18 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **The checklist replaces status essays.** After each turn that changes the picture, `plan set`
   the whole checklist: what's done, what's on Rigo (`"who": "you"`), on someone else (their
   name or team), and what agents are on. Your message then says only what changed.
-- **Rigo's lines are his to-do list.** They show in Waiting on you, on Now and on his phone, each
-  with **Done** and **Ask**. Keep them to things only he can do, one action each, with where to
-  do it ("Remove template 7's Raw marks in Admin → Access"). A question is never a "you" line:
-  it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
-  item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
-  your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
+- **Rigo's lines are his to-do list.** They show in Needs you, on Now and on his phone, each
+  with **Done** and **Ask**, and open into a page of their own. Keep them to things only he can
+  do, one action each, and give every one:
+  - `why`: one sentence on why it matters now and what it unblocks.
+  - `how`: numbered steps with the exact screen, menu, command and values. Commands in backticks.
+  - `links`: every page, issue, PR or sheet he needs (URLs or repo#n). The Board shows each
+    with where it stands.
+    `plan set` warns about a line of his without `why` or `how`. When he asks for the steps,
+    rewrite the line with them and `plan set` again. A question is never a "you" line:
+    it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
+    item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
+    your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
 - **Work from Rigo's big picture.** `context` shows it ("Rigo's big picture"). When he edits it,
   you get a message; adjust the plan and your open decisions, and say what changed in one line.
 - **Wide tables go to a hub sheet** (t3-artifacts), linked from a one-line summary, not into the
