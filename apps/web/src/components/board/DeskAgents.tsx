@@ -475,7 +475,18 @@ export function PlanPane(props: {
         <section className="flex flex-col gap-2">
           <DeskHeading>Decisions · {decisions.length}</DeskHeading>
           {decisions.map((decision) => (
-            <DecisionCard key={decision.id} decision={decision} onAnswer={answer} />
+            <DecisionCard
+              key={decision.id}
+              decision={decision}
+              items={props.items}
+              onAnswer={answer}
+              onTellMore={() =>
+                void sendToChat(
+                  props.planner,
+                  `Before I answer "${decision.question}": explain it in plain words. What is each item and PR involved, and its state right now; what does each option change; and which of them can't be undone? Then update the decision (desk.mjs decide) with links and what each option does.`,
+                )
+              }
+            />
           ))}
           {decided.length > 0 ? (
             <details>
@@ -694,17 +705,100 @@ function BigPicture(props: {
   );
 }
 
-/** One of a planner's questions: its options (the recommended one marked) and a note. */
+const linkLabel = (url: string, items: ReadonlyArray<DeskItem>) => {
+  const item = items.find((entry) => entry.url === url);
+  if (item) {
+    // A PR's state is open, draft, merged or closed; an issue's is its Status until it closes.
+    const state =
+      item.kind === "pr"
+        ? item.state
+        : item.state === "closed" || item.status === "Done"
+          ? "closed"
+          : (item.status ?? "open");
+    return { text: `${deskRef(item) ?? "item"} ${deskTitle(item)}`, state };
+  }
+  const pull = url.match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/);
+  if (pull) return { text: `${pull[1]} PR #${pull[2]}`, state: null };
+  const issue = url.match(/github\.com\/[^/]+\/([^/]+)\/issues\/(\d+)/);
+  if (issue) return { text: `${issue[1]}#${issue[2]}`, state: null };
+  if (/\/a\/[a-z0-9]{12}/.test(url)) return { text: "Test sheet", state: null };
+  try {
+    return { text: new URL(url).host, state: null };
+  } catch {
+    return { text: url, state: null };
+  }
+};
+
+/**
+ * One of a planner's questions, with what Rigo needs to answer it: the items and PRs it's about
+ * with their state now, what each option does and whether it can be undone, its options (the
+ * recommended one marked) and a note. "Tell me more" asks the planner to explain it.
+ */
 function DecisionCard(props: {
   readonly decision: PlannerDecision;
+  readonly items: ReadonlyArray<DeskItem>;
   readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
+  readonly onTellMore: () => void;
 }) {
   const [note, setNote] = useState("");
+  const [asked, setAsked] = useState(false);
   const { decision } = props;
+  const links = [...new Set([...(decision.itemUrl ? [decision.itemUrl] : []), ...decision.links])];
+  const outcomeOf = (option: string) =>
+    decision.outcomes.find((entry) => entry.option === option) ?? null;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-2.5">
       <span className="text-sm font-medium">{decision.question}</span>
       {decision.why ? <span className="text-xs text-muted-foreground">{decision.why}</span> : null}
+      {links.length > 0 ? (
+        <div className="flex flex-wrap gap-1">
+          {links.map((url) => {
+            const label = linkLabel(url, props.items);
+            return (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex max-w-full items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-2xs hover:bg-accent"
+              >
+                <span className="truncate">{label.text}</span>
+                {label.state ? (
+                  <span
+                    className={cn(
+                      "shrink-0 font-medium",
+                      label.state === "closed" || label.state === "merged"
+                        ? "text-success-foreground"
+                        : "text-info-foreground",
+                    )}
+                  >
+                    {label.state}
+                  </span>
+                ) : null}
+              </a>
+            );
+          })}
+        </div>
+      ) : null}
+      {decision.outcomes.length > 0 ? (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground">What each option does</summary>
+          <ul className="flex flex-col gap-1 pt-1">
+            {decision.outcomes.map((outcome) => (
+              <li key={outcome.option}>
+                <b>{outcome.option}:</b> {outcome.effect}{" "}
+                <span
+                  className={
+                    outcome.undoable ? "text-muted-foreground" : "font-medium text-destructive"
+                  }
+                >
+                  {outcome.undoable ? "(can be undone)" : "(can't be undone)"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       <div className="flex flex-wrap gap-1.5">
         {decision.options.map((option) => (
           <Button
@@ -715,16 +809,30 @@ function DecisionCard(props: {
           >
             {option}
             {option === decision.recommended ? " · rec" : ""}
+            {outcomeOf(option)?.undoable === false ? " · can't undo" : ""}
           </Button>
         ))}
       </div>
-      <Input
-        aria-label="Note with your answer"
-        size="sm"
-        placeholder="Note with your answer (optional)"
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-      />
+      <div className="flex items-center gap-1.5">
+        <Input
+          aria-label="Note with your answer"
+          size="sm"
+          placeholder="Note with your answer (optional)"
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+        />
+        <Button
+          size="xs"
+          variant="ghost"
+          disabled={asked}
+          onClick={() => {
+            props.onTellMore();
+            setAsked(true);
+          }}
+        >
+          {asked ? "Asked" : "Tell me more"}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -106,7 +106,13 @@ node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                   
 Rigo plans from the Plan pane beside your chat, not from your messages, so keep it current:
 
 ```sh
-node ~/.claude/skills/dev-desk/desk.mjs decide "Settle the 8 finished chats?" --options "Yes|No|Only rows 5-9" --rec Yes --why "They're done; settling clears Wrap up. Can be undone."
+node ~/.claude/skills/dev-desk/desk.mjs decide "Settle the 4 finished warehouse chats?" \
+  --options "Settle all|Only those whose item is closed|Not now" --rec "Settle all" \
+  --why "Their items are closed; settling clears Wrap up." \
+  --link cfe-data-warehouse#201 --link cfe-data-warehouse#236 \
+  --effect "Settle all=>Hides the 4 chats from Rigo's lists; their history stays" \
+  --effect "Only those whose item is closed=>Same, for the 3 with a closed item" \
+  --effect "Not now=>Nothing changes; they stay in Wrap up"
 node ~/.claude/skills/dev-desk/desk.mjs plan set - <<'JSON'
 [{"text":"12 chats given a level","who":"done","done":true},
  {"text":"Sign off before the Dec 1 flip","who":"you","item":"https://github.com/cfevans/cfe-data-warehouse/issues/115"},
@@ -119,6 +125,11 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **Questions are decisions, not prose.** Anything that needs Rigo's yes or no goes through
   `decide`, one per question, with the options, your recommendation and a one-line reason. His
   answer arrives in this chat as "Decision: … → <choice>". Don't also list them in your message.
+- **Give him what he needs to decide without asking:** `--link` every item, PR, sheet or chat it
+  touches (repo#n works; the Board shows each with its state now), one `--effect` per option in
+  plain words, and `--final` for any option that can't be undone (merging, deleting, emailing,
+  deploying). If he presses "Tell me more", explain in the chat, then update the same question
+  with `--id <id>` and the missing links and effects.
 - **The checklist replaces status essays.** After each turn that changes the picture, `plan set`
   the whole checklist: what's done, what's on Rigo (`"who": "you"`), on someone else (their
   name or team), and what agents are on. Your message then says only what changed.

@@ -284,10 +284,19 @@ async function nextStep(text) {
  * a question for Rigo, shown in the planning session's Decisions, on Now and on his phone. His
  * answer comes back to this chat as a message ("Decision: … → Yes").
  */
+/** Every value of a repeatable `--name value` flag. */
+function many(list, name) {
+  const out = [];
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] === `--${name}` && list[index + 1] !== undefined) out.push(list[index + 1]);
+  }
+  return out;
+}
+
 async function decide(question, options) {
   if (!question?.trim()) {
     fail(
-      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--app "<app>"]',
+      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--id <id to update>] [--app "<app>"]',
     );
   }
   const threadId = thisThread();
@@ -305,9 +314,43 @@ async function decide(question, options) {
     .slice(0, 6);
   if (given.rec && !choices.includes(given.rec))
     fail(`--rec must be one of: ${choices.join(", ")}`);
-  const id = Math.random().toString(36).slice(2, 12);
+  // Links: URLs, or repo#n / owner/repo#n resolved to the Desk item's URL.
+  const deskItems = (await call("/fleet/desk")).body?.items ?? [];
+  const links = many(options, "link").map((ref) => {
+    if (/^https:\/\//.test(ref)) return ref;
+    const match = ref.match(/^(?:([\w.-]+)\/)?([\w.-]+)#(\d+)$/);
+    const item = match
+      ? deskItems.find(
+          (entry) =>
+            entry.number === Number(match[3]) &&
+            (entry.repo === `${match[1]}/${match[2]}` || entry.repo?.split("/")[1] === match[2]),
+        )
+      : null;
+    if (!item?.url) fail(`--link ${ref} isn't a URL or an item on the Desk.`);
+    return item.url;
+  });
+  const finals = new Set(many(options, "final"));
+  const outcomes = many(options, "effect").map((entry) => {
+    const [option, ...rest] = entry.split("=>");
+    const name = option.trim();
+    if (!choices.includes(name) || !rest.join("=>").trim()) {
+      fail(`--effect takes "<option>=><what happens>", with an option from: ${choices.join(", ")}`);
+    }
+    return {
+      option: name,
+      effect: rest.join("=>").trim().slice(0, 500),
+      undoable: !finals.has(name),
+    };
+  });
+  for (const name of finals) {
+    if (!outcomes.some((entry) => entry.option === name)) {
+      fail(`--final "${name}" needs an --effect for it, saying what can't be undone.`);
+    }
+  }
+  const id = given.id ?? Math.random().toString(36).slice(2, 12);
   await changeNotes((next, at) => {
     next.decisions ??= {};
+    if (given.id && !next.decisions[given.id]) fail(`No decision ${given.id} to update.`);
     next.decisions[id] = {
       id,
       threadId,
@@ -315,6 +358,8 @@ async function decide(question, options) {
       question: question.trim().slice(0, 500),
       why: given.why?.trim() ? given.why.trim().slice(0, 1000) : null,
       options: choices,
+      links,
+      outcomes,
       recommended: given.rec ?? null,
       itemUrl: given.item ?? null,
       createdAt: at,
@@ -323,8 +368,11 @@ async function decide(question, options) {
     };
   });
   console.log(
-    `Asked Rigo (${id}). It's in his plan, on Now and on his phone; his answer comes back here as a message.`,
+    `${given.id ? "Updated" : "Asked Rigo"} (${id}): ${links.length} links, ${outcomes.length} of ${choices.length} options explained. It's in his plan, on Now and on his phone; his answer comes back here as a message.`,
   );
+  if (outcomes.length < choices.length) {
+    console.log("Explain every option with --effect so Rigo can decide without asking.");
+  }
 }
 
 /** `decisions [app]`: questions still waiting, and recent answers. */

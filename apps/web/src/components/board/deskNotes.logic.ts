@@ -65,6 +65,14 @@ export interface PlannerDecision {
   readonly options: ReadonlyArray<string>;
   readonly recommended: string | null;
   readonly itemUrl: string | null;
+  /** The items, PRs, sheets and chats it's about, shown with their live state. */
+  readonly links: ReadonlyArray<string>;
+  /** Per option: what happens if Rigo picks it, and whether it can be undone. */
+  readonly outcomes: ReadonlyArray<{
+    readonly option: string;
+    readonly effect: string;
+    readonly undoable: boolean;
+  }>;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly answer: {
@@ -449,6 +457,22 @@ function readDecisions(value: unknown): Record<string, PlannerDecision> {
             options: options.length > 0 ? options : ["Yes", "No"],
             recommended: short(entry.recommended, 80),
             itemUrl: githubUrl(entry.itemUrl),
+            links: (Array.isArray(entry.links) ? entry.links : [])
+              .flatMap((link) =>
+                typeof link === "string" && /^https:\/\/[^\s]+$/.test(link) ? [link] : [],
+              )
+              .slice(0, 12),
+            outcomes: (Array.isArray(entry.outcomes) ? entry.outcomes : []).flatMap(
+              (raw: unknown) => {
+                if (typeof raw !== "object" || raw === null) return [];
+                const outcome = raw as Record<string, unknown>;
+                const option = short(outcome.option, 80);
+                const effect = short(outcome.effect, 500);
+                return option && effect
+                  ? [{ option, effect, undoable: outcome.undoable !== false }]
+                  : [];
+              },
+            ),
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
             answer:
