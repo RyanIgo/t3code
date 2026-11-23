@@ -162,6 +162,16 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **Questions are decisions, not prose.** Anything that needs Rigo's yes or no goes through
   `decide`, one per question, with the options, your recommendation and a one-line reason. His
   answer arrives in this chat as "Decision: … → <choice>". Don't also list them in your message.
+- **A decision is a choice about the work, never test feedback.** "Did it work?", "How fast did
+  it load?", "What weren't you seeing?" are checks: they belong as rows on the item's test sheet
+  (t3-artifacts), where he answers them while testing. Ask a decision only for a choice whose
+  answer changes what agents do next.
+- **Never ask twice.** Before `decide`, read `decisions <app>`: if he already answered the same
+  question (or one about the same item), act on that answer. Ask again only when something new
+  makes the old answer wrong, and say what changed in `--why`. `decide` warns when a waiting or
+  recent answered decision touches the same items.
+- **Fewer, bigger calls.** Batch small related choices into one decision, and when you are
+  confident and it's undoable, do it and say so in the checklist instead of asking.
 - **Write the background on the card** (`--context`, or `--context-file -` for longer text): in
   plain words, what this is, why it's coming up now, what the items and PRs involved do for the
   people who use the app, and what he's agreeing to. **Read the chats that worked on it first**
@@ -177,8 +187,13 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   the whole checklist: what's done, what's on Rigo (`"who": "you"`), on someone else (their
   name or team), and what agents are on. Your message then says only what changed.
 - **Rigo's lines are his to-do list.** They show in Needs you, on Now and on his phone, each
-  with **Done** and **Ask**, and open into a page of their own. Keep them to things only he can
-  do, one action each, and give every one:
+  with **Done** and **Ask**, and open into a page of their own. A line is for something no agent
+  can do: a sign-in that needs his account or phone, a person to talk to, a judgement only he
+  makes, a screen only he can reach. Restarting a service, rebuilding, changing a project field
+  or board option, running a script, filing or editing issues: an agent (a work chat or helper)
+  does those. If an agent needs his OK for a kind of chore, ask once as a decision for standing
+  permission ("May agents restart the reader on the WSL box when a build lands?"), then just do it.
+  Keep each line to one action, and give every one:
   - `why`: one sentence on why it matters now and what it unblocks.
   - `how`: numbered steps with the exact screen, menu, command and values. Commands in backticks.
   - `links`: every page, issue, PR or sheet he needs (URLs or repo#n). The Board shows each

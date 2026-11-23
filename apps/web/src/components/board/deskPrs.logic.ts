@@ -5,7 +5,7 @@
  * more than the hub's token); reviews and drafts from the hub's GitHub sync. Pure logic only.
  */
 import type { CardChatState } from "./boardCards.logic";
-import { type DeskItem, type DeskSprint, featureName } from "./desk.logic";
+import type { DeskItem, DeskSprint } from "./desk.logic";
 
 export type PrStage = "ready" | "landed" | "fix" | "waiting" | "unverified" | "draft";
 
@@ -251,5 +251,3 @@ export function groupPrs(prs: ReadonlyArray<DeskPr>, by: PrGrouping): PrGroup[] 
         a.label.localeCompare(b.label),
     );
 }
-
-export const prFeature = (pr: DeskPr) => (pr.feature ? featureName(pr.feature) : null);

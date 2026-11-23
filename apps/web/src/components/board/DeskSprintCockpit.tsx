@@ -11,6 +11,8 @@ import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Sheet, SheetPopup } from "../ui/sheet";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { InboxCard, QuickNoteForm } from "./DeskInbox";
@@ -520,6 +522,10 @@ export function SprintCockpit(props: {
 }) {
   const [view, setView] = useState<"needs" | "progress">("needs");
   const [requesting, setRequesting] = useState(false);
+  // Beside the list on a wide screen; on a narrower one it slides in from the side on demand,
+  // instead of dropping below the list where its answers go unseen.
+  const wide = useMediaQuery("lg");
+  const [plannerOpen, setPlannerOpen] = useState(false);
   const [groupBy, setGroupBy] = useState<"kind" | "feature">("kind");
   const groups = featureGroups(props.items, props.sprint, props.app, props.signalsFor);
   const moving = groups.flatMap((group) => group.stories);
@@ -627,6 +633,16 @@ export function SprintCockpit(props: {
                 Status board
               </Button>
             )}
+            {wide ? null : (
+              <Button
+                size="xs"
+                variant="outline"
+                className="mb-1 ms-1"
+                onClick={() => setPlannerOpen(true)}
+              >
+                Planner chat
+              </Button>
+            )}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto pt-3">
             {view === "needs" ? (
@@ -645,8 +661,19 @@ export function SprintCockpit(props: {
             )}
           </div>
         </div>
-        <PlannerPane {...props} />
+        {wide ? <PlannerPane {...props} /> : null}
       </div>
+      {wide ? null : (
+        <Sheet open={plannerOpen} onOpenChange={setPlannerOpen}>
+          <SheetPopup
+            side="right"
+            showCloseButton={false}
+            className="w-[min(94vw,34rem)] max-w-[34rem]"
+          >
+            <PlannerPane {...props} inSheet />
+          </SheetPopup>
+        </Sheet>
+      )}
       {requesting ? (
         <RequestDialog
           app={props.app}
@@ -1664,6 +1691,8 @@ function ProgressByFeature(props: {
 }
 
 function PlannerPane(props: {
+  /** Shown in the side panel on a narrow screen: fills it, no frame. */
+  readonly inSheet?: boolean;
   readonly app: string;
   readonly sprint: DeskSprint;
   readonly nowMs: number;
@@ -1685,7 +1714,12 @@ function PlannerPane(props: {
   return (
     <section
       aria-label="Planner chat"
-      className="flex min-h-[36rem] min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card lg:min-h-0 lg:w-[30rem] lg:shrink-0"
+      className={cn(
+        "flex min-w-0 flex-col overflow-hidden bg-card",
+        props.inSheet
+          ? "h-full"
+          : "min-h-[36rem] rounded-xl border border-border lg:min-h-0 lg:w-[30rem] lg:shrink-0",
+      )}
     >
       <header className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <div className="flex min-w-0 flex-1 flex-col">

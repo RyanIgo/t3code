@@ -344,6 +344,22 @@ async function decide(question, options) {
     ? NodeFS.readFileSync(given["context-file"] === "-" ? 0 : given["context-file"], "utf8")
     : (given.context ?? null);
   const id = given.id ?? Math.random().toString(36).slice(2, 12);
+  // Never ask twice: point at a waiting or recently answered decision about the same items.
+  if (!given.id) {
+    const touched = new Set([...(given.item ? [given.item] : []), ...links]);
+    const recent = Date.now() - 14 * 86_400_000;
+    const earlier = Object.values(doc.decisions ?? {}).filter(
+      (entry) =>
+        entry.app === appName &&
+        (!entry.answer || Date.parse(entry.answer.at) > recent) &&
+        [entry.itemUrl, ...(entry.links ?? [])].some((url) => url && touched.has(url)),
+    );
+    for (const entry of earlier) {
+      console.log(
+        `Already ${entry.answer ? `answered: "${entry.question}" → ${entry.answer.choice}${entry.answer.note ? ` (${entry.answer.note})` : ""}` : `waiting: "${entry.question}" (${entry.id})`}. Act on it, or update it with --id ${entry.id}; ask anew only if something changed, and say what in --why.`,
+      );
+    }
+  }
   await changeNotes((next, at) => {
     next.decisions ??= {};
     if (given.id && !next.decisions[given.id]) fail(`No decision ${given.id} to update.`);

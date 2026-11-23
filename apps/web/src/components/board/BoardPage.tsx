@@ -46,7 +46,6 @@ type GroupBy = typeof GroupBy.Type;
 const TABS: ReadonlyArray<{ readonly id: BoardTab; readonly label: string }> = [
   { id: "now", label: "Now" },
   { id: "agents", label: "Agents" },
-  { id: "today", label: "Today" },
   { id: "sprint", label: "Sprint" },
   { id: "backlog", label: "Backlog" },
   { id: "apps", label: "Apps" },
@@ -66,16 +65,18 @@ export function BoardPage() {
         : target.kind === "sprint"
           ? "sprint"
           : target.kind === "item"
-            ? "today"
+            ? "now"
             : target.view === "board" || target.view === "sprint"
               ? "sprint"
               : target.view === "prs"
-                ? "today"
+                ? "now"
                 : "apps";
     writeLocalStorageValue("t3-fleet:tab", tab, "now" as BoardTab, BoardTab);
     return null;
   });
-  const [tab, setTab] = useLocalStorage("t3-fleet:tab", "now" as BoardTab, BoardTab);
+  const [storedTab, setTab] = useLocalStorage("t3-fleet:tab", "now" as BoardTab, BoardTab);
+  // Today was retired into Now; a browser that last had it open lands on Now.
+  const tab = storedTab === "today" ? "now" : storedTab;
   const [layout, setLayout] = useLocalStorage(
     "t3-fleet:chats-layout",
     "list" as typeof ChatsLayout.Type,

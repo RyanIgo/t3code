@@ -50,7 +50,7 @@ try {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90_000 });
     // In touch emulation the dev server reloads the page once while it starts; let that settle.
     if (phone || tablet) await page.waitForTimeout(12_000);
-    const steps = args.slice(2).filter((arg) => arg !== "--tall");
+    const steps = args.slice(2).filter((arg) => !["--tall", "--phone", "--tablet"].includes(arg));
     for (let i = 0; i < steps.length; i += 2) {
       const [flag, value] = [steps[i], steps[i + 1]];
       if (flag === "--wait") await page.getByText(value).first().waitFor({ timeout: 60_000 });

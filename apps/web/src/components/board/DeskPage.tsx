@@ -32,8 +32,6 @@ import {
   chatsForApp,
   chatsForItem,
   chatStatus,
-  chatTitle,
-  chatWaitsOnYou,
   currentSprint,
   type DeskItem,
   deskRef,
@@ -87,14 +85,13 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
-import { DeskCard, DeskHeading, openExternal, STAGE_VARIANT } from "./DeskParts";
+import { DeskCard, openExternal, STAGE_VARIANT } from "./DeskParts";
 import { BacklogView } from "./DeskBacklog";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
-import { PrLens } from "./DeskPrs";
-import { collectPrs, type DeskPr, isDependencyUpdate, type PrGrouping } from "./deskPrs.logic";
-import { TodayView } from "./DeskToday";
+import { collectPrs, type DeskPr } from "./deskPrs.logic";
+import { CatchupSection } from "./DeskToday";
 import { NowView } from "./DeskNow";
-import { changesSince, focusByApp, stalledItems } from "./deskFocus.logic";
+import { changesSince } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
   buildChatPrompt,
@@ -110,7 +107,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "now" | "agents" | "today" | "sprint" | "backlog" | "apps";
+export type DeskTab = "now" | "agents" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -256,7 +253,6 @@ export function DeskPage(props: {
   const [query, setQuery] = useState("");
   // An app's Sprint tab opens on its sprint page; the status columns stay one click away.
   const [statusBoard, setStatusBoard] = useState(false);
-  const [showBumps, setShowBumps] = useState(false);
   // Fleet fork: on a phone the Board is three screens (Now, Work, Sprint) and a bottom bar.
   const phone = useMediaQuery("max-sm");
   const [phoneWork, setPhoneWork] = useState(false);
@@ -302,7 +298,7 @@ export function DeskPage(props: {
           target.view === "board" || target.view === "sprint"
             ? "sprint"
             : target.view === "prs"
-              ? "today"
+              ? "now"
               : "apps",
         );
       }
@@ -431,8 +427,6 @@ export function DeskPage(props: {
   }
 
   // One app filter for every tab; on Apps it picks the app page.
-  const appChats = app === null ? props.chats : appThreads(app);
-  const waiting = waitingOnYou(items).filter((item) => !app || item.app === app);
 
   // Dropping a card in a Sprint column sets its Status on GitHub.
   const onDragEnd = (event: DragEndEvent) => {
@@ -577,14 +571,6 @@ export function DeskPage(props: {
       sequence: [],
       pr,
     });
-  const prLens = (keep: (pr: DeskPr) => boolean, grouping?: PrGrouping) => (
-    <PrLens
-      prs={prs.filter(keep)}
-      {...(grouping ? { grouping } : {})}
-      onOpenPr={openPr}
-      onOpenChat={openChat}
-    />
-  );
   const modalItem = modal?.itemId
     ? (items.find((entry) => entry.itemId === modal.itemId) ?? null)
     : modal?.itemUrl
@@ -785,25 +771,6 @@ export function DeskPage(props: {
     const repo = repoOf(chat);
     return repo ? (repoApp.get(repo) ?? repo) : null;
   };
-  const hasChat = (entry: DeskItem) => chatsFor(entry).length > 0;
-  const stalled = stalledItems(
-    items.filter((entry) => app === null || entry.app === app),
-    sprint,
-    hasChat,
-  );
-  const stalledCard = (entry: DeskItem) =>
-    card(
-      entry,
-      false,
-      ids(stalled),
-      <Button
-        variant="outline"
-        size="xs"
-        onClick={() => setLauncher({ kind: "item", item: entry })}
-      >
-        Start agent
-      </Button>,
-    );
   // A planner or sprint chat opened on its own shows the roster of its app's sprint above it.
   const rosterFor = (chat: CardChatState | null) => {
     if (!chat || modalItem) return null;
@@ -993,7 +960,6 @@ export function DeskPage(props: {
                 {(
                   [
                     ["agents", "Agents"],
-                    ["today", "Today"],
                     ["backlog", "Backlog"],
                     ["apps", "Apps"],
                   ] as const
@@ -1099,6 +1065,14 @@ export function DeskPage(props: {
                 chats={props.pinnable}
                 onOpenChat={openChat}
               />
+              <CatchupSection
+                catchup={changesSince(caughtUpAt, items, props.chats)}
+                caughtUpAt={caughtUpAt}
+                onCaughtUp={() => setCaughtUp(Date.now())}
+                onOpenChat={openChat}
+                onOpenItem={openItemIn([])}
+                repoOf={repoOf}
+              />
             </div>
           }
           onOpenChat={openChat}
@@ -1113,81 +1087,6 @@ export function DeskPage(props: {
             if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
             else openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString());
           }}
-        />
-      ) : mode === "today" ? (
-        <TodayView
-          app={app}
-          pinned={
-            <div className="flex flex-col gap-3">
-              <PinnedStrip
-                place={app ? { kind: "app", app } : { kind: "today" }}
-                notes={notes.notes}
-                chats={props.pinnable}
-                onOpenChat={openChat}
-                empty={`Nothing pinned ${app ? `to ${app}` : "to Today"} yet. Use Pin on a chat to keep it here.`}
-              />
-            </div>
-          }
-          catchup={changesSince(
-            caughtUpAt,
-            items.filter((entry) => app === null || entry.app === app),
-            app === null ? props.chats : appThreads(app),
-          )}
-          caughtUpAt={caughtUpAt}
-          onCaughtUp={() => setCaughtUp(Date.now())}
-          onOpenChat={openChat}
-          onOpenItem={openItemIn([])}
-          repoOf={repoOf}
-          focus={focusByApp({
-            apps,
-            items,
-            prs,
-            sprint,
-            needsYou: (name) =>
-              appThreads(name).filter(chatWaitsOnYou).length +
-              waitingOnYou(items).filter((entry) => entry.app === name).length,
-            hasChat: (entry) => chatsFor(entry).length > 0,
-          })}
-          onPickApp={(name) => setStoredApp(name ?? ALL)}
-          answer={
-            <NeedsYou
-              title="Answer an agent"
-              empty="No agent is waiting for an answer."
-              chats={appChats.filter((chat) => chat.needsYou)}
-              repoOf={repoOf}
-              items={[]}
-              onOpenChat={openChat}
-              onOpenItem={openItemIn([])}
-            />
-          }
-          review={
-            <NeedsYou
-              title="Review a result"
-              empty="No results waiting for you."
-              chats={appChats.filter((chat) => !chat.needsYou && chat.column === "done")}
-              repoOf={repoOf}
-              items={waiting}
-              onOpenChat={openChat}
-              onOpenItem={openItemIn(ids(waiting))}
-            />
-          }
-          prs={prLens(
-            (pr) =>
-              (app === null || pr.app === app) &&
-              (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
-              (showBumps || !isDependencyUpdate(pr)),
-            "app",
-          )}
-          bumps={
-            prs.filter(
-              (pr) =>
-                (app === null || pr.app === app) && isDependencyUpdate(pr) && pr.stage === "ready",
-            ).length
-          }
-          showBumps={showBumps}
-          onToggleBumps={() => setShowBumps((value) => !value)}
-          stalled={stalled}
-          card={stalledCard}
         />
       ) : mode === "agents" ? (
         <AgentsView
@@ -1348,85 +1247,6 @@ function AppScorecard(props: {
         </span>
       ) : null}
     </button>
-  );
-}
-
-function NeedsYou(props: {
-  readonly title: string;
-  readonly empty: string;
-  readonly chats: ReadonlyArray<CardChatState>;
-  /** The chat's repo, so each row says where it is. */
-  readonly repoOf: (chat: CardChatState) => string | null;
-  readonly items: ReadonlyArray<DeskItem>;
-  readonly onOpenChat: (chat: CardChatState) => void;
-  readonly onOpenItem: (item: DeskItem) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const total = props.chats.length + props.items.length;
-  if (total === 0) {
-    return (
-      <section aria-label={props.title} className="flex flex-col gap-1">
-        <DeskHeading>{props.title} · 0</DeskHeading>
-        <p className="text-xs text-muted-foreground">{props.empty}</p>
-      </section>
-    );
-  }
-  const rows: ReactNode[] = [
-    ...props.chats.map((chat) => (
-      <li key={`chat:${chat.environmentId}:${chat.threadId}`} className="flex items-center gap-2">
-        <Badge variant="warning" size="sm">
-          {chat.asking === "subagent approval"
-            ? "Subagent approval"
-            : chat.asking === "approval"
-              ? "Approval"
-              : chat.asking === "question"
-                ? "Question"
-                : chat.needsYou
-                  ? "Chat"
-                  : chat.column === "done"
-                    ? "Result"
-                    : "Checks"}
-        </Badge>
-        <button
-          type="button"
-          className="min-w-0 cursor-pointer truncate text-left hover:underline"
-          onClick={() => props.onOpenChat(chat)}
-        >
-          {chatTitle(chat.title)}
-        </button>
-        {props.repoOf(chat) ? (
-          <span className="shrink-0 text-2xs text-muted-foreground">{props.repoOf(chat)}</span>
-        ) : null}
-      </li>
-    )),
-    ...props.items.map((item) => (
-      <li key={item.itemId} className="flex items-center gap-2">
-        <Badge variant={item.lane === "Blocked" ? "error" : "info"} size="sm">
-          {item.lane === "Blocked" ? "Blocked" : "Review"}
-        </Badge>
-        <button
-          type="button"
-          className="min-w-0 cursor-pointer truncate text-left hover:underline"
-          onClick={() => props.onOpenItem(item)}
-        >
-          {deskTitle(item)}
-        </button>
-        <span className="shrink-0 text-2xs text-muted-foreground">{deskRef(item)}</span>
-      </li>
-    )),
-  ];
-  return (
-    <section aria-label={props.title} className="flex flex-col gap-1">
-      <DeskHeading>
-        {props.title} · {total}
-      </DeskHeading>
-      <ul className="flex flex-col gap-1 text-sm">{expanded ? rows : rows.slice(0, 5)}</ul>
-      {rows.length > 5 ? (
-        <Button variant="ghost" size="xs" onClick={() => setExpanded((value) => !value)}>
-          {expanded ? "Show fewer" : `Show ${rows.length - 5} more`}
-        </Button>
-      ) : null}
-    </section>
   );
 }
 
