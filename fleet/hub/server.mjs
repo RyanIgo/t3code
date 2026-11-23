@@ -490,7 +490,10 @@ async function handleArtifacts(pathname, req, res, login, owner) {
       "cache-control": "no-store",
       // Agent-written HTML on the hub's origin: the sandbox gives it an opaque origin, so it can
       // never read the catalog (machine sign-ins) or anything else owners can reach.
-      "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals",
+      // allow-popups-to-escape-sandbox: a tab the page opens (the Board's Test page, the app,
+      // a PR) is a normal page, not one stuck with this page's opaque origin.
+      "content-security-policy":
+        "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",
     });
