@@ -10,6 +10,7 @@ import { ChatEmbedContext } from "../chat/ChatEmbedContext";
 import { Button } from "../ui/button";
 import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../ui/dialog";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { InboxCard, QuickNoteForm } from "./DeskInbox";
 import { ActNow } from "./DeskMobile";
@@ -37,7 +38,7 @@ import {
   type PlanLine,
   waitingReports,
 } from "./deskNotes.logic";
-import { savePlanLineDone } from "./deskNotesStore";
+import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
 import { useSendToChat } from "./deskSend";
@@ -109,12 +110,22 @@ function TodoDetails(props: {
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onDone: () => void;
-  readonly onAsk: () => void;
-  readonly onAskSteps: () => void;
+  /** Puts Rigo's question on the line and sends it to the planner; the answer comes back here. */
+  readonly onQuestion: (question: string) => void;
+  /** The planner chat's state, for while an answer is pending. */
+  readonly plannerState: string | null;
+  /** Opened from the row's Ask: start in the question box. */
+  readonly focusQuestion: boolean;
 }) {
   const { line } = props;
+  const [question, setQuestion] = useState("");
   const links = [...new Set([...(line.links ?? []), ...(line.itemUrl ? [line.itemUrl] : [])])];
   const thin = !line.why || !line.how;
+  const ask = (text: string) => {
+    if (!text.trim()) return;
+    props.onQuestion(text.trim());
+    setQuestion("");
+  };
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-base font-medium">{line.text}</p>
@@ -165,18 +176,75 @@ function TodoDetails(props: {
           onOpenItem={props.onOpenItem}
         />
       ) : null}
-      <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+      <section aria-label="Questions" className="flex flex-col gap-2 border-t border-border pt-3">
+        <DeskHeading>Questions for the planner</DeskHeading>
+        {(line.qa ?? []).length > 0 ? (
+          <ol className="flex flex-col gap-2">
+            {(line.qa ?? []).map((entry) => (
+              <li key={entry.at} className="flex flex-col gap-1">
+                <span className="self-end rounded-xl bg-muted px-3 py-1.5 text-sm">{entry.q}</span>
+                {entry.a ? (
+                  <div className="rounded-xl border border-border px-3 py-1.5">
+                    <span className="text-2xs font-semibold text-muted-foreground">Planner</span>
+                    <ChatMarkdown text={entry.a} cwd={undefined} />
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    Waiting for the planner's answer
+                    {props.plannerState ? ` (its chat: ${props.plannerState.toLowerCase()})` : ""}.
+                    It shows here when it's in.
+                  </span>
+                )}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Not clear what to do, or why? Ask here. The planner answers on this to-do.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            ...(thin ? ["Add the why and the exact steps, please."] : []),
+            "What does done look like, and how do I check it?",
+            "Can an agent do this instead of me?",
+          ].map((preset) => (
+            <Button key={preset} size="xs" variant="outline" onClick={() => ask(preset)}>
+              {preset}
+            </Button>
+          ))}
+        </div>
+        <label htmlFor={`todo-question-${line.text.length}`} className="sr-only">
+          Your question
+        </label>
+        <Textarea
+          id={`todo-question-${line.text.length}`}
+          rows={2}
+          autoFocus={props.focusQuestion}
+          placeholder="Ask about this to-do: what's unclear, what you'd need, what you'd change."
+          value={question}
+          onChange={(event) => setQuestion(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              ask(question);
+            }
+          }}
+        />
+      </section>
+      <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border bg-popover pt-3">
         <Button size="sm" onClick={props.onDone}>
           Done
         </Button>
-        <Button size="sm" variant="outline" onClick={props.onAsk}>
-          Ask a question
+        <span className="flex-1" />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!question.trim()}
+          onClick={() => ask(question)}
+        >
+          Ask the planner
         </Button>
-        {thin ? (
-          <Button size="sm" variant="ghost" onClick={props.onAskSteps}>
-            Ask the planner for the why and the steps
-          </Button>
-        ) : null}
       </div>
     </div>
   );
@@ -769,6 +837,8 @@ interface NeedInput {
 function useNeedRows(input: NeedInput): Need[] {
   const sendToChat = useSendToChat();
   const [openDecision, setOpenDecision] = useState<string | null>(null);
+  // A to-do opened from its Ask button starts in the question box.
+  const [askFocus, setAskFocus] = useState<string | null>(null);
   // Asking closes the window: the answer arrives in the planner chat beside the list.
   const [asked, setAsked] = useState<ReadonlySet<string>>(new Set());
   const askedPlanner = (key: string) => {
@@ -1053,20 +1123,29 @@ function useNeedRows(input: NeedInput): Need[] {
         void sendToChat(planner, `Done: ${line.text}`);
         setOpenDecision(null);
       };
-      const ask = () => {
+      const question = (text: string) => {
+        savePlanLineQuestion(planner.threadId, line.text, text);
         void sendToChat(
           planner,
-          `About "${line.text}": what exactly do you need from me, and where do I do it? Answer in a line or two, with the link.`,
+          `Rigo asks about your line "${line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.`,
         );
-        askedPlanner(key);
+        toastManager.add({
+          type: "info",
+          title: "Asked the planner",
+          description: "Its answer shows in this to-do when it's in.",
+        });
       };
+      const last = line.qa?.at(-1);
       rows.push({
         key,
         kind: "todo",
         title: line.text,
-        meta: asked.has(key)
-          ? "Asked the planner: its answer comes in the planner chat"
-          : (line.why ?? "from the planner"),
+        meta:
+          last && !last.a
+            ? "Asked: waiting for the planner's answer"
+            : last?.a
+              ? `Planner answered: ${last.a.replace(/\s+/g, " ").slice(0, 100)}`
+              : (line.why ?? "from the planner"),
         feature: featureOfUrls([line.itemUrl]),
         dialog: {
           title: "Your to-do",
@@ -1094,20 +1173,22 @@ function useNeedRows(input: NeedInput): Need[] {
             onOpenPr={input.onOpenPr}
             onOpenItem={input.onOpenItem}
             onDone={done}
-            onAsk={ask}
-            onAskSteps={() => {
-              void sendToChat(
-                planner,
-                `Rewrite your line "${line.text}" so I can do it without asking: add "why" (why it matters now, in a sentence), "how" (numbered steps with the exact screen, menu, command and values) and "links" (every page, issue, PR or sheet I need), then plan set. Reply here in one line when it's done.`,
-              );
-              askedPlanner(key);
-            }}
+            onQuestion={question}
+            plannerState={chatStatus(planner).label}
+            focusQuestion={askFocus === key}
           />
         ),
         action: (
           <span className="flex gap-1">
             {button("Done", done)}
-            <Button size="xs" variant="ghost" onClick={ask}>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                setAskFocus(key);
+                setOpenDecision(key);
+              }}
+            >
               Ask
             </Button>
           </span>

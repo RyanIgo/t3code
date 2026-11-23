@@ -97,6 +97,16 @@ export interface PlanLine {
   readonly why?: string | null;
   readonly how?: string | null;
   readonly links?: ReadonlyArray<string>;
+  /** Rigo's questions about the line and the planner's answers, oldest first. */
+  readonly qa?: ReadonlyArray<PlanQuestion>;
+}
+
+export interface PlanQuestion {
+  readonly q: string;
+  readonly at: string;
+  /** null until the planner answers (desk.mjs plan answer). */
+  readonly a: string | null;
+  readonly answeredAt: string | null;
 }
 
 export const INBOX_SOURCES = [
@@ -555,6 +565,22 @@ function readPlan(value: unknown): PlanLine[] | null {
               typeof link === "string" && /^https:\/\/[^\s]+$/.test(link) ? [link] : [],
             )
             .slice(0, 8),
+          qa: (Array.isArray(line.qa) ? line.qa : [])
+            .flatMap((raw: unknown) => {
+              if (typeof raw !== "object" || raw === null) return [];
+              const entry = raw as Record<string, unknown>;
+              const q = short(entry.q, 2000);
+              if (!q || typeof entry.at !== "string") return [];
+              return [
+                {
+                  q,
+                  at: entry.at,
+                  a: short(entry.a, 4000),
+                  answeredAt: typeof entry.answeredAt === "string" ? entry.answeredAt : null,
+                },
+              ];
+            })
+            .slice(-20),
         },
       ];
     })
@@ -648,6 +674,36 @@ export function withReportsSent(
   const planner = work[plannerId];
   if (planner) work[plannerId] = { ...planner, updatesSentAt: at, updatedAt: at };
   return { ...notes, work };
+}
+
+/** Adds Rigo's question to a planner's line (matched by its text); the planner answers on it. */
+export function withPlanLineQuestion(
+  notes: DeskNotes,
+  threadId: string,
+  text: string,
+  question: string,
+  at: string,
+): DeskNotes {
+  const work = notes.work[threadId];
+  if (!work?.plan?.some((line) => line.text === text) || !question.trim()) return notes;
+  return {
+    ...notes,
+    work: {
+      ...notes.work,
+      [threadId]: {
+        ...work,
+        plan: work.plan.map((line) =>
+          line.text === text
+            ? {
+                ...line,
+                qa: [...(line.qa ?? []), { q: question.trim(), at, a: null, answeredAt: null }],
+              }
+            : line,
+        ),
+        updatedAt: at,
+      },
+    },
+  };
 }
 
 /** Ticks a planner's checklist line (matched by its text) done. */

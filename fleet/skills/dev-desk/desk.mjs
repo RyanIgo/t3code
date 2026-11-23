@@ -416,12 +416,67 @@ async function plan(action, rest) {
   if (action === "show") {
     const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
     const lines = doc.work?.[threadId]?.plan ?? [];
-    for (const line of lines) console.log(`${line.done ? "✓" : "☐"} ${line.text} (${line.who})`);
+    for (const line of lines) {
+      console.log(`${line.done ? "✓" : "☐"} ${line.text} (${line.who})`);
+      for (const entry of line.qa ?? []) {
+        console.log(`    Rigo asked: ${entry.q}`);
+        console.log(
+          entry.a ? `    You answered: ${entry.a}` : "    (waiting for your answer: plan answer)",
+        );
+      }
+    }
     if (!lines.length) console.log("No checklist yet.");
     return;
   }
+  if (action === "answer") {
+    // `plan answer "<the line, or a distinctive part of it>" "<answer>" [--how "<steps>"] [--why "<why>"]`
+    const [which, answer, ...more] = rest;
+    if (!which || !answer?.trim()) {
+      fail(
+        'Usage: node desk.mjs plan answer "<the line (or part of it)>" "<your answer>" [--how "<steps>"] [--why "<why>"]',
+      );
+    }
+    const extra = flags(more);
+    let answered = null;
+    await changeNotes((doc, at) => {
+      const mine = doc.work[threadId];
+      const lines = mine?.plan ?? [];
+      const matches = lines.filter((line) => line.text === which || line.text.includes(which));
+      if (matches.length !== 1) return;
+      const line = matches[0];
+      const qa = [...(line.qa ?? [])];
+      const open = qa.findLastIndex((entry) => !entry.a);
+      // An answer with no question open is still kept, as the planner's note on the line.
+      if (open === -1)
+        qa.push({ q: "(no question)", at, a: answer.trim().slice(0, 4000), answeredAt: at });
+      else qa[open] = { ...qa[open], a: answer.trim().slice(0, 4000), answeredAt: at };
+      answered = line.text;
+      doc.work[threadId] = {
+        ...mine,
+        plan: lines.map((entry) =>
+          entry === line
+            ? {
+                ...entry,
+                qa,
+                ...(extra.how ? { how: extra.how.slice(0, 3000) } : {}),
+                ...(extra.why ? { why: extra.why.slice(0, 600) } : {}),
+              }
+            : entry,
+        ),
+        updatedAt: at,
+      };
+    });
+    if (!answered)
+      fail(
+        `No single line of your checklist matches "${which}": use more of its text (plan show lists them).`,
+      );
+    console.log(`Answered on "${answered}". Rigo sees it in that to-do on the Sprint page.`);
+    return;
+  }
   if (action !== "set" || !rest[0])
-    fail("Usage: node desk.mjs plan set <file.json | -> | plan show");
+    fail(
+      'Usage: node desk.mjs plan set <file.json | -> | plan show | plan answer "<line>" "<answer>"',
+    );
   const raw =
     rest[0] === "-" ? NodeFS.readFileSync(0, "utf8") : NodeFS.readFileSync(rest[0], "utf8");
   let lines;
@@ -465,7 +520,12 @@ async function plan(action, rest) {
   }
   await changeNotes((doc, at) => {
     const mine = doc.work[threadId] ?? { items: [], next: null };
-    doc.work[threadId] = { ...mine, plan: clean, planAt: at, updatedAt: at };
+    // Rigo's questions stay with their line across rewrites (matched by its text).
+    const before = new Map((mine.plan ?? []).map((line) => [line.text, line.qa ?? []]));
+    const plan = clean.map((line) =>
+      before.get(line.text)?.length ? { ...line, qa: before.get(line.text) } : line,
+    );
+    doc.work[threadId] = { ...mine, plan, planAt: at, updatedAt: at };
   });
   console.log(
     `Checklist saved: ${clean.length} lines, ${clean.filter((line) => !line.done).length} open.`,

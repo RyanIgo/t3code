@@ -20,6 +20,7 @@ import {
   withNextStep,
   withDecisionAnswer,
   withPlanLineDone,
+  withPlanLineQuestion,
   withReportsSent,
   type ChatRole,
   withRole,
@@ -201,6 +202,14 @@ export function saveReportsSent(plannerId: string, threadIds: ReadonlyArray<stri
   save(
     withReportsSent(snapshot.notes, plannerId, threadIds, new Date().toISOString()),
     "Couldn't record the update",
+  );
+}
+
+/** Puts Rigo's question on one of a planner's lines. */
+export function savePlanLineQuestion(threadId: string, text: string, question: string) {
+  save(
+    withPlanLineQuestion(snapshot.notes, threadId, text, question, new Date().toISOString()),
+    "Couldn't save the question",
   );
 }
 

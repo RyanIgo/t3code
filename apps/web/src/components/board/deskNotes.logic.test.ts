@@ -18,6 +18,7 @@ import {
   waitingReports,
   withReportsSent,
   withPlanLineDone,
+  withPlanLineQuestion,
   withFocus,
   withNote,
   withPin,
@@ -216,6 +217,19 @@ describe("desk notes", () => {
     const ticked = withPlanLineDone(notes, "planner-one", "Test the sheet", at);
     expect(plannerTodos(ticked)).toEqual([]);
     expect(withPlanLineDone(notes, "planner-one", "Missing", at)).toBe(notes);
+    const asked = withPlanLineQuestion(
+      notes,
+      "planner-one",
+      "Test the sheet",
+      "  Which sheet?  ",
+      at,
+    );
+    expect(asked.work["planner-one"]?.plan?.[0]?.qa).toEqual([
+      { q: "Which sheet?", at, a: null, answeredAt: null },
+    ]);
+    // Read back from the saved document, the thread survives.
+    const reread = parseDeskNotes(JSON.stringify(asked));
+    expect(reread.work["planner-one"]?.plan?.[0]?.qa?.[0]?.q).toBe("Which sheet?");
   });
 
   it("routes chats' turn reports to their planner until they're sent", () => {
