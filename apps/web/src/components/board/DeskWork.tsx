@@ -31,7 +31,7 @@ import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { type DeskNotes, focusedChat } from "./deskNotes.logic";
 import { saveDeskFocus, saveNextStep } from "./deskNotesStore";
-import { DeskHeading, openExternal } from "./DeskParts";
+import { DeskHeading, openExternal, useMachineName } from "./DeskParts";
 import {
   sheetIsIncomplete,
   type SheetSummary,
@@ -104,6 +104,8 @@ export function OnItRow(props: {
   ]).slice(0, 12);
   const chat = focused ?? suggestion;
   const status = chat ? chatStatus(chat) : null;
+  // Where the chat runs, so a terminal step (a sign-in, a restart) goes on the right machine.
+  const machine = useMachineName(chat?.environmentId);
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border px-3 py-2">
       <Badge variant={focused ? "info" : "outline"} size="sm">
@@ -116,6 +118,9 @@ export function OnItRow(props: {
           onClick={() => props.onShow(chat)}
         >
           <span className="truncate font-medium">{chatTitle(chat.title)}</span>
+          {machine ? (
+            <span className="shrink-0 text-xs text-muted-foreground">on {machine}</span>
+          ) : null}
           <span className="shrink-0 text-xs text-muted-foreground">{since(nowMs, chat.since)}</span>
           <Badge variant={status.tone} size="sm">
             {status.label}
@@ -127,6 +132,19 @@ export function OnItRow(props: {
         </span>
       )}
       <span className="ms-auto flex shrink-0 items-center gap-1">
+        {chat ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              openChatTerminal(chat);
+              props.onShow(chat);
+            }}
+          >
+            <SquareTerminalIcon />
+            <span className="max-sm:sr-only">Terminal</span>
+          </Button>
+        ) : null}
         {suggestion ? (
           <Button size="xs" variant="secondary" onClick={() => moveFocus(props.item, suggestion)}>
             Put on this item

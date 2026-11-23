@@ -1,9 +1,11 @@
+import { useAtomValue } from "@effect/atom-react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { type ReactNode, useState } from "react";
 
 import { cn } from "../../lib/utils";
 import { readLocalApi } from "../../localApi";
+import { environmentSummaries } from "../../state/presentation";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Textarea } from "../ui/textarea";
@@ -293,5 +295,15 @@ export function DeskCard(props: {
         </span>
       </div>
     </li>
+  );
+}
+
+/** The machine a chat runs on, by its environment ("admin's Mac mini"), when it's known. */
+export function useMachineName(environmentId: string | null | undefined): string | null {
+  const environments = useAtomValue(environmentSummaries.environmentsAtom);
+  if (!environmentId) return null;
+  return (
+    environments.find((environment) => environment.environmentId === environmentId)
+      ?.environmentLabel ?? null
   );
 }

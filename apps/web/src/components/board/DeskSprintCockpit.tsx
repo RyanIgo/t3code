@@ -43,7 +43,7 @@ import {
 } from "./deskNotes.logic";
 import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
 import { uploadPicture } from "./deskStore";
-import { DeskHeading, openExternal, TypeTag } from "./DeskParts";
+import { DeskHeading, openExternal, TypeTag, useMachineName } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
 import { useSendToChat } from "./deskSend";
 import { type SheetSummary, sheetsForItem, testPageUrl, useHubSheets } from "./deskSheets";
@@ -1728,6 +1728,7 @@ function PlannerPane(props: {
       ).get(planner.threadId)?.length ?? 0)
     : 0;
   const age = formatFleetBoardAge(work?.planAt ?? work?.updatedAt ?? null, props.nowMs);
+  const machine = useMachineName(planner?.environmentId);
   return (
     <section
       aria-label="Planner chat"
@@ -1743,7 +1744,7 @@ function PlannerPane(props: {
           <span className="truncate text-sm font-semibold">{props.app} planner</span>
           <span className="text-2xs text-muted-foreground">
             {planner
-              ? `${props.sprint.title}${age ? ` · plan updated ${age} ago` : ""}${updates > 0 ? ` · ${updates} chat ${updates === 1 ? "update" : "updates"} on the way` : ""}`
+              ? `${props.sprint.title}${machine ? ` · on ${machine}` : ""}${age ? ` · plan updated ${age} ago` : ""}${updates > 0 ? ` · ${updates} chat ${updates === 1 ? "update" : "updates"} on the way` : ""}`
               : "No planner for this sprint yet"}
           </span>
         </div>

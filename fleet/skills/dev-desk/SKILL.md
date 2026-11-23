@@ -206,6 +206,13 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
     it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
     item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
     your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
+- **Say where.** A step on a machine names it the way the Board shows it ("on admin's Mac
+  mini"), and says how to get there: the **Terminal** button next to your chat in the item's
+  window opens a terminal on that machine, in your folder. Better still, don't hand him a
+  terminal at all: for a GitHub sign-in or scope refresh, start it yourself in the background
+  (`gh auth refresh -h github.com -s project`, or `gh auth login` with the device flow), and
+  give him only the one-time code and https://github.com/login/device to approve it in his
+  browser; then check it took (`gh auth status`) and tick the line.
 - **He asks about a line on the line itself.** His question arrives as "Rigo asks about your
   line …". Answer it there, not only in chat, so he reads it in the to-do:
   `desk.mjs plan answer "<the line>" "<short, concrete answer with links>" [--how "<new steps>"]`.
