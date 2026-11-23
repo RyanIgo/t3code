@@ -234,7 +234,7 @@ export function AgentsView(props: {
             : ""}
         </span>
       </header>
-      <MachinesCard nowMs={nowMs} />
+      <MachinesCard nowMs={nowMs} chats={props.chats} />
       {apps.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open chats or sprint work here.</p>
       ) : null}

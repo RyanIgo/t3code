@@ -43,6 +43,16 @@ function readState() {
   }
 }
 
+/** This machine's T3 environment id: how the Board matches its chats to this machine. */
+function environmentId() {
+  const home = process.env.T3CODE_HOME || NodePath.join(NodeOS.homedir(), ".t3");
+  try {
+    return NodeFS.readFileSync(NodePath.join(home, "userdata", "environment-id"), "utf8").trim();
+  } catch {
+    return null;
+  }
+}
+
 function clientBehind() {
   let installed = "";
   try {
@@ -109,6 +119,7 @@ async function main() {
     signal: AbortSignal.timeout(15_000),
     body: JSON.stringify({
       machine: NodeOS.hostname(),
+      environmentId: environmentId(),
       os: `${NodeOS.type()} ${NodeOS.release()}`,
       commit: git("rev-parse", "--short", "HEAD"),
       subject: git("log", "-1", "--format=%s"),

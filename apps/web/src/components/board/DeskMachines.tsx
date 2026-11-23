@@ -4,14 +4,20 @@
  * without restarting T3). A machine whose T3 client changed says so; installing that restarts T3,
  * so it stays a step Rigo runs on that machine himself.
  */
+import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useState } from "react";
+
+import { environmentSummaries } from "../../state/presentation";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import type { CardChatState } from "./boardCards.logic";
+import { chatTitle } from "./desk.logic";
 import { DeskHeading } from "./DeskParts";
 
 interface Machine {
   readonly machine: string;
+  readonly environmentId?: string | null;
   readonly commit: string | null;
   readonly subject: string | null;
   readonly branch: string | null;
@@ -60,8 +66,23 @@ function useUpdates(): [Updates | null, (next: Updates) => void] {
   return [updates, setUpdates];
 }
 
-export function MachinesCard(props: { readonly nowMs: number }) {
+const squash = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+export function MachinesCard(props: {
+  readonly nowMs: number;
+  readonly chats: ReadonlyArray<CardChatState>;
+}) {
   const [updates, setUpdates] = useUpdates();
+  const environments = useAtomValue(environmentSummaries.environmentsAtom);
+  // Reports carry the machine's T3 environment id; older ones only a hostname, matched by name.
+  const environmentOf = (machine: Machine) =>
+    environments.find((entry) => entry.environmentId === machine.environmentId) ??
+    environments.find((entry) => {
+      const label = squash(entry.environmentLabel);
+      const host = squash(machine.machine);
+      return label.length > 2 && (label.includes(host) || host.includes(label));
+    }) ??
+    null;
   const [asking, setAsking] = useState(false);
   const request = updates?.request ?? null;
   const machines = Object.values(updates?.machines ?? {}).toSorted((a, b) =>
@@ -108,13 +129,32 @@ export function MachinesCard(props: { readonly nowMs: number }) {
         <ul className="flex flex-col gap-1.5">
           {machines.map((machine) => {
             const shown = status(machine);
+            const environment = environmentOf(machine);
+            const working = environment
+              ? props.chats.filter(
+                  (chat) => chat.working && chat.environmentId === environment.environmentId,
+                )
+              : null;
             return (
               <li key={machine.machine} className="flex flex-col gap-0.5 text-sm">
                 <span className="flex flex-wrap items-center gap-2">
-                  <b className="font-medium">{machine.machine}</b>
+                  <b className="font-medium">{environment?.environmentLabel ?? machine.machine}</b>
                   <Badge variant={shown.tone} size="sm">
                     {shown.label}
                   </Badge>
+                  {working === null ? (
+                    <Badge variant="outline" size="sm">
+                      Chats unknown
+                    </Badge>
+                  ) : working.length > 0 ? (
+                    <Badge variant="info" size="sm">
+                      {working.length} working
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" size="sm">
+                      Idle
+                    </Badge>
+                  )}
                   <span className="min-w-0 truncate text-2xs text-muted-foreground">
                     {machine.commit} {machine.subject}
                   </span>
@@ -122,9 +162,18 @@ export function MachinesCard(props: { readonly nowMs: number }) {
                 {!machine.ok && machine.result ? (
                   <span className="text-xs text-destructive-foreground">{machine.result}</span>
                 ) : null}
+                {working && working.length > 0 ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    Working: {working.map((chat) => chatTitle(chat.title)).join(" · ")}
+                  </span>
+                ) : null}
                 {machine.clientBehind ? (
                   <span className="text-xs text-muted-foreground">
-                    T3's own screens changed: when nothing is running there, run{" "}
+                    {working === null
+                      ? "T3's own screens changed. The Board can't see this machine's chats, so check nothing runs there, then run "
+                      : working.length > 0
+                        ? `T3's own screens changed. Wait for the ${working.length} working ${working.length === 1 ? "chat" : "chats"} to finish, then run `
+                        : "T3's own screens changed. Nothing is running there: safe to run "}
                     <code>fleet/install-client.sh</code> on this machine (it restarts T3).
                   </span>
                 ) : null}

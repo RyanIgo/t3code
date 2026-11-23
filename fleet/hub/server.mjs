@@ -902,6 +902,7 @@ async function handleUpdates(pathname, req, res, login) {
     const state = await changeUpdates((next, at) => {
       next.machines[machine] = {
         machine,
+        environmentId: text(body.environmentId, 120),
         os: text(body.os, 40),
         commit: text(body.commit, 40),
         subject: text(body.subject, 200),
