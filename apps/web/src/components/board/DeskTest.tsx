@@ -1,26 +1,67 @@
 /**
- * Fleet fork: the Test page, made for the left half of the screen with the app on the right.
- * The test sheet fills it; under it, the work chat that made the sheet, to send feedback (with
- * screenshots) while testing. Submitting the sheet sends the results to that chat.
+ * Fleet fork: the Test page, one T3 page for testing an item. Left: the test sheet with the work
+ * chat that made it (feedback with screenshots, or the whole conversation) and that chat's
+ * integrated terminal. Right: the chat's integrated browser with the app, which every link
+ * clicked on the left opens in. Submitting the sheet sends the results to the work chat.
  */
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { ImagePlusIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
 
+import { openUrlInPreview } from "~/browser/openFileInPreview";
+import { readThreadPreviewState } from "~/previewStateStore";
+import { useRightPanelStore } from "~/rightPanelStore";
 import ChatView from "../ChatView";
-import { ChatEmbedContext, ChatPeekContext } from "../chat/ChatEmbedContext";
+import { ChatPeekContext, ChatWorkbenchContext } from "../chat/ChatEmbedContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Checkbox } from "../ui/checkbox";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
-import { cn } from "../../lib/utils";
+import { previewEnvironment } from "../../state/preview";
+import { useAtomCommand } from "../../state/use-atom-command";
 import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import type { DeskNotes } from "./deskNotes.logic";
 import { useSendToChat } from "./deskSend";
 import { type SheetSummary, useSheetDetail } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
+
+/** Sheets whose app was opened in the browser already, so a re-render doesn't open it again. */
+const openedApps = new Set<string>();
+
+function sessionUrl(snapshot: { readonly navStatus: { readonly _tag: string } }): string | null {
+  return "url" in snapshot.navStatus && typeof snapshot.navStatus.url === "string"
+    ? snapshot.navStatus.url
+    : null;
+}
+
+/** Opens a URL in the chat's integrated browser (its tab for that URL if it has one). */
+function useThreadBrowser(threadRef: ScopedThreadRef | null) {
+  const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
+  return async (url: string) => {
+    if (!threadRef) {
+      window.open(url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const existing = Object.values(readThreadPreviewState(threadRef).sessions).find(
+      (session) => sessionUrl(session) === url,
+    );
+    if (existing) {
+      useRightPanelStore.getState().openBrowser(threadRef, existing.tabId);
+      return;
+    }
+    const result = await openUrlInPreview({ threadRef, url, openPreview });
+    if (result._tag === "Failure") {
+      toastManager.add({
+        type: "error",
+        title: "Could not open it in the browser",
+        description: "Check that the chat's machine can reach the address, then try again.",
+      });
+    }
+  };
+}
 
 export function TestPage(props: {
   readonly sheetId: string;
@@ -34,11 +75,15 @@ export function TestPage(props: {
   const sendToChat = useSendToChat();
   const detail = useSheetDetail(props.sheetId);
   const frame = useRef<HTMLIFrameElement>(null);
-  const [open, setOpen] = useState(false);
+  const [conversation, setConversation] = useState(false);
   const [text, setText] = useState("");
   const [blocker, setBlocker] = useState(false);
   const [uploading, setUploading] = useState(0);
   const chat = props.chat;
+  const threadRef = chat
+    ? scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId)
+    : null;
+  const openInBrowser = useThreadBrowser(threadRef);
   const title = props.sheet?.title ?? "Test sheet";
   const counts = props.sheet?.counts;
   const checked = counts ? counts.pass + counts.fail + counts.skip + counts.blocked : 0;
@@ -46,31 +91,46 @@ export function TestPage(props: {
   const lastSaid = (chat ? props.notes.work[chat.threadId]?.report?.text : undefined)
     ?.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/[*_`#]+/g, "");
+  const appUrl = detail?.app?.url ?? null;
 
-  // The sheet asks its host to send "Submit results" on to a chat; this page is that host, and
-  // the work chat is where results go. Only the sheet in this page's frame is listened to.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- relays the embedded sheet's Submit to the work chat
+  const openFromSheet = useEffectEvent((url: string) => void openInBrowser(url));
+  const relaySubmit = useEffectEvent((id: string | undefined, submitted: string) => {
+    const reply = (ok: boolean) =>
+      frame.current?.contentWindow?.postMessage({ type: "t3-page:result", id, ok }, "*");
+    if (!chat) {
+      reply(false);
+      return;
+    }
+    void sendToChat(
+      chat,
+      `Rigo submitted the test sheet "${title}":\n\n${submitted}\n\nRead the full results and his notes (t3-artifacts), fix what failed, tick the acceptance criteria that passed, then hand it back for a re-check or wrap up.`,
+    ).then(reply);
+  });
+  // The sheet in this page's frame hands its links and its Submit to this page: links open in the
+  // chat's browser, results go to the work chat. Nothing else's messages are listened to.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- relays the embedded sheet's link clicks and Submit
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
-      const message = event.data as { type?: string; id?: string; text?: string } | null;
-      if (event.source !== frame.current?.contentWindow || message?.type !== "t3-page:send") return;
-      const reply = (ok: boolean) =>
-        frame.current?.contentWindow?.postMessage(
-          { type: "t3-page:result", id: message.id, ok },
-          "*",
-        );
-      if (!chat || typeof message.text !== "string") {
-        reply(false);
-        return;
+      if (event.source !== frame.current?.contentWindow) return;
+      const message = event.data as { type?: string; id?: string; text?: string; url?: string };
+      if (message?.type === "t3-page:open" && typeof message.url === "string") {
+        openFromSheet(message.url);
+      } else if (message?.type === "t3-page:send" && typeof message.text === "string") {
+        relaySubmit(message.id, message.text);
       }
-      void sendToChat(
-        chat,
-        `Rigo submitted the test sheet "${title}":\n\n${message.text}\n\nRead the full results and his notes (t3-artifacts), fix what failed, tick the acceptance criteria that passed, then hand it back for a re-check or wrap up.`,
-      ).then(reply);
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [chat, sendToChat, title]);
+  }, []);
+
+  const openApp = useEffectEvent((url: string) => void openInBrowser(url));
+  // The app under test opens in the browser once, when the page first shows this sheet.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the app in the chat's browser once per sheet
+  useEffect(() => {
+    if (!appUrl || !chat || openedApps.has(props.sheetId)) return;
+    openedApps.add(props.sheetId);
+    openApp(appUrl);
+  }, [appUrl, chat, props.sheetId]);
 
   // Screenshots go to the hub and into the message as markdown, so the chat can open them.
   const attach = async (files: ReadonlyArray<File>) => {
@@ -116,69 +176,74 @@ export function TestPage(props: {
       toastManager.add({
         type: "success",
         title: "Sent to the chat",
-        description: "Its reply shows here; open the conversation with ▴.",
+        description: "Open the conversation to follow its reply.",
       });
     } else {
       toastManager.add({ type: "error", title: "Couldn't reach the chat" });
     }
   };
 
-  return (
-    <div className="flex h-dvh min-h-0 flex-col bg-background">
-      <header className="flex shrink-0 flex-col gap-1.5 border-b border-border px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="xs" variant="ghost" onClick={props.onBack}>
-            ← Board
+  const bar = (
+    <div className="flex shrink-0 flex-col gap-1.5 border-b border-border px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="xs" variant="ghost" onClick={props.onBack}>
+          ← Board
+        </Button>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+          Test: {props.item ? `${deskRef(props.item) ?? ""} ${deskTitle(props.item)}` : title}
+        </span>
+        {counts ? (
+          <Badge variant={counts.fail > 0 ? "error" : "outline"} size="sm">
+            {checked} of {counts.total} checked{counts.fail ? ` · ${counts.fail} failed` : ""}
+          </Badge>
+        ) : null}
+        {chat ? (
+          <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>
+            {conversation ? "Back to the sheet" : "Conversation"}
           </Button>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-            Test: {props.item ? `${deskRef(props.item) ?? ""} ${deskTitle(props.item)}` : title}
-          </span>
-          {counts ? (
-            <Badge variant={counts.fail > 0 ? "error" : "outline"} size="sm">
-              {checked} of {counts.total} checked{counts.fail ? ` · ${counts.fail} failed` : ""}
-            </Badge>
-          ) : null}
-        </div>
-        {detail?.app ? (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <a
-              href={detail.app.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-medium text-primary hover:underline"
-            >
-              Open the app ↗
-            </a>
-            <span className="text-muted-foreground">put it on the right half of your screen</span>
-            {detail.app.start ? (
-              <>
-                <span className="flex-1" />
+        ) : null}
+      </div>
+      {detail?.app ? (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => detail.app && void openInBrowser(detail.app.url)}
+          >
+            {chat ? "Show the app in the browser" : "Open the app ↗"}
+          </Button>
+          {detail.app.start ? (
+            <>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => void navigator.clipboard.writeText(detail.app?.start ?? "")}
+              >
+                Copy start command
+              </Button>
+              {chat ? (
                 <Button
                   size="xs"
-                  variant="outline"
-                  onClick={() => void navigator.clipboard.writeText(detail.app?.start ?? "")}
+                  variant="ghost"
+                  onClick={() =>
+                    void sendToChat(
+                      chat,
+                      `The app for "${title}" isn't answering at ${detail.app?.url}. Start it again on ${detail.app?.machine ?? "its machine"} and tell me when it's up.`,
+                    )
+                  }
                 >
-                  Copy start command
+                  App down? Ask the chat
                 </Button>
-                {chat ? (
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      void sendToChat(
-                        chat,
-                        `The app for "${title}" isn't answering at ${detail.app?.url}. Start it again on ${detail.app?.machine ?? "its machine"} and tell me when it's up.`,
-                      )
-                    }
-                  >
-                    App down? Ask the chat
-                  </Button>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        ) : null}
-      </header>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+
+  const sheet: ReactNode = (
+    <>
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
       {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
       <iframe
@@ -186,50 +251,21 @@ export function TestPage(props: {
         key={props.sheetId}
         title={title}
         src={`/a/${props.sheetId}`}
-        className={cn("min-h-0 w-full border-0 bg-background", open ? "h-2/5" : "flex-1")}
+        onLoad={() =>
+          frame.current?.contentWindow?.postMessage({ type: "t3-host:opens-links" }, "*")
+        }
+        className="min-h-0 w-full flex-1 border-0 bg-background"
       />
       <section
         aria-label="Feedback to the work chat"
-        className={cn(
-          "flex shrink-0 flex-col border-t border-border bg-card",
-          open && "min-h-0 flex-1",
-        )}
+        className="flex shrink-0 flex-col gap-1.5 border-t border-border bg-card px-3 py-2"
       >
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <span className="min-w-0 flex-1 truncate text-xs">
-            {chat ? (
-              <>
-                <b className="font-semibold">Feedback to {chatTitle(chat.title)}</b>
-                <span className="text-muted-foreground"> · {chatStatus(chat).label}</span>
-              </>
-            ) : (
-              <span className="text-muted-foreground">
-                No chat is recorded for this sheet: ask the planner which chat made it.
-              </span>
-            )}
-          </span>
-          {chat ? (
-            <Button size="xs" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
-              {open ? "▾ Hide the conversation" : "▴ Show the conversation"}
-            </Button>
-          ) : null}
-        </div>
-        {chat && open ? (
-          <div className="relative flex min-h-0 flex-1 flex-col border-t border-border">
-            <ChatEmbedContext value>
-              <ChatPeekContext value>
-                <ChatView
-                  key={`${chat.environmentId}:${chat.threadId}`}
-                  environmentId={chat.environmentId as EnvironmentId}
-                  threadId={chat.threadId as ThreadId}
-                  routeKind="server"
-                  reserveTitleBarControlInset={false}
-                />
-              </ChatPeekContext>
-            </ChatEmbedContext>
-          </div>
-        ) : chat ? (
-          <div className="flex flex-col gap-1.5 px-3 pb-2">
+        {chat ? (
+          <>
+            <span className="truncate text-xs">
+              <b className="font-semibold">Feedback to {chatTitle(chat.title)}</b>
+              <span className="text-muted-foreground"> · {chatStatus(chat).label}</span>
+            </span>
             {lastSaid ? (
               <p className="line-clamp-2 text-xs text-muted-foreground">Last said: {lastSaid}</p>
             ) : null}
@@ -292,9 +328,37 @@ export function TestPage(props: {
                 {blocker ? "Send blocker" : "Send feedback"}
               </Button>
             </div>
-          </div>
-        ) : null}
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">
+            No chat is recorded for this sheet: ask the planner which chat made it.
+          </span>
+        )}
       </section>
-    </div>
+    </>
+  );
+
+  if (!chat) {
+    return (
+      <div className="flex h-dvh min-h-0 flex-col bg-background">
+        {bar}
+        {sheet}
+      </div>
+    );
+  }
+  // The work chat's own T3 page, with the sheet in place of the conversation: its terminal and
+  // its integrated browser (the app) stay where T3 puts them.
+  return (
+    <ChatPeekContext value>
+      <ChatWorkbenchContext value={{ bar, content: conversation ? null : sheet }}>
+        <ChatView
+          key={`${chat.environmentId}:${chat.threadId}`}
+          environmentId={chat.environmentId as EnvironmentId}
+          threadId={chat.threadId as ThreadId}
+          routeKind="server"
+          reserveTitleBarControlInset={false}
+        />
+      </ChatWorkbenchContext>
+    </ChatPeekContext>
   );
 }

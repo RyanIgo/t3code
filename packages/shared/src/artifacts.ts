@@ -99,8 +99,11 @@ footer button{background:var(--primary);border-color:var(--primary);color:var(--
 footer button:disabled{opacity:.6;cursor:default}
 #sent{font-size:12px;color:var(--muted-foreground)}`;
 
-// Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`.
+// Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`. A host page
+// that says it opens links (the Board's Test page) gets each link click, to show in its browser.
 const SHEET_SCRIPT = `(function(){var a=window.t3artifact,rows=a.rows||[],V=[["pass","Pass"],["fail","Fail"],["skip","Skip"],["blocked","Blocked"]],main=document.getElementById("rows");
+var hostOpens=false;addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="t3-host:opens-links")hostOpens=true;});
+document.addEventListener("click",function(e){if(!hostOpens||window.parent===window)return;var x=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!x||!/^https?:/.test(x.getAttribute("href")||""))return;e.preventDefault();parent.postMessage({type:"t3-page:open",url:x.href},"*");},true);
 document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";
 function short(u){try{var x=new URL(u);var t=x.host+(x.pathname==="/"?"":x.pathname)+x.search+x.hash;return t.length>90?t.slice(0,87)+"…":t;}catch(e){return u;}}
 if(a.app){document.getElementById("app").hidden=false;var al=document.getElementById("app-link");al.href=a.app.url;al.target="_blank";al.rel="noopener";al.textContent=short(a.app.url);
