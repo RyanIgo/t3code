@@ -125,6 +125,9 @@ async function read(id) {
                 note: rowState[row.id]?.note || null,
                 by: rowState[row.id]?.by ?? null,
                 at: rowState[row.id]?.at ?? null,
+                // A fixed check sent back: what was fixed, and Rigo's result before the fix.
+                ...(row.retest ? { retest: row.retest } : {}),
+                ...(rowState[row.id]?.previous ? { before: rowState[row.id].previous } : {}),
               })),
             }
           : { data: artifact.state?.data ?? null }),

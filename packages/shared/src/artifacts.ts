@@ -53,9 +53,12 @@ export function artifactSheetHtml(): string {
 <header><h1 id="title"></h1>
 <section class="app" id="app" hidden><div class="app-line"><span class="label">App</span><a id="app-link" href="#"></a></div>
 <div class="app-line" id="start-line" hidden><span class="label" id="start-label">If it doesn't load, start it:</span><code id="start"></code><button type="button" id="copy">Copy</button></div></section>
-<p class="intro" id="intro"></p><p class="tally" id="tally"></p></header>
+<p class="intro" id="intro"></p><p class="tally" id="tally"></p>
+<div class="retests" id="retests" hidden><span><b id="retest-count"></b> fixed by the chat and ready to re-test.</span><label><input type="checkbox" id="only-retests"> Show only these</label></div></header>
 <main id="rows"></main>
-<footer><button type="button" id="submit">Submit results</button><span id="sent" role="status"></span></footer>
+<footer id="foot"><div class="foot-line"><div class="sum" id="sum"></div><button type="button" class="quiet" id="next">Next unchecked ↓</button></div>
+<details id="note-box"><summary>Add a note for the chat (optional)</summary><textarea id="overall" aria-label="Note for the chat" placeholder="Anything about the whole test: what to change, what worked, what to look at next."></textarea></details>
+<div class="foot-line"><button type="button" id="submit">Send results</button><span id="sent" role="status"></span></div></footer>
 <script>${SHEET_SCRIPT}</script></body></html>`);
 }
 
@@ -94,10 +97,28 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
 .shots{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.shots img{max-height:96px;max-width:160px;border:1px solid var(--border);border-radius:6px;display:block}
 textarea{display:block;box-sizing:border-box;width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--foreground);background:var(--background);border:1px solid var(--border);border-radius:6px;padding:6px 8px;min-height:34px;resize:vertical}
 .by{margin-top:4px;font-size:11px;color:var(--muted-foreground)}
-footer{display:flex;gap:10px;align-items:center;margin-top:12px}
-footer button{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);padding:6px 14px;font-size:13px}
-footer button:disabled{opacity:.6;cursor:default}
-#sent{font-size:12px;color:var(--muted-foreground)}`;
+footer{position:sticky;bottom:0;display:flex;flex-direction:column;gap:8px;margin:12px -16px -18px;padding:10px 16px 12px;background:var(--background);border-top:1px solid var(--border)}
+.foot-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.sum{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.chip{font-size:12px;border-radius:999px;padding:2px 9px;background:var(--muted);color:var(--foreground)}
+.chip.pass{background:color-mix(in srgb,var(--success) 15%,transparent)}
+.chip.fail{background:color-mix(in srgb,var(--destructive) 15%,transparent)}
+.chip.blocked{background:color-mix(in srgb,var(--warning) 20%,transparent)}
+.chip.retest{background:color-mix(in srgb,var(--primary) 15%,transparent)}
+footer #submit{font:inherit;font-size:13px;font-weight:600;border:1px solid var(--primary);border-radius:6px;background:var(--primary);color:var(--primary-foreground);padding:7px 16px;cursor:pointer}
+footer #submit:disabled{opacity:.6;cursor:default}
+footer .quiet{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--foreground);padding:3px 9px;cursor:pointer}
+#note-box summary{cursor:pointer;font-size:12px;color:var(--muted-foreground)}
+#note-box textarea{min-height:56px}
+#sent{font-size:12px;color:var(--muted-foreground);flex:1}
+#sent.ok{color:var(--foreground)}
+.retests{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--primary);border-radius:var(--radius,8px);background:color-mix(in srgb,var(--primary) 8%,transparent);padding:8px 12px;margin:0 0 10px;font-size:13px}
+.retests[hidden]{display:none}
+.retests label{display:flex;gap:6px;align-items:center;cursor:pointer;margin-left:auto}
+.badge{display:inline-block;margin-left:6px;font-size:11px;font-weight:600;border-radius:4px;padding:0 6px;background:var(--primary);color:var(--primary-foreground);vertical-align:1px}
+.fixed{margin-top:6px;font-size:13px;border-left:3px solid var(--primary);padding:2px 0 2px 8px;white-space:pre-wrap}
+.before{margin-top:4px;font-size:12px;color:var(--muted-foreground)}
+.row.flash{outline:2px solid var(--primary)}`;
 
 // Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`. A host page
 // that says it opens links (the Board's Test page) gets each link click, to show in its browser.
@@ -112,10 +133,20 @@ document.getElementById("copy").onclick=function(){var b=this,c=document.getElem
 try{navigator.clipboard.writeText(a.app.start).then(function(){b.textContent="Copied";},sel);}catch(e){sel();}};}}
 function linkify(el,text){var re=/https?:\\/\\/[^\\s<>"')\\]]+/g,i=0,m;while((m=re.exec(text))){if(m.index>i)el.appendChild(document.createTextNode(text.slice(i,m.index)));var x=document.createElement("a");x.href=m[0];x.target="_blank";x.rel="noopener";x.textContent=short(m[0]);el.appendChild(x);i=m.index+m[0].length;}if(i<text.length)el.appendChild(document.createTextNode(text.slice(i)));}
 function st(id){var s=a.state&&a.state.rows;return(s&&s[id])||{};}
-function tally(){var c={pass:0,fail:0,skip:0,blocked:0},d=0;rows.forEach(function(r){var s=st(r.id).status;if(s){c[s]++;d++;}});document.getElementById("tally").textContent=d+" of "+rows.length+" done · "+c.pass+" passed · "+c.fail+" failed"+(c.blocked?" · "+c.blocked+" blocked":"")+(c.skip?" · "+c.skip+" skipped":"");}
+var hosted=window.parent!==window,onlyRetests=null;
+function retestsLeft(){return rows.filter(function(r){return r.retest&&!st(r.id).status;}).length;}
+function tally(){var c={pass:0,fail:0,skip:0,blocked:0},d=0;rows.forEach(function(r){var s=st(r.id).status;if(s){c[s]++;d++;}});var open=rows.length-d,rl=retestsLeft();
+document.getElementById("tally").textContent=d+" of "+rows.length+" done · "+c.pass+" passed · "+c.fail+" failed"+(c.blocked?" · "+c.blocked+" blocked":"")+(c.skip?" · "+c.skip+" skipped":"");
+var sum=document.getElementById("sum");sum.textContent="";[["pass","✓ "+c.pass+" passed"],["fail","✗ "+c.fail+" failed"],["blocked",c.blocked?"⊘ "+c.blocked+" blocked":""],["skip",c.skip?c.skip+" skipped":""],["retest",rl?"↻ "+rl+" to re-test":""],["open",open?"○ "+open+" left":""]].forEach(function(x){if(!x[1])return;var e=document.createElement("span");e.className="chip "+x[0];e.textContent=x[1];sum.appendChild(e);});
+document.getElementById("next").hidden=!open;
+document.getElementById("submit").textContent=(hosted?"Send results to the chat":"Save results")+(open?" ("+open+" not checked)":"");
+var rb=document.getElementById("retests");rb.hidden=!rl;document.getElementById("retest-count").textContent=rl===1?"1 check was":rl+" checks were";}
 function when(t){try{return new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return"";}}
-function render(){var focus=document.activeElement&&document.activeElement.dataset.row,group=null;main.textContent="";rows.forEach(function(r){if(r.group&&r.group!==group){group=r.group;var h=document.createElement("h2");h.textContent=group;main.appendChild(h);}var s=st(r.id),el=document.createElement("section");el.className="row";if(s.status)el.dataset.status=s.status;
-var top=document.createElement("div");top.className="top";var what=document.createElement("div");what.className="what";var t=document.createElement("div");t.className="title";t.textContent=r.title;what.appendChild(t);if(r.detail){var d=document.createElement("div");d.className="detail";linkify(d,r.detail);what.appendChild(d);}
+function render(){var focus=document.activeElement&&document.activeElement.dataset.row,group=null;main.textContent="";if(onlyRetests===null)onlyRetests=retestsLeft()>0;document.getElementById("only-retests").checked=onlyRetests;rows.forEach(function(r){if(onlyRetests&&!r.retest)return;if(r.group&&r.group!==group){group=r.group;var h=document.createElement("h2");h.textContent=group;main.appendChild(h);}var s=st(r.id),el=document.createElement("section");el.className="row";el.dataset.row=r.id;if(s.status)el.dataset.status=s.status;
+var top=document.createElement("div");top.className="top";var what=document.createElement("div");what.className="what";var t=document.createElement("div");t.className="title";t.textContent=r.title;if(r.retest){var bg=document.createElement("span");bg.className="badge";bg.textContent=s.status?"Re-tested":"Retest";t.appendChild(bg);}what.appendChild(t);
+if(r.retest){var fx=document.createElement("div");fx.className="fixed";linkify(fx,(/^fixed\\b/i.test(r.retest)?"":"Fixed: ")+r.retest);what.appendChild(fx);}
+if(s.previous&&s.previous.status){var bf=document.createElement("div");bf.className="before";var pn=(s.previous.note||"").replace(/!\\[[^\\]]*\\]\\([^)]*\\)/g,"[screenshot]").replace(/\\s+/g," ").trim();bf.textContent="Before: "+({pass:"passed",fail:"failed",skip:"skipped",blocked:"blocked"}[s.previous.status]||s.previous.status)+(pn?" · "+(pn.length>160?pn.slice(0,157)+"…":pn):"")+(s.previous.at?" ("+when(s.previous.at)+")":"");what.appendChild(bf);}
+if(r.detail){var d=document.createElement("div");d.className="detail";linkify(d,r.detail);what.appendChild(d);}
 if(r.links&&r.links.length){var ls=document.createElement("div");ls.className="links";r.links.forEach(function(l){var x=document.createElement("a");x.href=l.url;x.target="_blank";x.rel="noopener";x.textContent=l.label||short(l.url);ls.appendChild(x);});what.appendChild(ls);}top.appendChild(what);
 var ch=document.createElement("div");ch.className="choices";ch.setAttribute("role","group");ch.setAttribute("aria-label","Result for "+r.title);V.forEach(function(v){var b=document.createElement("button");b.type="button";b.dataset.v=v[0];b.textContent=(s.status===v[0]?"✓ ":"")+v[1];b.setAttribute("aria-pressed",String(s.status===v[0]));b.onclick=function(){var p={};p[r.id]={status:s.status===v[0]?null:v[0]};save(p);};ch.appendChild(b);});top.appendChild(ch);el.appendChild(top);
 var n=document.createElement("textarea");n.placeholder="Note (what you saw, steps, links). Paste or drop a screenshot.";n.value=s.note||"";n.dataset.row=r.id;n.setAttribute("aria-label","Note for "+r.title);n.onchange=function(){var p={};p[r.id]={note:n.value};save(p);};
@@ -126,7 +157,13 @@ if(s.by){var by=document.createElement("div");by.className="by";by.textContent=s
 if(focus){var f=main.querySelector('textarea[data-row="'+focus.replace(/"/g,"")+'"]');if(f)f.focus();}tally();}
 function save(p){a.save({rows:p}).then(render,function(){document.getElementById("sent").textContent="Couldn't save. Check your connection and try again.";});}
 a.onChange(function(){if(!(document.activeElement&&document.activeElement.tagName==="TEXTAREA"))render();});
-document.getElementById("submit").onclick=function(){var b=this,c={pass:[],fail:[],skip:[],blocked:[],open:[]};rows.forEach(function(r){var s=st(r.id);(c[s.status]||c.open).push(r.id);});b.disabled=true;
-var text="Results for "+a.title+": "+c.pass.length+" passed, "+c.fail.length+" failed"+(c.blocked.length?", "+c.blocked.length+" blocked":"")+(c.open.length?", "+c.open.length+" not done":"")+".";
-a.submit(text,{artifact:a.id,failed:c.fail,blocked:c.blocked,notDone:c.open}).then(function(r){document.getElementById("sent").textContent=r.chat?"Sent to the agent.":"Saved. Tell the agent in its chat, or it will see this next time it checks.";b.disabled=false;},function(){document.getElementById("sent").textContent="Couldn't submit. Try again.";b.disabled=false;});};
+document.getElementById("only-retests").onchange=function(){onlyRetests=this.checked;render();};
+document.getElementById("next").onclick=function(){var x=null;rows.some(function(r){if(!st(r.id).status&&(!onlyRetests||r.retest)){x=main.querySelector('section[data-row="'+r.id.replace(/"/g,"")+'"]');return!!x;}return false;});if(!x&&onlyRetests){onlyRetests=false;render();return this.onclick();}if(x){x.scrollIntoView({behavior:"smooth",block:"center"});x.classList.add("flash");setTimeout(function(){x.classList.remove("flash");},1200);}};
+function lastSent(t){var e=document.getElementById("sent");e.className="";e.textContent=t?"Last sent "+when(t)+".":"";}
+lastSent(a.submittedAt);
+document.getElementById("submit").onclick=function(){var b=this,c={pass:[],fail:[],skip:[],blocked:[],open:[]},retests=[];rows.forEach(function(r){var s=st(r.id);(c[s.status]||c.open).push(r);if(r.retest&&s.previous)retests.push(r.title+": "+(s.status?({pass:"passed now",fail:"still failing",skip:"skipped",blocked:"blocked"}[s.status]):"not re-tested yet"));});b.disabled=true;
+function line(r){var n=(st(r.id).note||"").replace(/\\s+/g," ").trim();return"- "+r.title+(n?": "+(n.length>300?n.slice(0,297)+"…":n):"");}
+var overall=document.getElementById("overall").value.trim();
+var text="Results for "+a.title+": "+c.pass.length+" passed, "+c.fail.length+" failed"+(c.blocked.length?", "+c.blocked.length+" blocked":"")+(c.open.length?", "+c.open.length+" not done":"")+"."+(c.fail.length?"\\n\\nFailed:\\n"+c.fail.map(line).join("\\n"):"")+(c.blocked.length?"\\n\\nBlocked:\\n"+c.blocked.map(line).join("\\n"):"")+(retests.length?"\\n\\nRe-tests:\\n- "+retests.join("\\n- "):"")+(overall?"\\n\\nRigo's note: "+overall:"");
+a.submit(text,{artifact:a.id,failed:c.fail.map(function(r){return r.id;}),blocked:c.blocked.map(function(r){return r.id;}),notDone:c.open.map(function(r){return r.id;})}).then(function(r){var e=document.getElementById("sent"),now=new Date().toISOString();e.className="ok";e.textContent=r.chat?"✓ Sent to the chat "+when(now)+". "+(c.fail.length||c.blocked.length?"It fixes what failed and sends those checks back marked Retest: they show here and in Needs you.":"Nothing failed: it ticks the criteria and wraps up."):"✓ Saved "+when(now)+". The chat reads it the next time it checks; to send it now, open this sheet from the Board's Test page.";document.getElementById("overall").value="";b.disabled=false;},function(){var e=document.getElementById("sent");e.className="";e.textContent="Couldn't send. Check your connection and try again.";b.disabled=false;});};
 render();})();`;

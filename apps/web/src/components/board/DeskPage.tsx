@@ -568,6 +568,7 @@ export function DeskPage(props: {
         ? {
             unchecked: uncheckedRows(sheet.counts),
             failed: sheet.counts.fail + sheet.counts.blocked,
+            retest: sheet.counts.retest ?? 0,
           }
         : null,
     };

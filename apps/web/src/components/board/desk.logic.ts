@@ -176,7 +176,12 @@ export interface ItemSignals {
   /** A chat is recorded as on it. */
   readonly focused: boolean;
   /** Its newest hub test sheet's open checks. */
-  readonly sheet: { readonly unchecked: number; readonly failed: number } | null;
+  readonly sheet: {
+    readonly unchecked: number;
+    readonly failed: number;
+    /** Of the unchecked, the ones the chat fixed and sent back to re-test. */
+    readonly retest?: number;
+  } | null;
 }
 
 const NO_SIGNALS: ItemSignals = { chats: [], focused: false, sheet: null };

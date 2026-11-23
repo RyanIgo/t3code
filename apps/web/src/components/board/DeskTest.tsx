@@ -197,6 +197,11 @@ export function TestPage(props: {
             {checked} of {counts.total} checked{counts.fail ? ` · ${counts.fail} failed` : ""}
           </Badge>
         ) : null}
+        {counts?.retest ? (
+          <Badge variant="info" size="sm">
+            ↻ {counts.retest} to re-test
+          </Badge>
+        ) : null}
         {chat ? (
           <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>
             {conversation ? "Back to the sheet" : "Conversation"}

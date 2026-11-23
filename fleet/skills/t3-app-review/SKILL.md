@@ -43,8 +43,17 @@ Set it up so the user only has to open the Review window (the two-panel icon in 
 ## After the review
 
 - When the user presses Submit you get a `[From page: …]` message, or from the Test page "Rigo submitted the test sheet …". Read the results with the script's `read <id>` (also do this when they say they're done; results from a phone don't message you).
-- **Feedback while he tests** arrives as "Feedback from testing <sheet>: …", often with screenshot links: download each (`curl -o`) and look at it. Fix it, or say in one line why not, and republish the sheet with a "Fixed in <sha>, retest" line on the check it touches.
+- **Feedback while he tests** arrives as "Feedback from testing <sheet>: …", often with screenshot links: download each (`curl -o`) and look at it. Fix it, or say in one line why not, and republish the sheet with a `retest` on the check it touches (below).
 - **"BLOCKER from testing …"** means stop what you're doing and fix that first; reply with what you found and when to retest.
 - If they say the app is down, run the start command yourself and confirm it answers.
-- Fix what failed. Republish the same sheet with its `id` and a "Fixed in <short sha>, retest" line in that check's detail; results for unchanged checks stay. Post the app link again only if it changed (the browser keeps the old one open otherwise).
+- **Fix what failed, then send it back for a re-test.** Republish the same sheet (its `id`) with
+  `"retest": "Fixed in <short sha>: <what changed, and what to look at>"` on each check you fixed.
+  The hub keeps his earlier result as "Before", reopens the check, and the sheet opens on the
+  re-tests; the Board shows "Re-test N fixed checks". Leave `retest` on as long as that fix is
+  the latest; a new fix gets a new `retest` text (which reopens it again). Don't edit the check's
+  title or `detail` to say it's fixed, and don't touch checks that passed: their results stay.
+  Make sure the app is running the fix first, and post the app link again only if it changed.
+- When he submits the re-test, the message lists each re-test's outcome ("passed now", "still
+  failing"). Still failing: fix again with a new `retest` text. All passed: tick the criteria
+  and wrap up.
 - Stop the dev server you started (by its PID) when the review is done, and say so.

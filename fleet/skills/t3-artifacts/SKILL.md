@@ -65,6 +65,9 @@ For test plans and checklists, publish a sheet; you write no HTML.
 - Each row gets Pass / Fail / Skip / Blocked and a note. Up to 300 rows.
 - Give rows stable ids. To change the sheet, publish again with `"id": "<id>"` added: results for
   rows you keep stay, removed rows drop out, and open copies reload.
+- A row you fixed after it failed gets `"retest": "Fixed in <sha>: <what changed, what to look at>"`.
+  The hub moves its result to "Before" and reopens it; the sheet opens on the re-tests. A new fix
+  gets a new `retest` text; leave it unchanged otherwise.
 - When the user presses Submit with the sheet open in this chat, you get a `[From page: …]`
   message. Then run `read` and act on the failed and blocked rows.
 - Results entered elsewhere (phone, a teammate) don't message you. Run `read` when the user says

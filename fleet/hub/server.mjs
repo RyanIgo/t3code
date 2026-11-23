@@ -379,6 +379,10 @@ function cleanRows(rows) {
       ...(links.length > 0 ? { links } : {}),
       ...(typeof row.detail === "string" ? { detail: row.detail.slice(0, 4000) } : {}),
       ...(typeof row.group === "string" ? { group: row.group.slice(0, 120) } : {}),
+      // Set by the chat when it fixed this check: what changed, so Rigo knows what to re-test.
+      ...(typeof row.retest === "string" && row.retest.trim()
+        ? { retest: row.retest.trim().slice(0, 1000) }
+        : {}),
     });
   }
   return out;
@@ -393,10 +397,19 @@ function artifactSummary(artifact) {
 }
 
 function sheetCounts(artifact) {
-  const counts = { total: artifact.rows?.length ?? 0, pass: 0, fail: 0, skip: 0, blocked: 0 };
+  const counts = {
+    total: artifact.rows?.length ?? 0,
+    pass: 0,
+    fail: 0,
+    skip: 0,
+    blocked: 0,
+    retest: 0,
+  };
   for (const row of artifact.rows ?? []) {
     const status = artifact.state?.rows?.[row.id]?.status;
     if (status && counts[status] !== undefined) counts[status] += 1;
+    // A fixed check Rigo hasn't looked at again yet.
+    if (row.retest && !status) counts.retest += 1;
   }
   return counts;
 }
@@ -446,7 +459,7 @@ function call(path,method,body){return fetch(base+path,{method:method,headers:{"
 function toChat(text,data){if(window.parent===window)return Promise.resolve(false);return new Promise(function(done){var id="t3a-"+(++n);function on(e){var m=e.data;if(m&&m.type==="t3-page:result"&&m.id===id){removeEventListener("message",on);done(m.ok===true);}}addEventListener("message",on);parent.postMessage({type:"t3-page:send",id:id,text:text,data:data},"*");setTimeout(function(){removeEventListener("message",on);done(false);},8000);});}
 function refresh(){return call("","GET").then(function(a){if(a.version!==A.version){location.reload();return;}if(JSON.stringify(a.state)!==JSON.stringify(A.state)){A.state=a.state;fns.forEach(function(f){f(A.state);});}}).catch(function(){});}
 setInterval(function(){if(document.visibilityState==="visible")refresh();},15000);document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refresh();});
-window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,
+window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,submittedAt:A.submittedAt,
 save:function(value){return call("/state","POST",A.kind==="sheet"?value:{data:value}).then(function(a){A.state=a.state;return a.state;});},
 submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
 onChange:function(f){fns.push(f);},
@@ -679,12 +692,32 @@ async function publishArtifact(id, create, req, reply, login) {
         ? { intro: body.intro.trim().slice(0, 2000) }
         : {}),
       ...(rows ? { rows } : {}),
-      // Results for rows that are still there survive an update.
+      // Results for rows that are still there survive an update, except a check the chat marks
+      // fixed (a new `retest`): its result moves to `previous` and it opens again for a re-test.
       state:
         kind === "sheet"
           ? {
               rows: Object.fromEntries(
-                Object.entries(existing?.state?.rows ?? {}).filter(([rowId]) => keep.has(rowId)),
+                Object.entries(existing?.state?.rows ?? {})
+                  .filter(([rowId]) => keep.has(rowId))
+                  .map(([rowId, result]) => {
+                    const row = rows?.find((entry) => entry.id === rowId);
+                    const before = existing?.rows?.find((entry) => entry.id === rowId);
+                    if (!row?.retest || row.retest === before?.retest || !result?.status) {
+                      return [rowId, result];
+                    }
+                    return [
+                      rowId,
+                      {
+                        previous: {
+                          status: result.status,
+                          note: result.note ?? "",
+                          by: result.by ?? null,
+                          at: result.at ?? null,
+                        },
+                      },
+                    ];
+                  }),
               ),
             }
           : (existing?.state ?? null),

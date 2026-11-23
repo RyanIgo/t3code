@@ -14,6 +14,8 @@ interface SheetCounts {
   readonly fail: number;
   readonly skip: number;
   readonly blocked: number;
+  /** Checks the chat fixed that haven't been tested again yet (from a newer hub). */
+  readonly retest?: number;
 }
 
 /** A hub test sheet as the artifact list gives it. */

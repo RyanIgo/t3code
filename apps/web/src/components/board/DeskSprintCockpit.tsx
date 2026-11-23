@@ -1006,7 +1006,7 @@ function useNeedRows(input: NeedInput): Need[] {
     rows.push({
       key: `pr:${pr.url}`,
       kind: "test",
-      title: `PR #${pr.number}: ${toTest ? "run the test sheet, then merge" : pr.stage === "ready" ? "ready to merge" : "send back"} · ${pr.title}`,
+      title: `PR #${pr.number}: ${toTest ? (sheet?.retest ? `re-test ${sheet.retest} fixed ${sheet.retest === 1 ? "check" : "checks"}, then merge` : "run the test sheet, then merge") : pr.stage === "ready" ? "ready to merge" : "send back"} · ${pr.title}`,
       meta: [
         sheet
           ? `sheet ${sheet.unchecked} left${sheet.failed ? `, ${sheet.failed} failed` : ""}`
@@ -1018,7 +1018,9 @@ function useNeedRows(input: NeedInput): Need[] {
       feature: featureOfUrls([pr.item?.url ?? null, pr.url]),
       info: info({
         why: toTest
-          ? "Its chat finished and made a test sheet. Run the sheet; if it passes, merge."
+          ? sheet?.retest
+            ? "The chat fixed what failed and sent those checks back. Re-test them on the sheet; if they pass, merge."
+            : "Its chat finished and made a test sheet. Run the sheet; if it passes, merge."
           : pr.stage === "ready"
             ? "Checks passed and it can merge. Merging can't be undone."
             : `It can't merge as it is${pr.reasons.length ? `: ${pr.reasons.join("; ")}` : ""}. Send it back to its chat to fix.`,
@@ -1074,14 +1076,20 @@ function useNeedRows(input: NeedInput): Need[] {
     } else if (signals.sheet && signals.sheet.unchecked > 0) {
       add(
         "test",
-        `Run the test sheet: ${label}`,
-        `${signals.sheet.unchecked} checks left`,
-        button("Test", () => {
+        signals.sheet.retest
+          ? `Re-test ${signals.sheet.retest} fixed ${signals.sheet.retest === 1 ? "check" : "checks"}: ${label}`
+          : `Run the test sheet: ${label}`,
+        signals.sheet.retest
+          ? "the chat fixed what failed and sent it back"
+          : `${signals.sheet.unchecked} checks left`,
+        button(signals.sheet.retest ? "Re-test" : "Test", () => {
           const toRun = sheetsForItem(sheets, item, input.notes)[0];
           if (toRun) openExternal(testPageUrl(toRun.id));
           else input.onOpenItem(item);
         }),
-        "A test sheet is ready with checks only you can do.",
+        signals.sheet.retest
+          ? "The chat fixed what failed and sent those checks back: the sheet opens on them, with what changed and your earlier result."
+          : "A test sheet is ready with checks only you can do.",
       );
     } else if (chat?.column === "done") {
       add(
