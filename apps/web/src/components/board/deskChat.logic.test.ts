@@ -132,6 +132,11 @@ describe("desk links back", () => {
       itemUrl: "https://github.com/cfevans/cfe-drawings/issues/183",
     } as const;
     expect(readDeskFragment(deskFragment(item))).toEqual({ kind: "item", url: item.itemUrl });
+    expect(readDeskFragment("#desk=test&sheet=abc123def456")).toEqual({
+      kind: "test",
+      sheet: "abc123def456",
+    });
+    expect(readDeskFragment("#desk=test&sheet=../x")).toBeNull();
     const app = {
       kind: "app",
       view: "board",

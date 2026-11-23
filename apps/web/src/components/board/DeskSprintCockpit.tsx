@@ -43,10 +43,10 @@ import {
 } from "./deskNotes.logic";
 import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
 import { uploadPicture } from "./deskStore";
-import { DeskHeading, TypeTag } from "./DeskParts";
+import { DeskHeading, openExternal, TypeTag } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
 import { useSendToChat } from "./deskSend";
-import { type SheetSummary, sheetsForItem, useHubSheets } from "./deskSheets";
+import { type SheetSummary, sheetsForItem, testPageUrl, useHubSheets } from "./deskSheets";
 import { formatFleetBoardAge } from "./fleetBoard.logic";
 import {
   featureGroups,
@@ -418,7 +418,7 @@ function NeedInfo(props: {
               </span>
               <span className="flex gap-1.5">
                 <a
-                  href={`/a/${sheet.id}`}
+                  href={testPageUrl(sheet.id)}
                   target="_blank"
                   rel="noreferrer"
                   className="text-primary hover:underline"
@@ -1028,7 +1028,12 @@ function useNeedRows(input: NeedInput): Need[] {
       }),
       action: button(
         toTest ? "Test" : pr.stage === "ready" ? "Merge" : "Send back",
-        () => input.onOpenPr(pr),
+        () => {
+          const toRun =
+            toTest && pr.item ? sheetsForItem(sheets, pr.item, input.notes)[0] : undefined;
+          if (toRun) openExternal(testPageUrl(toRun.id));
+          else input.onOpenPr(pr);
+        },
         pr.stage === "ready",
       ),
     });
@@ -1071,7 +1076,11 @@ function useNeedRows(input: NeedInput): Need[] {
         "test",
         `Run the test sheet: ${label}`,
         `${signals.sheet.unchecked} checks left`,
-        button("Test", () => input.onOpenItem(item)),
+        button("Test", () => {
+          const toRun = sheetsForItem(sheets, item, input.notes)[0];
+          if (toRun) openExternal(testPageUrl(toRun.id));
+          else input.onOpenItem(item);
+        }),
         "A test sheet is ready with checks only you can do.",
       );
     } else if (chat?.column === "done") {

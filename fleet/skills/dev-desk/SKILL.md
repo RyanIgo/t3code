@@ -104,6 +104,9 @@ node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                   
   what it said and its `next` step for its planner and sends them as a "[Desk update]" message
   (batched, at most one every few minutes). So keep `next` true; you don't need to tell the
   planner what you did. Message it yourself only for a question or a decision it must make.
+- **One test sheet per story or bug**, made by its work chat (t3-app-review), never one sheet for
+  a whole sprint: Rigo tests it on the Board's Test page with that chat under it, and his
+  feedback, blockers and submitted results go straight to the chat that can fix them.
 - **Planners** treat a "[Desk update]" as news, not a request: update the checklist (`plan set`)
   if the picture changed, act if something needs you, and otherwise end the turn with one line
   or nothing. Don't reply to the chat unless it needs something.

@@ -109,7 +109,9 @@ export type DeskTarget =
       /** The item window's tab to open on, when the link names one. */
       readonly tab?: "details" | "chats" | "review";
     }
-  | { readonly kind: "today" };
+  | { readonly kind: "today" }
+  /** The Test page for one hub test sheet. */
+  | { readonly kind: "test"; readonly sheet: string };
 
 /** Reads a `#desk=…` fragment back into the place on the Desk it names. */
 export function readDeskFragment(fragment: string): DeskTarget | null {
@@ -117,6 +119,10 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
   const kind = params.get("desk");
   const app = params.get("app");
   if (kind === "today") return { kind };
+  if (kind === "test") {
+    const sheet = params.get("sheet");
+    return sheet && /^[\w-]{6,40}$/.test(sheet) ? { kind, sheet } : null;
+  }
   if (kind === "item") {
     const url = params.get("url");
     const tab = params.get("tab");

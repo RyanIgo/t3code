@@ -32,7 +32,13 @@ import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk
 import { type DeskNotes, focusedChat } from "./deskNotes.logic";
 import { saveDeskFocus, saveNextStep } from "./deskNotesStore";
 import { DeskHeading, openExternal } from "./DeskParts";
-import { sheetIsIncomplete, type SheetSummary, uncheckedRows, useSheetDetail } from "./deskSheets";
+import {
+  sheetIsIncomplete,
+  type SheetSummary,
+  testPageUrl,
+  uncheckedRows,
+  useSheetDetail,
+} from "./deskSheets";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 
 const chatKeyOf = (chat: Pick<CardChatState, "environmentId" | "threadId">) =>
@@ -413,6 +419,8 @@ export function ReviewTab(props: {
   const incomplete = detail ? sheetIsIncomplete(detail) : false;
   const app = detail?.app ?? null;
   const pageUrl = new URL(`/a/${sheet.id}`, window.location.origin).toString();
+  // The Test page: the sheet with its work chat, for the left half of the screen.
+  const testUrl = testPageUrl(sheet.id);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
       {props.sheets.length > 1 ? (
@@ -570,12 +578,12 @@ export function ReviewTab(props: {
         {uncheckedRows(sheet.counts) ? ` · ${uncheckedRows(sheet.counts)} to check` : ""}
         {" · "}
         <a
-          href={pageUrl}
+          href={testUrl}
           target="_blank"
           rel="noopener"
           className="font-medium text-info-foreground underline-offset-2 hover:underline"
         >
-          Open the sheet in a new tab ↗
+          Open the Test page ↗
         </a>
       </p>
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}

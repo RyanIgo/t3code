@@ -11,6 +11,15 @@ The user always reviews apps and UI changes in T3's Review window:
 - **Bottom left:** this chat.
 - **Right:** T3's built-in browser showing the app at its **Tailscale address**. The window opens the newest Tailscale link you post there by itself.
 
+Rigo also tests from the Board's **Test page** (`https://<hub>/board#desk=test&sheet=<id>`): the
+sheet on the left half of his screen with this chat under it for feedback, and the app in its own
+window on the right. Give him that link too (step 3).
+
+**One sheet per story or bug.** Each sheet covers one item (the issue it's for, in its title and
+links), never a sprint's worth of items on one "living" sheet: one item's sheet has one chat to
+send feedback to, and finishes when that item does. A re-test after a fix republishes the same
+sheet with the same `id`.
+
 Set it up so the user only has to open the Review window (the two-panel icon in the chat header) and start clicking. **Always use this flow**: a hub test sheet, not an `html_render` page, a question sheet or a Claude Doc. Fall back only if the `t3-artifacts` script is missing or can't reach the hub, and say so in one line.
 
 ## Steps
@@ -27,12 +36,15 @@ Set it up so the user only has to open the Review window (the two-panel icon in 
 3. **Post in your reply**, each on its own line:
    - the app link, `http://<name>.<tailnet>.ts.net:<port>/path` (this opens it on the right),
    - the sheet's markdown link from the script (this shows the sheet),
+   - `Test page: https://<hub>/board#desk=test&sheet=<id>` (the sheet with this chat under it),
    - `Start command (if the app stopped): <start command>` in a code span.
 4. **Tell the user:** one line, "Open the Review window to review", and stop. Don't keep working while they review.
 
 ## After the review
 
-- When the user presses Submit you get a `[From page: …]` message. Read the results with the script's `read <id>` (also do this when they say they're done; results from a phone don't message you).
+- When the user presses Submit you get a `[From page: …]` message, or from the Test page "Rigo submitted the test sheet …". Read the results with the script's `read <id>` (also do this when they say they're done; results from a phone don't message you).
+- **Feedback while he tests** arrives as "Feedback from testing <sheet>: …", often with screenshot links: download each (`curl -o`) and look at it. Fix it, or say in one line why not, and republish the sheet with a "Fixed in <sha>, retest" line on the check it touches.
+- **"BLOCKER from testing …"** means stop what you're doing and fix that first; reply with what you found and when to retest.
 - If they say the app is down, run the start command yourself and confirm it answers.
 - Fix what failed. Republish the same sheet with its `id` and a "Fixed in <short sha>, retest" line in that check's detail; results for unchanged checks stay. Post the app link again only if it changed (the browser keeps the old one open otherwise).
 - Stop the dev server you started (by its PID) when the review is done, and say so.

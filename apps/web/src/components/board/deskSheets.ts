@@ -192,3 +192,10 @@ export function sheetsForPullRequest(
     )
     .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
+
+/** The Board's Test page for a sheet: the sheet with its work chat, for the left half of the screen. */
+export const testPageUrl = (sheetId: string) =>
+  new URL(
+    `/board#desk=test&sheet=${encodeURIComponent(sheetId)}`,
+    window.location.origin,
+  ).toString();

@@ -73,8 +73,15 @@ import {
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
 import { SprintCockpit } from "./DeskSprintCockpit";
+import { TestPage } from "./DeskTest";
 import { useDeliverReports } from "./deskReports";
-import { itemForSheet, sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
+import {
+  itemForSheet,
+  sheetsForItem,
+  testPageUrl,
+  uncheckedRows,
+  useHubSheets,
+} from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
 import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
@@ -202,6 +209,10 @@ export function DeskPage(props: {
     );
     return target;
   });
+  // The Test page for one sheet, opened by a `#desk=test` link (usually in a tab of its own).
+  const [testSheet, setTestSheet] = useState<string | null>(
+    deepLink?.kind === "test" ? deepLink.sheet : null,
+  );
   const { handleNewThread } = useHandleNewThread();
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
@@ -277,7 +288,9 @@ export function DeskPage(props: {
     const onHashChange = () => {
       const target = readDeskFragment(window.location.hash);
       if (target === null) return;
-      if (target.kind === "today") {
+      if (target.kind === "test") {
+        setTestSheet(target.sheet);
+      } else if (target.kind === "today") {
         setMode("now");
       } else if (target.kind === "item") {
         setModal({
@@ -891,6 +904,28 @@ export function DeskPage(props: {
     </>
   );
 
+  if (testSheet) {
+    const shownSheet = hubSheets.find((entry) => entry.id === testSheet) ?? null;
+    const sheetItem = shownSheet ? itemForSheet(shownSheet, items, notes.notes) : null;
+    const sheetChat =
+      (shownSheet?.thread
+        ? props.pinnable.find((entry) => entry.threadId === shownSheet.thread?.threadId)
+        : undefined) ??
+      (sheetItem ? ownChatsOf(sheetItem)[0] : undefined) ??
+      null;
+    return (
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
+        <TestPage
+          sheetId={testSheet}
+          sheet={shownSheet}
+          item={sheetItem}
+          chat={sheetChat}
+          notes={notes.notes}
+          onBack={() => setTestSheet(null)}
+        />
+      </SidebarInset>
+    );
+  }
   if (phone && (phoneWork || mode === "now" || mode === "sprint")) {
     const screen: MobileScreen = phoneWork ? "work" : mode === "sprint" ? "sprint" : "now";
     const shownSprint = view.sprints?.find((entry) => entry.title === chosenSprint) ?? sprint;
@@ -1082,11 +1117,7 @@ export function DeskPage(props: {
           onOpenDecision={openDecision}
           todos={plannerTodos(notes.notes)}
           onOpenTodo={(todo) => openPlanner(todo.threadId)}
-          onOpenSheet={(sheet) => {
-            const item = itemForSheet(sheet, items, notes.notes);
-            if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
-            else openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString());
-          }}
+          onOpenSheet={(sheet) => openExternal(testPageUrl(sheet.id))}
         />
       ) : mode === "agents" ? (
         <AgentsView
