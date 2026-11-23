@@ -70,6 +70,10 @@ export function TestPage(props: {
   readonly item: DeskItem | null;
   /** The work chat that made the sheet (or the item's chat): where feedback goes. */
   readonly chat: CardChatState | null;
+  /** Chats to fall back on when the sheet's own chat isn't known (a subagent published it). */
+  readonly chats: ReadonlyArray<CardChatState>;
+  /** Last resort: the app's planner, which can start the app and pass feedback on. */
+  readonly planner: CardChatState | null;
   readonly notes: DeskNotes;
   readonly onBack: () => void;
 }) {
@@ -80,7 +84,14 @@ export function TestPage(props: {
   const [text, setText] = useState("");
   const [blocker, setBlocker] = useState(false);
   const [uploading, setUploading] = useState(0);
-  const chat = props.chat;
+  // A sheet published by a subagent names a thread that isn't a chat; the chat working in the
+  // folder the app starts from is the one that can fix it, on the machine its terminal opens on.
+  const start = detail?.app?.start ?? "";
+  const workChat =
+    props.chat ??
+    props.chats.find((entry) => entry.worktree && start.includes(entry.worktree)) ??
+    null;
+  const chat = workChat ?? props.planner;
   const threadRef = chat
     ? scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId)
     : null;
@@ -236,7 +247,15 @@ export function TestPage(props: {
         {chat ? (
           <>
             <span className="truncate text-xs">
-              <b className="font-semibold">Feedback to {chatTitle(chat.title)}</b>
+              <b className="font-semibold">
+                Feedback to {workChat ? chatTitle(chat.title) : "the planner"}
+              </b>
+              {workChat ? null : (
+                <span className="text-muted-foreground">
+                  {" · "}No work chat is recorded for this sheet, so this goes to the planner, which
+                  passes it on.
+                </span>
+              )}
               <span className="text-muted-foreground"> · {chatStatus(chat).label}</span>
             </span>
             {lastSaid ? (

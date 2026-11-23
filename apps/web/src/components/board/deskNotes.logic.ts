@@ -99,6 +99,8 @@ export interface PlanLine {
   readonly links?: ReadonlyArray<string>;
   /** Rigo's questions about the line and the planner's answers, oldest first. */
   readonly qa?: ReadonlyArray<PlanQuestion>;
+  /** When the line first appeared on the checklist. */
+  readonly since?: string | null;
 }
 
 export interface PlanQuestion {
@@ -557,6 +559,7 @@ function readPlan(value: unknown): PlanLine[] | null {
           text,
           who: short(line.who, 40) ?? "agents",
           done: line.done === true,
+          since: typeof line.since === "string" ? line.since : null,
           itemUrl: githubUrl(line.itemUrl ?? line.item),
           why: short(line.why, 600),
           how: short(line.how, 3000),

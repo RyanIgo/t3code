@@ -914,6 +914,10 @@ export function DeskPage(props: {
         : undefined) ??
       (sheetItem ? ownChatsOf(sheetItem)[0] : undefined) ??
       null;
+    const sheetRepo = shownSheet
+      ? [...repoApp.keys()].find((repo) => shownSheet.title.includes(repo))
+      : undefined;
+    const sheetAppName = sheetItem?.app ?? (sheetRepo ? repoApp.get(sheetRepo) : undefined);
     return (
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
         <TestPage
@@ -921,6 +925,8 @@ export function DeskPage(props: {
           sheet={shownSheet}
           item={sheetItem}
           chat={sheetChat}
+          chats={props.pinnable}
+          planner={sheetAppName ? plannerOf(sheetAppName) : null}
           notes={notes.notes}
           onBack={() => setTestSheet(null)}
         />
@@ -1101,16 +1107,17 @@ export function DeskPage(props: {
                 chats={props.pinnable}
                 onOpenChat={openChat}
               />
-              <CatchupSection
-                catchup={changesSince(caughtUpAt, items, props.chats)}
-                caughtUpAt={caughtUpAt}
-                onCaughtUp={() => setCaughtUp(Date.now())}
-                onOpenChat={openChat}
-                onOpenItem={openItemIn([])}
-                repoOf={repoOf}
-              />
             </div>
           }
+          done={
+            <CatchupSection
+              catchup={changesSince(caughtUpAt, items, props.chats)}
+              caughtUpAt={caughtUpAt}
+              onCaughtUp={() => setCaughtUp(Date.now())}
+              onOpenItem={openItemIn([])}
+            />
+          }
+          notes={notes.notes}
           onOpenChat={openChat}
           onOpenItem={openItemIn(ids(waitingOnYou(items)))}
           onOpenPr={openPr}

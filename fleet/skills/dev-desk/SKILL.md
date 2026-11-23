@@ -206,6 +206,20 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
     it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
     item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
     your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
+  - **Only what he can do now.** A line waiting on someone else or on an agent ("wait for the
+    agent's list, then…", "ask Reed to…" while Reed's sheet isn't ready) is that person's or the
+    agents' line until it's ready; then it becomes his. Never put a one-time code on a line: it
+    expires in minutes. Ask for it when he's there, as a chat message.
+  - **"Not mine: <line>"** from him means: give it to an agent, or take it off his list until it's
+    ready. If only he can do it, say why in one line. Then `plan set`.
+  - **Keep the list short and moving.** At every `plan set`, look at his open lines: each shows on
+    his queue with how long it has waited. One that has sat two days is stuck: ask yourself why
+    (unclear, not ready, not his, or he doesn't agree) and fix that, rather than leaving it.
+- **End every work-chat turn with `next` saying whose move it is.** His queue lists a finished
+  turn only when its `next` starts with "Rigo:" and says what he does, e.g. `next "Rigo: test
+  bid intake on its sheet (11 checks, ~15 min)"`. Anything else ("waiting on CI", "merging after
+  the release") folds under "Agents on it", where he doesn't need to open it. Don't hand him a
+  turn just to read it: if nothing needs him, `next` says what's next for you.
 - **Say where.** A step on a machine names it the way the Board shows it ("on admin's Mac
   mini"), and says how to get there: the **Terminal** button next to your chat in the item's
   window opens a terminal on that machine, in your folder. Better still, don't hand him a

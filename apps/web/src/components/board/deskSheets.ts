@@ -6,7 +6,7 @@
 import { type RefObject, useEffect, useEffectEvent, useState } from "react";
 
 import type { CardChatState } from "./boardCards.logic";
-import type { DeskItem } from "./desk.logic";
+import { type DeskItem, itemByTitleRef } from "./desk.logic";
 import { useSendToChat } from "./deskSend";
 import { type DeskNotes, focusedThreads } from "./deskNotes.logic";
 
@@ -171,17 +171,7 @@ export function itemForSheet(
   for (const [url, story] of Object.entries(notes.sheets)) {
     if (story.id === sheet.id && byUrl.has(url)) return byUrl.get(url) ?? null;
   }
-  const numbers = [...sheet.title.matchAll(/#(\d+)/g)].map((match) => Number(match[1]));
-  const open = items.filter((item) => item.state === "open" || item.state === "draft");
-  for (const list of [open, items]) {
-    for (const number of numbers) {
-      const found =
-        list.find((item) => item.pullRequests.some((pr) => pr.number === number)) ??
-        list.find((item) => item.number === number);
-      if (found) return found;
-    }
-  }
-  return null;
+  return itemByTitleRef(sheet.title, items);
 }
 
 /** The sheets that test a pull request: those whose title names its number, newest first. */

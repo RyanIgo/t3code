@@ -1,15 +1,20 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
-import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading } from "./DeskParts";
 import { type SheetSummary, uncheckedRows, useHubSheets } from "./deskSheets";
-import type { PlannerDecision, PlannerTodo } from "./deskNotes.logic";
+import type { DeskNotes, PlannerDecision, PlannerTodo } from "./deskNotes.logic";
+import { savePlanLineDone } from "./deskNotesStore";
+import { useSendToChat } from "./deskSend";
 
 const SHEET_DAYS = 14;
+/** A sheet nobody touched or asked about for this long waits in "Older sheets", not the queue. */
+const FRESH_SHEET_DAYS = 3;
+const DAY_MS = 86_400_000;
 
 /** Test sheets with unchecked rows, changed in the last two weeks, newest first. */
 function sheetsToTest(all: ReadonlyArray<SheetSummary>, nowMs: number): SheetSummary[] {
@@ -17,18 +22,22 @@ function sheetsToTest(all: ReadonlyArray<SheetSummary>, nowMs: number): SheetSum
     .filter(
       (sheet) =>
         uncheckedRows(sheet.counts) > 0 &&
-        nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * 86_400_000,
+        nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * DAY_MS,
     )
     .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
 
-function ago(nowMs: number, iso: string | null): string {
+function ago(nowMs: number, iso: string | null | undefined): string {
   if (!iso) return "";
   const minutes = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 60_000));
+  if (Number.isNaN(minutes)) return "";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.round(minutes / 60);
   return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
 }
+
+/** A chat's `next` line that hands the turn to Rigo: "Rigo: test bid intake on its sheet". */
+const RIGO_NEXT = /^\s*(?:rigo|you)\s*[:\-–—]\s*/i;
 
 const PR_LABEL = {
   ready: { label: "Merge", tone: "success" },
@@ -38,35 +47,49 @@ const PR_LABEL = {
 
 type Tone = "success" | "error" | "warning" | "info" | "outline" | "secondary";
 export type Lane = "working" | "review" | "test" | "merge";
-const LANES: ReadonlyArray<{ readonly id: Lane; readonly label: string; readonly hint: string }> = [
-  { id: "working", label: "Working", hint: "Agents running now" },
-  { id: "review", label: "Review", hint: "Questions, approvals, results" },
-  { id: "test", label: "Test", hint: "Sheets with checks to do" },
-  { id: "merge", label: "Merge", hint: "Merge, close or send back" },
-];
 
 export interface Entry {
   readonly key: string;
   readonly lane: Lane;
   readonly app: string;
+  /** The verb: what Rigo does here (Test, Decide, Do…), or the state of agents' work. */
   readonly badge: string;
   readonly tone: Tone;
   readonly title: string;
   readonly meta: string;
-  /** What the planner asked of Rigo about this (its to-do, folded into this card). */
+  /** What's asked of Rigo, in a line: the planner's to-do or the chat's hand-off. */
   readonly ask?: string;
+  /** True when Rigo is the one holding it up; everything else is agents' or finished. */
+  readonly mine: boolean;
+  /** About how long it takes him, when that's known. */
+  readonly minutes?: number;
+  /** How long it has waited on him. */
+  readonly waiting?: string;
+  /** The planner to-do behind the row, for Done and "give it to an agent". */
+  readonly todo?: PlannerTodo;
+  /** Groups rows that aren't Rigo's: agents working, finished turns, older sheets. */
+  readonly fold?: "agents" | "sheets";
   readonly onClick: () => void;
 }
 
 const OTHER = "Other";
-/** How much an app needs Rigo: reviews first, then merges, tests, and running work last. */
-const WEIGHT: Record<Lane, number> = { review: 100, merge: 10, test: 3, working: 1 };
+/** Queue order: finishing what's half done first, then quick calls, then longer work. */
+const VERB_ORDER: Record<string, number> = {
+  Retest: 0,
+  Answer: 1,
+  Approve: 1,
+  "Needs you": 1,
+  Decide: 2,
+  Merge: 3,
+  "Send back": 3,
+  Close: 3,
+  Blocked: 4,
+  Review: 4,
+  Read: 5,
+  Test: 6,
+  Do: 7,
+};
 
-/**
- * Fleet fork: the Now tab, every application at once. One band per app that has something going
- * on, the one that needs Rigo most first; across each band, what's working and what waits on him
- * to review, test or merge. Each row is one click to act on.
- */
 /** What the Now tab lists: the chats, items, sheets and PRs to act on, and the version bumps left out. */
 export interface NowInput {
   readonly nowMs: number;
@@ -79,6 +102,8 @@ export interface NowInput {
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenSheet: (sheet: SheetSummary) => void;
+  /** Chats' roles and `next` lines: what tells a finished turn that needs Rigo from one that doesn't. */
+  readonly notes?: DeskNotes;
   /** Planners' open questions, each opening its planning session. */
   readonly decisions?: ReadonlyArray<PlannerDecision>;
   readonly onOpenDecision?: (decision: PlannerDecision) => void;
@@ -87,132 +112,177 @@ export interface NowInput {
   readonly onOpenTodo?: (todo: PlannerTodo) => void;
 }
 
-export function NowView(props: {
-  readonly nowMs: number;
-  readonly chats: ReadonlyArray<CardChatState>;
-  /** Items waiting on Rigo outside chats (blocked, PRs in review). */
-  readonly waiting: ReadonlyArray<DeskItem>;
-  readonly prs: ReadonlyArray<DeskPr>;
-  readonly appOf: (chat: CardChatState) => string | null;
-  readonly apps: ReadonlyArray<string>;
-  readonly pinned: ReactNode;
-  readonly onOpenChat: (chat: CardChatState) => void;
-  readonly onOpenItem: (item: DeskItem) => void;
-  readonly onOpenPr: (pr: DeskPr) => void;
-  /** Opens a test sheet in its item's Review tab, or on its own when no item matches. */
-  readonly onOpenSheet: (sheet: SheetSummary) => void;
-  readonly decisions?: ReadonlyArray<PlannerDecision>;
-  readonly onOpenDecision?: (decision: PlannerDecision) => void;
-  /** Planners' open lines on Rigo, each opening its planning session. */
-  readonly todos?: ReadonlyArray<PlannerTodo>;
-  readonly onOpenTodo?: (todo: PlannerTodo) => void;
-}) {
+/**
+ * Fleet fork: the Now tab. One queue of what only Rigo can move, each row saying what he'll do
+ * and about how long it takes; agents' work and finished turns fold away below it.
+ */
+export function NowView(
+  props: NowInput & {
+    /** The inbox and pinned chats, above the queue. */
+    readonly pinned: ReactNode;
+    /** What finished since he last caught up, below the queue. */
+    readonly done?: ReactNode;
+  },
+) {
   const { entries, bumps } = useNowEntries(props);
-  const count = (lane: Lane, of: ReadonlyArray<Entry> = entries) =>
-    of.filter((entry) => entry.lane === lane).length;
-  const bands = [...new Set(entries.map((entry) => entry.app))]
-    .map((app) => ({ app, entries: entries.filter((entry) => entry.app === app) }))
-    .map((band) => ({
-      ...band,
-      weight: LANES.reduce((sum, lane) => sum + WEIGHT[lane.id] * count(lane.id, band.entries), 0),
-    }))
-    .toSorted(
-      (a, b) =>
-        Number(a.app === OTHER) - Number(b.app === OTHER) ||
-        b.weight - a.weight ||
-        a.app.localeCompare(b.app),
-    );
-  const needsYou = count("review") + count("test") + count("merge");
+  const queue = entries.filter((entry) => entry.mine);
+  const agents = entries.filter((entry) => entry.fold === "agents");
+  const older = entries.filter((entry) => entry.fold === "sheets");
+  const minutes = queue.reduce((sum, entry) => sum + (entry.minutes ?? 0), 0);
+  const working = agents.filter((entry) => entry.lane === "working").length;
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6">
-      <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-        <h2 className="text-lg font-semibold">
-          {needsYou === 0 ? "Nothing needs you right now" : `${needsYou} things need you`}
-        </h2>
-        <span className="text-xs text-muted-foreground">
-          {count("review")} to review · {count("test")} to test · {count("merge")} to merge or send
-          back · {count("working")} {count("working") === 1 ? "agent" : "agents"} working
-          {bumps > 0 ? ` · ${bumps} version bumps not shown` : ""}
-        </span>
-      </header>
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6 scrollbar-gutter-both">
       {props.pinned}
-      <div className="hidden grid-cols-[12rem_repeat(4,minmax(0,1fr))] gap-3 px-3 lg:grid">
-        <span />
-        {LANES.map((lane) => (
-          <span key={lane.id} className="flex flex-col">
-            <DeskHeading>
-              {lane.label} · {count(lane.id)}
-            </DeskHeading>
-            <span className="text-2xs text-muted-foreground">{lane.hint}</span>
+      <section aria-label="Your queue" className="mx-auto flex w-full max-w-4xl flex-col gap-2">
+        <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <h2 className="text-lg font-semibold">
+            {queue.length === 0
+              ? "Nothing waits on you"
+              : `Your queue · ${queue.length}${minutes > 0 ? ` · about ${minutes} min` : ""}`}
+          </h2>
+          <span className="text-xs text-muted-foreground">
+            {queue.length > 0 ? "Work it top to bottom. " : ""}
+            {agents.length > 0
+              ? `Agents have ${agents.length} more (${working} working): nothing to do there.`
+              : "No agent is busy."}
+            {bumps > 0 ? ` ${bumps} version bumps not shown.` : ""}
           </span>
-        ))}
-      </div>
-      {bands.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No agent is running and nothing waits on you.
-        </p>
-      ) : (
-        bands.map((band) => (
-          <section
-            key={band.app}
-            aria-label={band.app}
-            className={cn(
-              "grid grid-cols-1 gap-3 rounded-lg border bg-muted/40 p-3 lg:grid-cols-[12rem_repeat(4,minmax(0,1fr))]",
-              count("review", band.entries) > 0 ? "border-warning/60" : "border-border",
-            )}
-          >
-            <header className="flex flex-col gap-1">
-              <h3 className="text-sm font-semibold">{band.app}</h3>
-              <span className="flex flex-wrap gap-1">
-                {LANES.filter(
-                  (lane) => lane.id !== "working" && count(lane.id, band.entries) > 0,
-                ).map((lane) => (
-                  <Badge
-                    key={lane.id}
-                    variant={lane.id === "review" ? "warning" : "outline"}
-                    size="sm"
-                  >
-                    {count(lane.id, band.entries)} to {lane.label.toLowerCase()}
-                  </Badge>
-                ))}
-                {count("working", band.entries) > 0 ? (
-                  <Badge variant="info" size="sm">
-                    {count("working", band.entries)} working
-                  </Badge>
-                ) : null}
-              </span>
-            </header>
-            {LANES.map((lane) => {
-              const cell = band.entries.filter((entry) => entry.lane === lane.id);
-              return (
-                <div key={lane.id} className="flex min-w-0 flex-col gap-1.5">
-                  <span className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase lg:hidden">
-                    {lane.label}
-                  </span>
-                  {cell.length === 0 ? (
-                    <span className="hidden text-xs text-muted-foreground lg:block">·</span>
-                  ) : (
-                    <ul className="flex flex-col gap-1.5">
-                      {cell.map((entry) => (
-                        <Row
-                          key={entry.key}
-                          badge={entry.badge}
-                          tone={entry.tone}
-                          title={entry.title}
-                          meta={entry.meta}
-                          {...(entry.ask ? { ask: entry.ask } : {})}
-                          onClick={entry.onClick}
-                        />
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-          </section>
-        ))
-      )}
+        </header>
+        {queue.length > 0 ? (
+          <ul className="flex flex-col gap-1.5">
+            {queue.map((entry) => (
+              <QueueRow key={entry.key} entry={entry} chats={props.chats} />
+            ))}
+          </ul>
+        ) : null}
+        <Fold
+          label={`Agents on it · ${agents.length}`}
+          hint="Working, waiting on a build, tests or a merge, or finished with nothing asked of you."
+          entries={agents}
+        />
+        <Fold
+          label={`Older sheets · ${older.length}`}
+          hint={`Test sheets nobody touched or asked about in ${FRESH_SHEET_DAYS} days.`}
+          entries={older}
+        />
+        {props.done}
+      </section>
     </div>
+  );
+}
+
+function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<CardChatState> }) {
+  const { entry } = props;
+  const sendToChat = useSendToChat();
+  const [handed, setHanded] = useState<"done" | "agent" | null>(null);
+  const planner = entry.todo
+    ? (props.chats.find((chat) => chat.threadId === entry.todo?.threadId) ?? null)
+    : null;
+  const todoText = entry.todo?.line.text ?? "";
+  const done = () => {
+    if (!entry.todo) return;
+    savePlanLineDone(entry.todo.threadId, todoText);
+    if (planner) void sendToChat(planner, `Done: ${todoText}`);
+    setHanded("done");
+  };
+  const toAgent = () => {
+    if (!planner) return;
+    void sendToChat(
+      planner,
+      `Not mine: "${todoText}". Have an agent do it, or wait until it's ready for me (then put it back with what I do and where). If only I can do it, tell me why in one line. Update the checklist either way.`,
+    );
+    setHanded("agent");
+  };
+  const meta = [
+    entry.app === OTHER ? null : entry.app,
+    entry.meta,
+    entry.waiting ? `waiting ${entry.waiting}` : null,
+    entry.minutes ? `~${entry.minutes} min` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md border border-border bg-card px-3 py-2">
+      <button
+        type="button"
+        onClick={entry.onClick}
+        className="flex min-w-0 flex-[1_1_20rem] cursor-pointer items-start gap-2 text-left"
+      >
+        <Badge variant={entry.tone} size="sm" className="mt-0.5 w-20 shrink-0 justify-center">
+          {entry.badge}
+        </Badge>
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
+          {entry.ask ? (
+            <span className="line-clamp-2 text-xs text-muted-foreground">{entry.ask}</span>
+          ) : null}
+          {meta ? <span className="text-2xs text-muted-foreground">{meta}</span> : null}
+        </span>
+      </button>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5">
+        {entry.todo ? (
+          handed ? (
+            <span className="text-xs text-muted-foreground">
+              {handed === "done" ? "Ticked, planner told" : "Handed to the planner"}
+            </span>
+          ) : (
+            <>
+              <Button size="xs" variant="outline" onClick={done}>
+                Done
+              </Button>
+              {planner ? (
+                <Button size="xs" variant="ghost" onClick={toAgent}>
+                  Not mine
+                </Button>
+              ) : null}
+            </>
+          )
+        ) : null}
+        <Button size="xs" onClick={entry.onClick}>
+          {entry.badge === "Sheet done" ? "Open" : entry.badge}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+function Fold(props: {
+  readonly label: string;
+  readonly hint: string;
+  readonly entries: ReadonlyArray<Entry>;
+}) {
+  if (props.entries.length === 0) return null;
+  return (
+    <details className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+      <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2">
+        <span aria-hidden className="text-xs text-muted-foreground">
+          ▸
+        </span>
+        <DeskHeading>{props.label}</DeskHeading>
+        <span className="text-2xs text-muted-foreground">{props.hint}</span>
+      </summary>
+      <ul className="mt-2 flex flex-col gap-1">
+        {props.entries.map((entry) => (
+          <li key={entry.key}>
+            <button
+              type="button"
+              onClick={entry.onClick}
+              className="flex w-full min-w-0 cursor-pointer items-baseline gap-2 text-left text-sm hover:underline"
+            >
+              <Badge variant={entry.tone} size="sm" className="shrink-0">
+                {entry.badge}
+              </Badge>
+              <span className="min-w-0 truncate">{entry.title}</span>
+              <span className="min-w-0 flex-1 truncate text-2xs text-muted-foreground">
+                {[entry.app === OTHER ? null : entry.app, entry.ask ?? entry.meta]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
@@ -223,6 +293,7 @@ export function useNowEntries(props: NowInput): {
 } {
   const allSheets = useHubSheets();
   const sheets = sheetsToTest(allSheets, props.nowMs);
+  const work = props.notes?.work ?? {};
   const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
   const sheetApp = (sheet: SheetSummary) => {
     const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
@@ -230,7 +301,13 @@ export function useNowEntries(props: NowInput): {
     const title = sheet.title.toLowerCase();
     return props.apps.find((app) => title.includes(app.toLowerCase())) ?? OTHER;
   };
-  const chatEntry = (chat: CardChatState, lane: Lane, badge: string, tone: Tone): Entry => ({
+  const chatEntry = (
+    chat: CardChatState,
+    lane: Lane,
+    badge: string,
+    tone: Tone,
+    extra: Partial<Entry> & Pick<Entry, "mine">,
+  ): Entry => ({
     key: `chat:${chat.environmentId}:${chat.threadId}`,
     lane,
     app: appOfChat(chat),
@@ -239,6 +316,7 @@ export function useNowEntries(props: NowInput): {
     title: chatTitle(chat.title),
     meta: ago(props.nowMs, chat.since),
     onClick: () => props.onOpenChat(chat),
+    ...extra,
   });
   // A planner's to-do that points at a test sheet is the same work as the sheet's card: it shows
   // once, as the sheet with the ask on it, and opens where it's done.
@@ -268,26 +346,48 @@ export function useNowEntries(props: NowInput): {
   const entries: Entry[] = [
     ...props.chats
       .filter((chat) => chat.working)
-      .map((chat) => chatEntry(chat, "working", "Working", "info")),
+      .map((chat) =>
+        chatEntry(chat, "working", "Working", "info", {
+          mine: false,
+          fold: "agents",
+          ...(work[chat.threadId]?.next ? { ask: work[chat.threadId]?.next ?? "" } : {}),
+        }),
+      ),
     ...props.chats
       .filter((chat) => chat.needsYou)
       .map((chat) =>
         chatEntry(
           chat,
           "review",
-          chat.asking === "subagent approval"
-            ? "Subagent approval"
-            : chat.asking === "approval"
-              ? "Approve"
-              : chat.asking === "question"
-                ? "Answer"
-                : "Needs you",
+          chat.asking === "subagent approval" || chat.asking === "approval"
+            ? "Approve"
+            : chat.asking === "question"
+              ? "Answer"
+              : "Needs you",
           "warning",
+          { mine: true, minutes: 2, waiting: ago(props.nowMs, chat.since) },
         ),
       ),
+    // A finished turn is Rigo's only when the chat handed it to him ("next: Rigo: …"); otherwise
+    // it's news, folded with the agents' work, its next step in view so there's no need to open it.
     ...props.chats
-      .filter((chat) => !chat.needsYou && chat.column === "done")
-      .map((chat) => chatEntry(chat, "review", "Result", "success")),
+      .filter((chat) => !chat.needsYou && !chat.working && chat.column === "done")
+      .map((chat) => {
+        const next = work[chat.threadId]?.next ?? null;
+        const planner = work[chat.threadId]?.role === "planner";
+        return next && RIGO_NEXT.test(next) && !planner
+          ? chatEntry(chat, "review", "Read", "success", {
+              mine: true,
+              ask: next.replace(RIGO_NEXT, ""),
+              minutes: 2,
+              waiting: ago(props.nowMs, chat.since),
+            })
+          : chatEntry(chat, "review", "Finished", "secondary", {
+              mine: false,
+              fold: "agents",
+              ask: next ?? (planner ? "planner: its asks are on your queue" : "nothing asked"),
+            });
+      }),
     ...props.waiting.map((item): Entry => ({
       key: `item:${item.itemId}`,
       lane: "review",
@@ -296,24 +396,35 @@ export function useNowEntries(props: NowInput): {
       tone: item.lane === "Blocked" ? "error" : "info",
       title: deskTitle(item),
       meta: deskRef(item) ?? "",
+      mine: true,
       onClick: () => props.onOpenItem(item),
     })),
     ...sheets.map((sheet): Entry => {
       const { total, pass, fail, skip, blocked } = sheet.counts;
+      const retest = sheet.counts.retest ?? 0;
+      const left = uncheckedRows(sheet.counts);
       const asks = asksBySheet.get(sheet.id) ?? [];
+      const fresh = props.nowMs - Date.parse(sheet.updatedAt) < FRESH_SHEET_DAYS * DAY_MS;
+      const mine = retest > 0 || asks.length > 0 || fresh;
       return {
         key: `sheet:${sheet.id}`,
         lane: "test",
         app: appBySheet.get(sheet.id) ?? sheetApp(sheet),
-        badge: `${pass + fail + skip + blocked} of ${total}`,
-        tone: fail > 0 ? "error" : asks.length > 0 ? "warning" : "outline",
+        badge: retest > 0 ? "Retest" : "Test",
+        tone: retest > 0 || fail > 0 ? "error" : "warning",
         title: sheet.title,
-        meta: ago(props.nowMs, sheet.updatedAt),
-        ...(asks[0]
-          ? { ask: asks.length > 1 ? `${asks[0]} (+${asks.length - 1} more)` : asks[0] }
-          : {}),
+        meta: `${pass + fail + skip + blocked} of ${total} checked`,
+        ask:
+          retest > 0
+            ? `${retest} fixed ${retest === 1 ? "check" : "checks"} to re-test`
+            : asks[0]
+              ? `Planner asks: ${asks[0]}${asks.length > 1 ? ` (+${asks.length - 1} more)` : ""}`
+              : `${left} ${left === 1 ? "check" : "checks"} left`,
+        mine,
+        ...(mine ? { minutes: Math.max(2, retest > 0 ? retest : left) } : { fold: "sheets" }),
+        waiting: ago(props.nowMs, sheet.updatedAt),
         onClick: () => props.onOpenSheet(sheet),
-      };
+      } as Entry;
     }),
     ...props.prs
       .filter(
@@ -331,6 +442,8 @@ export function useNowEntries(props: NowInput): {
           tone: stage.tone,
           title: pr.title,
           meta: `${pr.repo.split("/").pop()}#${pr.number}`,
+          mine: true,
+          minutes: 2,
           onClick: () => props.onOpenPr(pr),
         };
       }),
@@ -341,8 +454,11 @@ export function useNowEntries(props: NowInput): {
     app: decision.app ?? OTHER,
     badge: "Decide",
     tone: "warning",
-    title: `${decision.app ?? "Planner"}: ${decision.question}`,
-    meta: decision.recommended ? `rec: ${decision.recommended}` : "",
+    title: decision.question,
+    meta: "",
+    ...(decision.recommended ? { ask: `Recommended: ${decision.recommended}` } : {}),
+    mine: true,
+    minutes: 1,
     onClick: () => props.onOpenDecision?.(decision),
   }));
   // A planner's line about an item or PR already listed shows once, as that row.
@@ -353,50 +469,30 @@ export function useNowEntries(props: NowInput): {
   const todos = (props.todos ?? [])
     .filter((todo) => !folded.has(todo))
     .filter((todo) => !todo.line.itemUrl || !listed.has(todo.line.itemUrl))
-    .map((todo): Entry => ({
-      key: `todo:${todo.threadId}:${todo.line.text}`,
-      lane: "review",
-      app: todo.app ?? OTHER,
-      badge: finished.has(todo) ? "Sheet done" : "To do",
-      tone: finished.has(todo) ? "success" : "warning",
-      title: todo.line.text,
-      meta: finished.has(todo)
-        ? "its sheet is finished: tell the planner it's done"
-        : "from the planner",
-      onClick: () => props.onOpenTodo?.(todo),
-    }));
+    .map((todo): Entry => {
+      const decide = /^decide\b/i.test(todo.line.text);
+      return {
+        key: `todo:${todo.threadId}:${todo.line.text}`,
+        lane: "review",
+        app: todo.app ?? OTHER,
+        badge: finished.has(todo) ? "Sheet done" : decide ? "Decide" : "Do",
+        tone: finished.has(todo) ? "success" : "warning",
+        title: todo.line.text,
+        meta: "",
+        ask: finished.has(todo)
+          ? "Its sheet is finished: press Done to tell the planner"
+          : (todo.line.why ?? "from the planner"),
+        mine: true,
+        ...(decide ? { minutes: 1 } : {}),
+        ...(todo.line.since ? { waiting: ago(props.nowMs, todo.line.since) } : {}),
+        todo,
+        onClick: () => props.onOpenTodo?.(todo),
+      };
+    });
   const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
-  return { entries: [...decisions, ...todos, ...entries], bumps };
-}
-
-function Row(props: {
-  readonly badge: string;
-  readonly tone: Tone;
-  readonly title: string;
-  readonly meta: string;
-  readonly ask?: string;
-  readonly onClick: () => void;
-}) {
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={props.onClick}
-        className="flex w-full min-w-0 cursor-pointer flex-col gap-1 rounded-md border border-border bg-card px-2.5 py-2 text-left hover:border-ring"
-      >
-        <span className="flex min-w-0 items-center gap-1.5">
-          <Badge variant={props.tone} size="sm">
-            {props.badge}
-          </Badge>
-          <span className="truncate text-2xs text-muted-foreground">{props.meta}</span>
-        </span>
-        <span className="line-clamp-2 text-sm">{props.title}</span>
-        {props.ask ? (
-          <span className="line-clamp-2 text-xs text-warning-foreground">
-            Planner asks: {props.ask}
-          </span>
-        ) : null}
-      </button>
-    </li>
-  );
+  const order = (entry: Entry) => VERB_ORDER[entry.badge] ?? 8;
+  return {
+    entries: [...decisions, ...todos, ...entries].toSorted((a, b) => order(a) - order(b)),
+    bumps,
+  };
 }

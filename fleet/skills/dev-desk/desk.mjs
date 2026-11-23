@@ -536,11 +536,16 @@ async function plan(action, rest) {
   }
   await changeNotes((doc, at) => {
     const mine = doc.work[threadId] ?? { items: [], next: null };
-    // Rigo's questions stay with their line across rewrites (matched by its text).
-    const before = new Map((mine.plan ?? []).map((line) => [line.text, line.qa ?? []]));
-    const plan = clean.map((line) =>
-      before.get(line.text)?.length ? { ...line, qa: before.get(line.text) } : line,
-    );
+    // Rigo's questions and when a line first appeared stay with it across rewrites (by its text).
+    const before = new Map((mine.plan ?? []).map((line) => [line.text, line]));
+    const plan = clean.map((line) => {
+      const old = before.get(line.text);
+      return {
+        ...line,
+        since: old?.since ?? (old ? (mine.planAt ?? at) : at),
+        ...(old?.qa?.length ? { qa: old.qa } : {}),
+      };
+    });
     doc.work[threadId] = { ...mine, plan, planAt: at, updatedAt: at };
   });
   console.log(

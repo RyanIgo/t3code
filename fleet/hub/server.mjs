@@ -484,6 +484,21 @@ async function handleArtifacts(pathname, req, res, login, owner) {
       send(res, 404, "No artifact here. It may have been removed.");
       return true;
     }
+    // An owner opening a sheet in its own tab lands on the Board's Test page (the sheet with its
+    // chat, terminal and the app beside it). Embedded copies and ?plain still get the bare sheet.
+    if (
+      owner &&
+      artifact.kind === "sheet" &&
+      req.headers["sec-fetch-dest"] === "document" &&
+      !new URL(req.url, "http://hub").searchParams.has("plain")
+    ) {
+      res.writeHead(302, {
+        location: `/board#desk=test&sheet=${artifact.id}`,
+        "cache-control": "no-store",
+      });
+      res.end();
+      return true;
+    }
     const body = artifactPage(artifact);
     res.writeHead(200, {
       "content-type": "text/html; charset=utf-8",

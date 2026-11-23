@@ -12,6 +12,7 @@ import {
   type DeskItem,
   currentSprint,
   groupWork,
+  itemByTitleRef,
   sprintOverview,
   chatTitle,
   summarizeApps,
@@ -373,4 +374,31 @@ it("names a chat's status, needing the user first", () => {
       .sort((a, b) => a.rank - b.rank)
       .map((status) => status.label),
   ).toEqual(["Needs you", "Checks failing", "Result ready", "Working", "Idle", "Idle"]);
+});
+
+describe("itemByTitleRef", () => {
+  const warehouse = item({
+    itemId: "w",
+    repo: "cfevans/cfe-data-warehouse",
+    number: 145,
+    url: "https://github.com/cfevans/cfe-data-warehouse/issues/145",
+  });
+  const bizdev = item({
+    itemId: "b",
+    repo: "cfevans/cfe-bizdev",
+    number: 129,
+    url: "https://github.com/cfevans/cfe-bizdev/issues/129",
+    pullRequests: [{ ...pr(145), url: "https://github.com/cfevans/cfe-bizdev/pull/145" }],
+  });
+
+  it("matches the repo the title names, not another repo's same number", () => {
+    const title = "Test sheet — PR cfe-bizdev #145 The whole site uses the light MUI frame";
+    expect(itemByTitleRef(title, [warehouse, bizdev])?.itemId).toBe("b");
+    expect(itemByTitleRef("cfe-data-warehouse#145 health", [bizdev, warehouse])?.itemId).toBe("w");
+    expect(itemByTitleRef("cfe-bizdev #145", [warehouse])).toBeNull();
+  });
+
+  it("takes a bare number from any repo", () => {
+    expect(itemByTitleRef("#145 health", [warehouse])?.itemId).toBe("w");
+  });
 });

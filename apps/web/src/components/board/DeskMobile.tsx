@@ -147,13 +147,13 @@ export function MobileNow(
   const [openNote, setOpenNote] = useState<InboxNote | null>(null);
   const { entries } = useNowEntries(props);
   const inApp = (entry: Entry) => app === null || entry.app === app;
-  const shown = entries.filter((entry) => entry.lane !== "working" && inApp(entry));
+  const shown = entries.filter((entry) => entry.mine && inApp(entry));
   const notes = inboxToSort(props.notes).filter(
     (note) => app === null || (note.proposal?.app ?? note.app) === app,
   );
   const count = (id: Tile) =>
     id === "notes" ? notes.length : shown.filter((entry) => entry.lane === id).length;
-  const working = entries.filter((entry) => entry.lane === "working" && inApp(entry)).length;
+  const working = entries.filter((entry) => !entry.mine && inApp(entry)).length;
   const list = shown
     .filter((entry) => tile === null || entry.lane === tile)
     .toSorted((a, b) => (LANE_ORDER[a.lane] ?? 9) - (LANE_ORDER[b.lane] ?? 9));
@@ -195,7 +195,7 @@ export function MobileNow(
         <h2 className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           <SmartphoneIcon className="size-3.5" aria-hidden />
           {tile ? TILES.find((entry) => entry.id === tile)?.label : "From your phone"}
-          {working > 0 ? ` · ${working} agents working` : ""}
+          {working > 0 ? ` · agents have ${working} more` : ""}
         </h2>
         <ul className="flex flex-col divide-y divide-border">
           {tile === null || tile === "notes"

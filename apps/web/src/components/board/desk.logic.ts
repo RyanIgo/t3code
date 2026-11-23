@@ -655,3 +655,29 @@ export function chatStatus(chat: CardChatState): ChatStatus {
   // The board's "queued" column is idle chats plus starting ones, which count as working above.
   return { label: "Idle", tone: "secondary", rank: 4 };
 }
+
+/**
+ * The item a title's "#<n>" names: an item's own number or one of its pull requests'. A repo
+ * written right before the number must match, so another repo's same number isn't taken.
+ */
+export function itemByTitleRef(title: string, items: ReadonlyArray<DeskItem>): DeskItem | null {
+  const refs = [...title.matchAll(/(?:([\w.-]+)\s?)?#(\d+)/g)].map((match) => ({
+    repo: match[1]?.toLowerCase() ?? null,
+    number: Number(match[2]),
+  }));
+  const repoName = (repo: string | null | undefined) => repo?.split("/").pop()?.toLowerCase();
+  const inRepo = (item: DeskItem, repo: string | null) =>
+    repo === null || !/^[a-z][\w.-]*-[\w.-]+$/.test(repo) || repoName(item.repo) === repo;
+  const open = items.filter((item) => item.state === "open" || item.state === "draft");
+  for (const list of [open, items]) {
+    for (const ref of refs) {
+      const found =
+        list.find(
+          (item) =>
+            inRepo(item, ref.repo) && item.pullRequests.some((pr) => pr.number === ref.number),
+        ) ?? list.find((item) => inRepo(item, ref.repo) && item.number === ref.number);
+      if (found) return found;
+    }
+  }
+  return null;
+}
