@@ -111,7 +111,7 @@ import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChatEmbedContext } from "./chat/ChatEmbedContext";
+import { ChatEmbedContext, ChatPeekContext } from "./chat/ChatEmbedContext";
 import { ReviewGuidePane } from "./review/ReviewGuidePane";
 import { isReviewWindow, lendAppMessageSender } from "./review/reviewWindow";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
@@ -3180,6 +3180,7 @@ export default function ChatView(props: ChatViewProps) {
   // Fleet fork: inside the Board's item window on a phone, the window already shows the title and
   // its own controls, so the screen-corner panel buttons and the chat's header would overlap it.
   const embeddedInDesk = use(ChatEmbedContext);
+  const peeking = use(ChatPeekContext);
   const panelLayoutControls = (
     <WorkspaceTitlebarControls
       showMaximizeControl={!shouldUsePlanSidebarSheet}
@@ -3889,7 +3890,7 @@ export default function ChatView(props: ChatViewProps) {
 
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
       <LinkPullRequestDialogHost />
-      <ThreadVisitWatermark threadRef={routeThreadRef} />
+      {peeking ? null : <ThreadVisitWatermark threadRef={routeThreadRef} />}
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>
   );

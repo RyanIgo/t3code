@@ -49,8 +49,9 @@ import { type PinChoice, PinMenu } from "./DeskPins";
 import type { DeskPr } from "./deskPrs.logic";
 import { StorySection } from "./DeskStory";
 import { DirectionPanel } from "./DeskDirection";
-import { ChatEmbedContext } from "../chat/ChatEmbedContext";
+import { ChatEmbedContext, ChatPeekContext } from "../chat/ChatEmbedContext";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { useAcknowledgeThreadWoke } from "../../hooks/useThreadActions";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { cn } from "../../lib/utils";
 import { sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
@@ -413,6 +414,8 @@ export function DeskModal(props: {
   const { item } = props;
   const notes = useDeskNotes().notes;
   const hubSheets = useHubSheets();
+  // The window only looks at a chat; Mark reviewed is what clears its "Result ready".
+  const acknowledge = useAcknowledgeThreadWoke();
   const [tab, setTab] = useState<ItemTab>(
     props.tab ?? firstTab(item, props.chat !== null || props.draft !== null),
   );
@@ -556,6 +559,20 @@ export function DeskModal(props: {
               Open in a new tab ↗
             </a>
           ) : null}
+          {shown && shown.column === "done" && !draft ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                acknowledge(
+                  scopeThreadRef(shown.environmentId as EnvironmentId, shown.threadId as ThreadId),
+                  new Date().toISOString(),
+                )
+              }
+            >
+              Mark reviewed
+            </Button>
+          ) : null}
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>
@@ -601,15 +618,17 @@ export function DeskModal(props: {
               )}
             >
               <ChatEmbedContext value>
-                {shown ? (
-                  <ChatView
-                    key={chatKeyOf(shown)}
-                    environmentId={shown.environmentId as EnvironmentId}
-                    threadId={shown.threadId as ThreadId}
-                    routeKind="server"
-                    reserveTitleBarControlInset={false}
-                  />
-                ) : null}
+                <ChatPeekContext value>
+                  {shown ? (
+                    <ChatView
+                      key={chatKeyOf(shown)}
+                      environmentId={shown.environmentId as EnvironmentId}
+                      threadId={shown.threadId as ThreadId}
+                      routeKind="server"
+                      reserveTitleBarControlInset={false}
+                    />
+                  ) : null}
+                </ChatPeekContext>
               </ChatEmbedContext>
             </section>
           </div>
@@ -773,34 +792,36 @@ export function DeskModal(props: {
                   ) : null}
                 </div>
                 <ChatEmbedContext value>
-                  {draft ? (
-                    <ChatView
-                      key={draft.draftId}
-                      environmentId={draft.environmentId}
-                      threadId={draft.threadId}
-                      routeKind="draft"
-                      draftId={draft.draftId}
-                      reserveTitleBarControlInset={false}
-                    />
-                  ) : shown ? (
-                    <ChatView
-                      key={chatKeyOf(shown)}
-                      environmentId={shown.environmentId as EnvironmentId}
-                      threadId={shown.threadId as ThreadId}
-                      routeKind="server"
-                      reserveTitleBarControlInset={false}
-                    />
-                  ) : (
-                    <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
-                      No T3 chat is working on this yet.
-                      {item ? (
-                        <ChatAboutButton
-                          onClick={() => props.onChat(item)}
-                          label="Start or link a chat"
-                        />
-                      ) : null}
-                    </div>
-                  )}
+                  <ChatPeekContext value>
+                    {draft ? (
+                      <ChatView
+                        key={draft.draftId}
+                        environmentId={draft.environmentId}
+                        threadId={draft.threadId}
+                        routeKind="draft"
+                        draftId={draft.draftId}
+                        reserveTitleBarControlInset={false}
+                      />
+                    ) : shown ? (
+                      <ChatView
+                        key={chatKeyOf(shown)}
+                        environmentId={shown.environmentId as EnvironmentId}
+                        threadId={shown.threadId as ThreadId}
+                        routeKind="server"
+                        reserveTitleBarControlInset={false}
+                      />
+                    ) : (
+                      <div className="m-auto flex max-w-sm flex-col items-center gap-3 p-6 text-center text-sm text-muted-foreground">
+                        No T3 chat is working on this yet.
+                        {item ? (
+                          <ChatAboutButton
+                            onClick={() => props.onChat(item)}
+                            label="Start or link a chat"
+                          />
+                        ) : null}
+                      </div>
+                    )}
+                  </ChatPeekContext>
                 </ChatEmbedContext>
               </section>
             ) : null}
