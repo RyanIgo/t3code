@@ -25,7 +25,8 @@ import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import type { DeskNotes } from "./deskNotes.logic";
 import { useSendToChat } from "./deskSend";
-import { type SheetSummary, useSheetDetail } from "./deskSheets";
+import { type SheetSummary, useSheetDetail, useSheetRelay } from "./deskSheets";
+import { openChatTerminal, ReviewAppCard } from "./DeskWork";
 import { uploadPicture } from "./deskStore";
 
 /** Sheets whose app was opened in the browser already, so a re-render doesn't open it again. */
@@ -93,35 +94,7 @@ export function TestPage(props: {
     .replace(/[*_`#]+/g, "");
   const appUrl = detail?.app?.url ?? null;
 
-  const openFromSheet = useEffectEvent((url: string) => void openInBrowser(url));
-  const relaySubmit = useEffectEvent((id: string | undefined, submitted: string) => {
-    const reply = (ok: boolean) =>
-      frame.current?.contentWindow?.postMessage({ type: "t3-page:result", id, ok }, "*");
-    if (!chat) {
-      reply(false);
-      return;
-    }
-    void sendToChat(
-      chat,
-      `Rigo submitted the test sheet "${title}":\n\n${submitted}\n\nRead the full results and his notes (t3-artifacts), fix what failed, tick the acceptance criteria that passed, then hand it back for a re-check or wrap up.`,
-    ).then(reply);
-  });
-  // The sheet in this page's frame hands its links and its Submit to this page: links open in the
-  // chat's browser, results go to the work chat. Nothing else's messages are listened to.
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- relays the embedded sheet's link clicks and Submit
-  useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      if (event.source !== frame.current?.contentWindow) return;
-      const message = event.data as { type?: string; id?: string; text?: string; url?: string };
-      if (message?.type === "t3-page:open" && typeof message.url === "string") {
-        openFromSheet(message.url);
-      } else if (message?.type === "t3-page:send" && typeof message.text === "string") {
-        relaySubmit(message.id, message.text);
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, []);
+  useSheetRelay(frame, chat, title, (url) => void openInBrowser(url));
 
   const openApp = useEffectEvent((url: string) => void openInBrowser(url));
   // The app under test opens in the browser once, when the page first shows this sheet.
@@ -208,47 +181,42 @@ export function TestPage(props: {
           </Button>
         ) : null}
       </div>
-      {detail?.app ? (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => detail.app && void openInBrowser(detail.app.url)}
-          >
-            {chat ? "Show the app in the browser" : "Open the app ↗"}
-          </Button>
-          {detail.app.start ? (
-            <>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => void navigator.clipboard.writeText(detail.app?.start ?? "")}
-              >
-                Copy start command
-              </Button>
-              {chat ? (
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() =>
-                    void sendToChat(
-                      chat,
-                      `The app for "${title}" isn't answering at ${detail.app?.url}. Start it again on ${detail.app?.machine ?? "its machine"} and tell me when it's up.`,
-                    )
-                  }
-                >
-                  App down? Ask the chat
-                </Button>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 
   const sheet: ReactNode = (
     <>
+      {detail?.app ? (
+        <div className="shrink-0 px-3 pt-3">
+          <ReviewAppCard
+            app={detail.app}
+            sheetTitle={title}
+            done={false}
+            chat={chat}
+            onOpenApp={(url) => void openInBrowser(url)}
+            onOpenChat={() => setConversation(true)}
+            onOpenTerminal={(target) => openChatTerminal(target)}
+            onAsk={(message) => {
+              if (!chat) return;
+              void sendToChat(chat, message).then((ok) =>
+                toastManager.add(
+                  ok
+                    ? { type: "success", title: "Asked the chat to start the app" }
+                    : { type: "error", title: "Couldn't reach the chat" },
+                ),
+              );
+            }}
+          />
+          {counts ? (
+            <p className="pt-2 text-xs text-muted-foreground">
+              {counts.pass} of {counts.total} passed
+              {counts.fail ? ` · ${counts.fail} failed` : ""}
+              {counts.blocked ? ` · ${counts.blocked} blocked` : ""}
+              {counts.total - checked ? ` · ${counts.total - checked} to check` : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
       {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
       <iframe
@@ -259,7 +227,7 @@ export function TestPage(props: {
         onLoad={() =>
           frame.current?.contentWindow?.postMessage({ type: "t3-host:opens-links" }, "*")
         }
-        className="min-h-0 w-full flex-1 border-0 bg-background"
+        className="mt-2 min-h-0 w-full flex-1 border-0 border-t border-border bg-background"
       />
       <section
         aria-label="Feedback to the work chat"

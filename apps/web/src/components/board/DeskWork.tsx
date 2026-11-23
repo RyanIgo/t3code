@@ -10,7 +10,7 @@ import {
   PlayIcon,
   SquareTerminalIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -38,6 +38,7 @@ import {
   testPageUrl,
   uncheckedRows,
   useSheetDetail,
+  useSheetRelay,
 } from "./deskSheets";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 
@@ -56,7 +57,7 @@ export function draftToChat(chat: CardChatState, text: string) {
 }
 
 /** Opens T3's terminal under a chat, in that chat's folder on its machine. */
-function openChatTerminal(chat: CardChatState) {
+export function openChatTerminal(chat: CardChatState) {
   useTerminalUiStateStore.getState().setTerminalOpen(refOf(chat), true);
 }
 
@@ -402,12 +403,15 @@ export function ReviewTab(props: {
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const sheet = props.sheets.find((entry) => entry.id === chosen) ?? props.sheets[0] ?? null;
+  const frame = useRef<HTMLIFrameElement>(null);
   const detail = useSheetDetail(sheet?.id ?? null);
   const done = props.item.status === "Done" || props.item.state !== "open";
   const sheetChat = sheet?.thread
     ? (props.allChats.find((chat) => chat.threadId === sheet.thread?.threadId) ?? null)
     : null;
   const chat = sheetChat ?? props.onChat;
+  // Submit on the sheet here goes to the work chat too, as on the Test page.
+  useSheetRelay(frame, chat, sheet?.title ?? "Test sheet");
   const ask = (text: string) => {
     if (!chat) return;
     draftToChat(chat, text);
@@ -441,20 +445,30 @@ export function ReviewTab(props: {
   const testUrl = testPageUrl(sheet.id);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-      {props.sheets.length > 1 ? (
-        <div className="flex flex-wrap items-center gap-1">
-          {props.sheets.map((entry) => (
-            <Button
-              key={entry.id}
-              size="xs"
-              variant={entry.id === sheet.id ? "secondary" : "ghost"}
-              onClick={() => setChosen(entry.id)}
-            >
-              <span className="max-w-64 truncate">{entry.title}</span>
-            </Button>
-          ))}
-        </div>
-      ) : null}
+      <div className="flex flex-wrap items-center gap-1 max-sm:hidden">
+        {props.sheets.length > 1
+          ? props.sheets.map((entry) => (
+              <Button
+                key={entry.id}
+                size="xs"
+                variant={entry.id === sheet.id ? "secondary" : "ghost"}
+                onClick={() => setChosen(entry.id)}
+              >
+                <span className="max-w-64 truncate">{entry.title}</span>
+              </Button>
+            ))
+          : null}
+        <span className="flex-1" />
+        {/* The Test page: this review on its own tab, with the app in T3's browser beside it. */}
+        <Button
+          size="sm"
+          variant="outline"
+          render={<a href={testUrl} target="_blank" rel="noopener" />}
+        >
+          <ExternalLinkIcon />
+          Open in a new tab
+        </Button>
+      </div>
       {incomplete ? (
         <section className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
           <p>
@@ -518,100 +532,129 @@ export function ReviewTab(props: {
         {sheet.counts.fail ? `, ${sheet.counts.fail} failed` : ""}.
       </p>
       {app ? (
-        <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm max-sm:hidden">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">App</span>
-            <a
-              href={app.url}
-              target="_blank"
-              rel="noopener"
-              className="min-w-0 truncate text-info-foreground underline-offset-2 hover:underline"
-            >
-              {app.url}
-            </a>
-            <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          </div>
-          {app.machine || app.start ? (
-            <p className="text-xs text-muted-foreground">
-              {app.machine ? `On ${app.machine}. ` : ""}
-              {app.start && !done ? "If it's down, start it with:" : ""}
-            </p>
-          ) : null}
-          {app.start && !done ? (
-            <div className="flex min-w-0 items-center gap-2">
-              <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
-                {app.start}
-              </code>
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => {
-                  void navigator.clipboard.writeText(app.start ?? "").then(
-                    () => toastManager.add({ type: "success", title: "Start command copied" }),
-                    () => undefined,
-                  );
-                }}
-              >
-                <CopyIcon />
-                Copy
-              </Button>
-            </div>
-          ) : null}
-          {chat && !done ? (
-            <div className="flex flex-wrap gap-2">
-              <Button size="xs" variant="outline" onClick={() => props.onOpenChat(chat)}>
-                <MessageSquareIcon />
-                Open chat
-              </Button>
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => {
-                  openChatTerminal(chat);
-                  props.onOpenChat(chat);
-                }}
-              >
-                <SquareTerminalIcon />
-                Open terminal
-              </Button>
-              <Button
-                size="xs"
-                onClick={() =>
-                  ask(
-                    `The app for "${sheet.title}" isn't answering at ${app.url}. Start it again${app.start ? ` (${app.start})` : ""}, check it answers, then tell me.`,
-                  )
-                }
-              >
-                <PlayIcon />
-                Ask the chat to start it
-              </Button>
-            </div>
-          ) : null}
-        </section>
+        <ReviewAppCard
+          app={app}
+          sheetTitle={sheet.title}
+          done={done}
+          chat={chat}
+          onOpenChat={props.onOpenChat}
+          onOpenTerminal={(target) => {
+            openChatTerminal(target);
+            props.onOpenChat(target);
+          }}
+          onAsk={ask}
+        />
       ) : null}
       <p className="text-xs text-muted-foreground">
         {sheet.counts.pass} of {sheet.counts.total} passed
         {sheet.counts.fail ? ` · ${sheet.counts.fail} failed` : ""}
         {sheet.counts.blocked ? ` · ${sheet.counts.blocked} blocked` : ""}
         {uncheckedRows(sheet.counts) ? ` · ${uncheckedRows(sheet.counts)} to check` : ""}
-        {" · "}
-        <a
-          href={testUrl}
-          target="_blank"
-          rel="noopener"
-          className="font-medium text-info-foreground underline-offset-2 hover:underline"
-        >
-          Open the Test page ↗
-        </a>
       </p>
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
       {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
       <iframe
+        ref={frame}
         key={sheet.id}
         title={sheet.title}
         src={`/a/${sheet.id}`}
         className="min-h-[32rem] w-full flex-1 rounded-lg border border-border bg-background max-sm:hidden"
       />
     </div>
+  );
+}
+
+/**
+ * Fleet fork: the running app under review: its address, the command that starts it again, and
+ * the work chat's way in (its conversation, its terminal on that machine, or asking it to start
+ * the app). The Review tab and the Test page both show it above the sheet.
+ */
+export function ReviewAppCard(props: {
+  readonly app: { readonly url: string; readonly start?: string; readonly machine?: string };
+  readonly sheetTitle: string;
+  /** The item is finished: no start command or asks. */
+  readonly done: boolean;
+  readonly chat: CardChatState | null;
+  /** Opens the app somewhere other than a new tab (the Test page's browser). */
+  readonly onOpenApp?: (url: string) => void;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onOpenTerminal: (chat: CardChatState) => void;
+  readonly onAsk: (text: string) => void;
+}) {
+  const { app, chat } = props;
+  return (
+    <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm max-sm:hidden">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">App</span>
+        {props.onOpenApp ? (
+          <button
+            type="button"
+            onClick={() => props.onOpenApp?.(app.url)}
+            className="min-w-0 cursor-pointer truncate text-start text-info-foreground underline-offset-2 hover:underline"
+          >
+            {app.url}
+          </button>
+        ) : (
+          <a
+            href={app.url}
+            target="_blank"
+            rel="noopener"
+            className="min-w-0 truncate text-info-foreground underline-offset-2 hover:underline"
+          >
+            {app.url}
+          </a>
+        )}
+        <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      </div>
+      {app.machine || app.start ? (
+        <p className="text-xs text-muted-foreground">
+          {app.machine ? `On ${app.machine}. ` : ""}
+          {app.start && !props.done ? "If it's down, start it with:" : ""}
+        </p>
+      ) : null}
+      {app.start && !props.done ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
+            {app.start}
+          </code>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => {
+              void navigator.clipboard.writeText(app.start ?? "").then(
+                () => toastManager.add({ type: "success", title: "Start command copied" }),
+                () => undefined,
+              );
+            }}
+          >
+            <CopyIcon />
+            Copy
+          </Button>
+        </div>
+      ) : null}
+      {chat && !props.done ? (
+        <div className="flex flex-wrap gap-2">
+          <Button size="xs" variant="outline" onClick={() => props.onOpenChat(chat)}>
+            <MessageSquareIcon />
+            Open chat
+          </Button>
+          <Button size="xs" variant="outline" onClick={() => props.onOpenTerminal(chat)}>
+            <SquareTerminalIcon />
+            Open terminal
+          </Button>
+          <Button
+            size="xs"
+            onClick={() =>
+              props.onAsk(
+                `The app for "${props.sheetTitle}" isn't answering at ${app.url}. Start it again${app.start ? ` (${app.start})` : ""}, check it answers, then tell me.`,
+              )
+            }
+          >
+            <PlayIcon />
+            Ask the chat to start it
+          </Button>
+        </div>
+      ) : null}
+    </section>
   );
 }

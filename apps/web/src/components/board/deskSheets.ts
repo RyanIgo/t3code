@@ -3,9 +3,11 @@
  * item by the story sheet the Desk made for it, a "#<n>" in its title that names the item or one
  * of its pull requests, or the chat recorded on the item having published it.
  */
-import { useEffect, useState } from "react";
+import { type RefObject, useEffect, useEffectEvent, useState } from "react";
 
+import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem } from "./desk.logic";
+import { useSendToChat } from "./deskSend";
 import { type DeskNotes, focusedThreads } from "./deskNotes.logic";
 
 interface SheetCounts {
@@ -201,3 +203,43 @@ export const testPageUrl = (sheetId: string) =>
     `/board#desk=test&sheet=${encodeURIComponent(sheetId)}`,
     window.location.origin,
   ).toString();
+
+/**
+ * The sheet in `frame` hands its page its Submit (results go to the work chat) and, when
+ * `onOpenLink` is given, its link clicks. Nothing else's messages are listened to.
+ */
+export function useSheetRelay(
+  frame: RefObject<HTMLIFrameElement | null>,
+  chat: CardChatState | null,
+  title: string,
+  onOpenLink?: (url: string) => void,
+) {
+  const sendToChat = useSendToChat();
+  const openLink = useEffectEvent((url: string) => onOpenLink?.(url));
+  const relaySubmit = useEffectEvent((id: string | undefined, submitted: string) => {
+    const reply = (ok: boolean) =>
+      frame.current?.contentWindow?.postMessage({ type: "t3-page:result", id, ok }, "*");
+    if (!chat) {
+      reply(false);
+      return;
+    }
+    void sendToChat(
+      chat,
+      `Rigo submitted the test sheet "${title}":\n\n${submitted}\n\nRead the full results and his notes (t3-artifacts), fix what failed, tick the acceptance criteria that passed, then hand it back for a re-check or wrap up.`,
+    ).then(reply);
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- relays the embedded sheet's link clicks and Submit
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.source !== frame.current?.contentWindow) return;
+      const message = event.data as { type?: string; id?: string; text?: string; url?: string };
+      if (message?.type === "t3-page:open" && typeof message.url === "string") {
+        openLink(message.url);
+      } else if (message?.type === "t3-page:send" && typeof message.text === "string") {
+        relaySubmit(message.id, message.text);
+      }
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [frame]);
+}

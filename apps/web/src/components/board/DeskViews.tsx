@@ -54,7 +54,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAcknowledgeThreadWoke } from "../../hooks/useThreadActions";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { cn } from "../../lib/utils";
-import { sheetsForItem, uncheckedRows, useHubSheets } from "./deskSheets";
+import { sheetsForItem, testPageUrl, uncheckedRows, useHubSheets } from "./deskSheets";
 import { WrapUpPanel } from "./DeskWrapUp";
 import { OnItRow, ReviewTab, WorkPanel } from "./DeskWork";
 
@@ -551,7 +551,12 @@ export function DeskModal(props: {
           </div>
           {item?.url ? (
             <a
-              href={`/board#${new URLSearchParams({ desk: "item", url: item.url, tab }).toString()}`}
+              // On Review it opens the Test page (the review with the app in T3's browser beside it).
+              href={
+                tab === "review" && sheets[0]
+                  ? testPageUrl(sheets[0].id)
+                  : `/board#${new URLSearchParams({ desk: "item", url: item.url, tab }).toString()}`
+              }
               target="_blank"
               rel="noopener"
               className="shrink-0 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline max-sm:hidden"
