@@ -50,7 +50,7 @@ export function artifactThemeHead(): string {
 export function artifactSheetHtml(): string {
   return injectHtmlRenderBootstrap(`<!doctype html><html><head><title>Test sheet</title>
 <style>${SHEET_CSS}</style></head><body>
-<header><h1 id="title"></h1>
+<header><div class="in-t3" id="in-t3" hidden><span>Test this in T3: the app in T3's browser beside the sheet, the chat that built it, and its terminal on that machine.</span><a id="test-page" href="#">Open the Test page →</a></div><h1 id="title"></h1>
 <section class="app" id="app" hidden><div class="app-line"><span class="label">App</span><a id="app-link" href="#"></a></div>
 <div class="app-line" id="start-line" hidden><span class="label" id="start-label">If it doesn't load, start it:</span><code id="start"></code><button type="button" id="copy">Copy</button></div></section>
 <p class="intro" id="intro"></p><p class="tally" id="tally"></p>
@@ -118,7 +118,11 @@ footer .quiet{font:inherit;font-size:12px;border:1px solid var(--border);border-
 .badge{display:inline-block;margin-left:6px;font-size:11px;font-weight:600;border-radius:4px;padding:0 6px;background:var(--primary);color:var(--primary-foreground);vertical-align:1px}
 .fixed{margin-top:6px;font-size:13px;border-left:3px solid var(--primary);padding:2px 0 2px 8px;white-space:pre-wrap}
 .before{margin-top:4px;font-size:12px;color:var(--muted-foreground)}
-.row.flash{outline:2px solid var(--primary)}`;
+.row.flash{outline:2px solid var(--primary)}
+.in-t3{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--radius,8px);background:var(--card);padding:8px 12px;margin:0 0 10px;font-size:13px}
+.in-t3[hidden]{display:none}
+.in-t3 span{flex:1 1 280px;color:var(--muted-foreground)}
+.in-t3 a{font-weight:600;white-space:nowrap}`;
 
 // Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`. A host page
 // that says it opens links (the Board's Test page) gets each link click, to show in its browser.
@@ -134,6 +138,8 @@ try{navigator.clipboard.writeText(a.app.start).then(function(){b.textContent="Co
 function linkify(el,text){var re=/https?:\\/\\/[^\\s<>"')\\]]+/g,i=0,m;while((m=re.exec(text))){if(m.index>i)el.appendChild(document.createTextNode(text.slice(i,m.index)));var x=document.createElement("a");x.href=m[0];x.target="_blank";x.rel="noopener";x.textContent=short(m[0]);el.appendChild(x);i=m.index+m[0].length;}if(i<text.length)el.appendChild(document.createTextNode(text.slice(i)));}
 function st(id){var s=a.state&&a.state.rows;return(s&&s[id])||{};}
 var hosted=window.parent!==window,onlyRetests=null;
+// Opened on its own (a link from a chat): point to the Board's Test page, where T3 hosts it with a terminal and browser.
+if(!hosted&&/^https?:/.test(location.protocol+"//")){var tp=document.getElementById("test-page");tp.href=location.origin+"/board#desk=test&sheet="+encodeURIComponent(a.id);document.getElementById("in-t3").hidden=false;}
 function retestsLeft(){return rows.filter(function(r){return r.retest&&!st(r.id).status;}).length;}
 function tally(){var c={pass:0,fail:0,skip:0,blocked:0},d=0;rows.forEach(function(r){var s=st(r.id).status;if(s){c[s]++;d++;}});var open=rows.length-d,rl=retestsLeft();
 document.getElementById("tally").textContent=d+" of "+rows.length+" done · "+c.pass+" passed · "+c.fail+" failed"+(c.blocked?" · "+c.blocked+" blocked":"")+(c.skip?" · "+c.skip+" skipped":"");
