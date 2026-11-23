@@ -218,7 +218,7 @@ export function MobileNow(
                   key={entry.key}
                   tone={entry.tone}
                   title={entry.title}
-                  detail={[app === null ? entry.app : null, entry.badge, entry.meta]
+                  detail={[app === null ? entry.app : null, entry.badge, entry.meta, entry.ask]
                     .filter(Boolean)
                     .join(" · ")}
                   onClick={entry.onClick}
@@ -241,7 +241,7 @@ export function MobileNow(
                 key={entry.key}
                 tone={entry.tone}
                 title={entry.title}
-                detail={[app === null ? entry.app : null, entry.badge, entry.meta]
+                detail={[app === null ? entry.app : null, entry.badge, entry.meta, entry.ask]
                   .filter(Boolean)
                   .join(" · ")}
                 onClick={entry.onClick}

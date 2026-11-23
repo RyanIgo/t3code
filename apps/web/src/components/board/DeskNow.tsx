@@ -11,9 +11,9 @@ import type { PlannerDecision, PlannerTodo } from "./deskNotes.logic";
 
 const SHEET_DAYS = 14;
 
-/** Test sheets on the hub with unchecked rows, changed in the last two weeks, newest first. */
-function useSheetsToTest(nowMs: number): SheetSummary[] {
-  return useHubSheets()
+/** Test sheets with unchecked rows, changed in the last two weeks, newest first. */
+function sheetsToTest(all: ReadonlyArray<SheetSummary>, nowMs: number): SheetSummary[] {
+  return all
     .filter(
       (sheet) =>
         uncheckedRows(sheet.counts) > 0 &&
@@ -53,6 +53,8 @@ export interface Entry {
   readonly tone: Tone;
   readonly title: string;
   readonly meta: string;
+  /** What the planner asked of Rigo about this (its to-do, folded into this card). */
+  readonly ask?: string;
   readonly onClick: () => void;
 }
 
@@ -198,6 +200,7 @@ export function NowView(props: {
                           tone={entry.tone}
                           title={entry.title}
                           meta={entry.meta}
+                          {...(entry.ask ? { ask: entry.ask } : {})}
                           onClick={entry.onClick}
                         />
                       ))}
@@ -218,7 +221,8 @@ export function useNowEntries(props: NowInput): {
   readonly entries: ReadonlyArray<Entry>;
   readonly bumps: number;
 } {
-  const sheets = useSheetsToTest(props.nowMs);
+  const allSheets = useHubSheets();
+  const sheets = sheetsToTest(allSheets, props.nowMs);
   const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
   const sheetApp = (sheet: SheetSummary) => {
     const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
@@ -236,6 +240,31 @@ export function useNowEntries(props: NowInput): {
     meta: ago(props.nowMs, chat.since),
     onClick: () => props.onOpenChat(chat),
   });
+  // A planner's to-do that points at a test sheet is the same work as the sheet's card: it shows
+  // once, as the sheet with the ask on it, and opens where it's done.
+  const sheetOf = (todo: PlannerTodo) =>
+    allSheets.find((sheet) =>
+      [...(todo.line.links ?? []), todo.line.how ?? "", todo.line.text].some((text) =>
+        text.includes(sheet.id),
+      ),
+    ) ?? null;
+  const asksBySheet = new Map<string, string[]>();
+  const appBySheet = new Map<string, string>();
+  const folded = new Set<PlannerTodo>();
+  // A to-do about a sheet that's finished is likely done: say so instead of asking again.
+  const finished = new Set<PlannerTodo>();
+  for (const todo of props.todos ?? []) {
+    const sheet = sheetOf(todo);
+    if (!sheet) continue;
+    if (uncheckedRows(sheet.counts) === 0) {
+      finished.add(todo);
+      continue;
+    }
+    if (!sheets.some((entry) => entry.id === sheet.id)) continue;
+    asksBySheet.set(sheet.id, [...(asksBySheet.get(sheet.id) ?? []), todo.line.text]);
+    if (todo.app) appBySheet.set(sheet.id, todo.app);
+    folded.add(todo);
+  }
   const entries: Entry[] = [
     ...props.chats
       .filter((chat) => chat.working)
@@ -271,14 +300,18 @@ export function useNowEntries(props: NowInput): {
     })),
     ...sheets.map((sheet): Entry => {
       const { total, pass, fail, skip, blocked } = sheet.counts;
+      const asks = asksBySheet.get(sheet.id) ?? [];
       return {
         key: `sheet:${sheet.id}`,
         lane: "test",
-        app: sheetApp(sheet),
+        app: appBySheet.get(sheet.id) ?? sheetApp(sheet),
         badge: `${pass + fail + skip + blocked} of ${total}`,
-        tone: fail > 0 ? "error" : "outline",
+        tone: fail > 0 ? "error" : asks.length > 0 ? "warning" : "outline",
         title: sheet.title,
         meta: ago(props.nowMs, sheet.updatedAt),
+        ...(asks[0]
+          ? { ask: asks.length > 1 ? `${asks[0]} (+${asks.length - 1} more)` : asks[0] }
+          : {}),
         onClick: () => props.onOpenSheet(sheet),
       };
     }),
@@ -318,15 +351,18 @@ export function useNowEntries(props: NowInput): {
     ...props.prs.flatMap((pr) => [pr.url, pr.item?.url]),
   ]);
   const todos = (props.todos ?? [])
+    .filter((todo) => !folded.has(todo))
     .filter((todo) => !todo.line.itemUrl || !listed.has(todo.line.itemUrl))
     .map((todo): Entry => ({
       key: `todo:${todo.threadId}:${todo.line.text}`,
       lane: "review",
       app: todo.app ?? OTHER,
-      badge: "To do",
-      tone: "warning",
+      badge: finished.has(todo) ? "Sheet done" : "To do",
+      tone: finished.has(todo) ? "success" : "warning",
       title: todo.line.text,
-      meta: "from the planner",
+      meta: finished.has(todo)
+        ? "its sheet is finished: tell the planner it's done"
+        : "from the planner",
       onClick: () => props.onOpenTodo?.(todo),
     }));
   const bumps = props.prs.filter((pr) => pr.stage === "ready" && isDependencyUpdate(pr)).length;
@@ -338,6 +374,7 @@ function Row(props: {
   readonly tone: Tone;
   readonly title: string;
   readonly meta: string;
+  readonly ask?: string;
   readonly onClick: () => void;
 }) {
   return (
@@ -354,6 +391,11 @@ function Row(props: {
           <span className="truncate text-2xs text-muted-foreground">{props.meta}</span>
         </span>
         <span className="line-clamp-2 text-sm">{props.title}</span>
+        {props.ask ? (
+          <span className="line-clamp-2 text-xs text-warning-foreground">
+            Planner asks: {props.ask}
+          </span>
+        ) : null}
       </button>
     </li>
   );
