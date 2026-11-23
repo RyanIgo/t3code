@@ -3,6 +3,7 @@
  * the work's progress by feature, under the goal and a schedule that folds to one line.
  */
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { ImagePlusIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import ChatView from "../ChatView";
@@ -39,6 +40,7 @@ import {
   waitingReports,
 } from "./deskNotes.logic";
 import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
+import { uploadPicture } from "./deskStore";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
 import { useSendToChat } from "./deskSend";
@@ -119,6 +121,30 @@ function TodoDetails(props: {
 }) {
   const { line } = props;
   const [question, setQuestion] = useState("");
+  const [uploading, setUploading] = useState(0);
+  // Screenshots go to the hub and into the question as markdown, so the planner can open them.
+  const attach = async (files: ReadonlyArray<File>) => {
+    const images = files.filter((entry) => entry.type.startsWith("image/"));
+    if (images.length === 0) return;
+    setUploading((count) => count + images.length);
+    for (const image of images) {
+      try {
+        const url = await uploadPicture(image);
+        setQuestion(
+          (current) =>
+            `${current}${current && !current.endsWith("\n") ? "\n" : ""}![${image.name || "screenshot"}](${url})\n`,
+        );
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: "Couldn't attach the screenshot",
+          description: error instanceof Error ? error.message : String(error),
+        });
+      } finally {
+        setUploading((count) => count - 1);
+      }
+    }
+  };
   const links = [...new Set([...(line.links ?? []), ...(line.itemUrl ? [line.itemUrl] : [])])];
   const thin = !line.why || !line.how;
   const ask = (text: string) => {
@@ -182,7 +208,9 @@ function TodoDetails(props: {
           <ol className="flex flex-col gap-2">
             {(line.qa ?? []).map((entry) => (
               <li key={entry.at} className="flex flex-col gap-1">
-                <span className="self-end rounded-xl bg-muted px-3 py-1.5 text-sm">{entry.q}</span>
+                <div className="max-w-[85%] self-end rounded-xl bg-muted px-3 py-1.5 text-sm [&_img]:max-h-60 [&_img]:rounded-md">
+                  <ChatMarkdown text={entry.q} cwd={undefined} />
+                </div>
                 {entry.a ? (
                   <div className="rounded-xl border border-border px-3 py-1.5">
                     <span className="text-2xs font-semibold text-muted-foreground">Planner</span>
@@ -221,9 +249,23 @@ function TodoDetails(props: {
           id={`todo-question-${line.text.length}`}
           rows={2}
           autoFocus={props.focusQuestion}
-          placeholder="Ask about this to-do: what's unclear, what you'd need, what you'd change."
+          placeholder="Ask about this to-do: what's unclear, what you'd need, what you'd change. Paste or drop a screenshot to show it."
           value={question}
           onChange={(event) => setQuestion(event.target.value)}
+          onPaste={(event) => {
+            const files = [...event.clipboardData.files];
+            if (files.some((entry) => entry.type.startsWith("image/"))) {
+              event.preventDefault();
+              void attach(files);
+            }
+          }}
+          onDrop={(event) => {
+            const files = [...event.dataTransfer.files];
+            if (files.length > 0) {
+              event.preventDefault();
+              void attach(files);
+            }
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
               event.preventDefault();
@@ -237,10 +279,27 @@ function TodoDetails(props: {
           Done
         </Button>
         <span className="flex-1" />
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs hover:bg-accent">
+          <ImagePlusIcon className="size-3.5" aria-hidden />
+          Add screenshot
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            className="sr-only"
+            onChange={(event) => {
+              void attach([...(event.target.files ?? [])]);
+              event.target.value = "";
+            }}
+          />
+        </label>
+        {uploading > 0 ? (
+          <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
+        ) : null}
         <Button
           size="sm"
           variant="outline"
-          disabled={!question.trim()}
+          disabled={!question.trim() || uploading > 0}
           onClick={() => ask(question)}
         >
           Ask the planner
@@ -1127,7 +1186,7 @@ function useNeedRows(input: NeedInput): Need[] {
         savePlanLineQuestion(planner.threadId, line.text, text);
         void sendToChat(
           planner,
-          `Rigo asks about your line "${line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.`,
+          `Rigo asks about your line "${line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.${text.includes("](http") ? " His question has screenshots: download each link (curl -o) and look at it before answering." : ""}`,
         );
         toastManager.add({
           type: "info",

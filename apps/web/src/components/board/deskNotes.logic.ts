@@ -569,7 +569,7 @@ function readPlan(value: unknown): PlanLine[] | null {
             .flatMap((raw: unknown) => {
               if (typeof raw !== "object" || raw === null) return [];
               const entry = raw as Record<string, unknown>;
-              const q = short(entry.q, 2000);
+              const q = short(entry.q, 4000);
               if (!q || typeof entry.at !== "string") return [];
               return [
                 {
