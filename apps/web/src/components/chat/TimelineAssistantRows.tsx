@@ -190,28 +190,31 @@ function AssistantMessageMeta({
   const ctx = use(TimelineRowCtx);
 
   return (
-    <div
-      className={cn(
-        "flex items-center gap-2 text-xs tabular-nums transition-opacity duration-200",
-        alwaysVisible
-          ? "opacity-100"
-          : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
-        className,
-      )}
-    >
-      {projectedItem && projectedItem.item.status !== "completed" ? (
-        <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
-          {projectedItem.item.status}
-        </span>
-      ) : null}
-      <AssistantCopyButton
-        message={message}
-        showCopyButton={showCopyButton}
-        streaming={copyStreaming}
-      />
-      {projectedItem?.item.type === "assistant_message" ? (
-        <AssistantForkButton projectedItem={projectedItem} />
-      ) : null}
+    <div className={cn("flex items-center gap-2 text-xs tabular-nums", className)}>
+      {/* Fleet fork: the time stays in view on every reply, like a chat app; the actions wait
+          for hover except on a turn's last reply. */}
+      <span
+        className={cn(
+          "flex items-center gap-2 transition-opacity duration-200",
+          alwaysVisible
+            ? "opacity-100"
+            : "opacity-0 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover/assistant:opacity-100",
+        )}
+      >
+        {projectedItem && projectedItem.item.status !== "completed" ? (
+          <span className="rounded-full border border-border/70 px-1.5 py-0.5 font-mono text-3xs text-muted-foreground">
+            {projectedItem.item.status}
+          </span>
+        ) : null}
+        <AssistantCopyButton
+          message={message}
+          showCopyButton={showCopyButton}
+          streaming={copyStreaming}
+        />
+        {projectedItem?.item.type === "assistant_message" ? (
+          <AssistantForkButton projectedItem={projectedItem} />
+        ) : null}
+      </span>
       {!message.streaming && (
         <Tooltip>
           <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
