@@ -936,7 +936,7 @@ function useNeedRows(input: NeedInput): Need[] {
       );
     }
   }
-  const { answer, tellMore } = useDecisionActions(input.planner, input.app);
+  const { answer, tellMore, reply } = useDecisionActions(input.planner, input.app);
   // Notes Rigo took about this app: sort them, or approve where triage says they go.
   for (const note of Object.values(input.notes.inbox)) {
     if (note.state !== "new" && note.state !== "proposed") continue;
@@ -1033,6 +1033,10 @@ function useNeedRows(input: NeedInput): Need[] {
             }}
             onTellMore={() => {
               tellMore(decision);
+              askedPlanner(decision.id);
+            }}
+            onReply={(asked, note) => {
+              reply(asked, note);
               askedPlanner(decision.id);
             }}
           />

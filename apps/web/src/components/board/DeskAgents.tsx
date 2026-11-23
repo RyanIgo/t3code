@@ -34,7 +34,6 @@ import { useSendToChat } from "./deskSend";
 import { type SheetSummary, useHubSheets } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
 import ChatMarkdown from "../ChatMarkdown";
-import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
@@ -375,6 +374,10 @@ export function useDecisionActions(planner: CardChatState | null, app: string) {
       }
       send(`Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`);
     },
+    reply: (decision: PlannerDecision, note: string) =>
+      send(
+        `About "${decision.question}" (not answering yet): ${note}\n\nTake this into account and update that decision (desk.mjs decide --id ${decision.id}) if it changes the options, the background or your recommendation. Reply here in one line.`,
+      ),
     tellMore: (decision: PlannerDecision) =>
       send(
         `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
@@ -423,7 +426,7 @@ export function PlanPane(props: {
       props.notes,
       (url) => props.items.find((item) => item.url === url)?.app ?? null,
     ).get(props.planner.threadId)?.length ?? 0;
-  const { answer, tellMore } = useDecisionActions(props.planner, props.app);
+  const { answer, tellMore, reply } = useDecisionActions(props.planner, props.app);
   const day = 86_400_000;
   const daysLeft = Math.max(
     0,
@@ -549,6 +552,7 @@ export function PlanPane(props: {
               onOpenChat={props.onOpenChat}
               onAnswer={answer}
               onTellMore={() => tellMore(decision)}
+              onReply={reply}
             />
           ))}
           {decided.length > 0 ? (
@@ -953,10 +957,21 @@ export function DecisionCard(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
   readonly onTellMore: () => void;
+  /** Sends the note to the planner without answering yet. */
+  readonly onReply?: (decision: PlannerDecision, note: string) => void;
 }) {
+  const { decision } = props;
   const [note, setNote] = useState("");
   const [asked, setAsked] = useState(false);
-  const { decision } = props;
+  // The recommended option starts picked; nothing is sent until Rigo presses Send.
+  const [choice, setChoice] = useState<string | null>(
+    decision.recommended && decision.options.includes(decision.recommended)
+      ? decision.recommended
+      : null,
+  );
+  const send = () => {
+    if (choice) props.onAnswer(decision, choice, note.trim() || null);
+  };
   const links = [...new Set([...(decision.itemUrl ? [decision.itemUrl] : []), ...decision.links])];
   const outcomeOf = (option: string) =>
     decision.outcomes.find((entry) => entry.option === option) ?? null;
@@ -993,59 +1008,101 @@ export function DecisionCard(props: {
           ))}
         </div>
       ) : null}
-      {decision.outcomes.length > 0 ? (
-        <details className="text-xs">
-          <summary className="cursor-pointer text-muted-foreground">What each option does</summary>
-          <ul className="flex flex-col gap-1 pt-1">
-            {decision.outcomes.map((outcome) => (
-              <li key={outcome.option}>
-                <b>{outcome.option}:</b> {outcome.effect}{" "}
+      <section aria-label="Your answer" className="flex flex-col gap-2 border-t border-border pt-3">
+        <DeskHeading>Your answer</DeskHeading>
+        <div role="radiogroup" aria-label={decision.question} className="flex flex-col gap-1.5">
+          {decision.options.map((option) => {
+            const outcome = outcomeOf(option);
+            const picked = choice === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={picked}
+                onClick={() => setChoice(option)}
+                className={cn(
+                  "flex cursor-pointer items-start gap-2.5 rounded-lg border px-3 py-2 text-start",
+                  picked ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                )}
+              >
                 <span
-                  className={
-                    outcome.undoable ? "text-muted-foreground" : "font-medium text-destructive"
-                  }
+                  aria-hidden
+                  className={cn(
+                    "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
+                    picked ? "border-primary" : "border-muted-foreground/50",
+                  )}
                 >
-                  {outcome.undoable ? "(can be undone)" : "(can't be undone)"}
+                  {picked ? <span className="size-2 rounded-full bg-primary" /> : null}
                 </span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
-      <div className="flex flex-wrap gap-1.5">
-        {decision.options.map((option) => (
-          <Button
-            key={option}
-            size="xs"
-            variant={option === decision.recommended ? "default" : "outline"}
-            onClick={() => props.onAnswer(decision, option, note)}
-          >
-            {option}
-            {option === decision.recommended ? " · rec" : ""}
-            {outcomeOf(option)?.undoable === false ? " · can't undo" : ""}
-          </Button>
-        ))}
-      </div>
-      <div className="flex items-center gap-1.5">
-        <Input
-          aria-label="Note with your answer"
-          size="sm"
-          placeholder="Note with your answer (optional)"
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
+                    {option}
+                    {option === decision.recommended ? (
+                      <Badge variant="info" size="sm">
+                        Recommended
+                      </Badge>
+                    ) : null}
+                    {outcome?.undoable === false ? (
+                      <Badge variant="error" size="sm">
+                        Can't be undone
+                      </Badge>
+                    ) : null}
+                  </span>
+                  {outcome ? (
+                    <span className="text-xs text-muted-foreground">{outcome.effect}</span>
+                  ) : null}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <label htmlFor={`decision-note-${decision.id}`} className="text-xs font-medium">
+          {decision.goalFor
+            ? "Your wording for the goal (optional)"
+            : "Add context for the planner (optional)"}
+        </label>
+        <Textarea
+          id={`decision-note-${decision.id}`}
+          rows={3}
+          placeholder="Anything the planner should know with your answer: what you heard, what to watch out for, who to ask."
           value={note}
           onChange={(event) => setNote(event.target.value)}
-        />
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={asked}
-          onClick={() => {
-            props.onTellMore();
-            setAsked(true);
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              send();
+            }
           }}
-        >
-          {asked ? "Asked" : "Tell me more"}
-        </Button>
-      </div>
+        />
+        {/* Stays in view at the bottom of a long card, so sending never needs a scroll. */}
+        <div className="sticky bottom-0 -mx-2.5 -mb-2.5 flex flex-wrap items-center gap-2 rounded-b-lg border-t border-border bg-card px-2.5 py-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={asked}
+            onClick={() => {
+              props.onTellMore();
+              setAsked(true);
+            }}
+          >
+            {asked ? "Asked for more" : "Tell me more first"}
+          </Button>
+          <span className="flex-1" />
+          {props.onReply && note.trim() ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => props.onReply?.(decision, note.trim())}
+            >
+              Send the note, decide later
+            </Button>
+          ) : null}
+          <Button size="sm" disabled={!choice} onClick={send}>
+            {choice ? `Send: ${choice}` : "Pick an option"}
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }
