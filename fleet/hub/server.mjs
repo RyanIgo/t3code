@@ -857,6 +857,69 @@ async function handleDesk(pathname, req, res) {
   return false;
 }
 
+// Machine updates: Rigo (or an agent) asks every machine to pull the fleet's latest; each
+// machine's updater (fleet/updater.mjs, on a timer) sees the request, pulls, refreshes its
+// skills without restarting T3, and reports what it runs. Nothing here restarts anything.
+const UPDATES_FILE = NodePath.join(DATA_ROOT, "fleet-updates.json");
+let updatesQueue = Promise.resolve();
+
+async function readUpdates() {
+  try {
+    return JSON.parse(await NodeFSP.readFile(UPDATES_FILE, "utf8"));
+  } catch {
+    return { request: null, machines: {} };
+  }
+}
+
+function changeUpdates(change) {
+  const run = async () => {
+    const state = await readUpdates();
+    change(state, new Date().toISOString());
+    await NodeFSP.writeFile(UPDATES_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+    return state;
+  };
+  return (updatesQueue = updatesQueue.then(run, run));
+}
+
+const text = (value, max) => (typeof value === "string" ? value.slice(0, max) : null);
+
+async function handleUpdates(pathname, req, res, login) {
+  if (pathname === "/fleet/updates" && req.method === "GET") {
+    send(res, 200, await readUpdates());
+    return true;
+  }
+  if (pathname === "/fleet/updates/request" && req.method === "POST") {
+    const state = await changeUpdates((next, at) => {
+      next.request = { id: NodeCrypto.randomBytes(4).toString("hex"), at, by: login };
+    });
+    send(res, 200, state);
+    return true;
+  }
+  if (pathname === "/fleet/updates/report" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const machine = text(body?.machine, 80);
+    if (!machine) return (send(res, 400, { error: "machine required" }), true);
+    const state = await changeUpdates((next, at) => {
+      next.machines[machine] = {
+        machine,
+        os: text(body.os, 40),
+        commit: text(body.commit, 40),
+        subject: text(body.subject, 200),
+        branch: text(body.branch, 120),
+        requestDone: text(body.requestDone, 40),
+        result: text(body.result, 600),
+        ok: body.ok === true,
+        clientBehind: body.clientBehind === true,
+        seenAt: at,
+        updatedAt: text(body.updatedAt, 40),
+      };
+    });
+    send(res, 200, { request: state.request });
+    return true;
+  }
+  return false;
+}
+
 const server = NodeHttp.createServer(async (req, res) => {
   try {
     const login = callerLogin(req);
@@ -871,6 +934,8 @@ const server = NodeHttp.createServer(async (req, res) => {
     if (await handleArtifacts(pathname, req, res, login, owner)) return;
     if (pathname.startsWith("/fleet/desk") && (await handleDesk(pathname, req, res))) return;
     if (pathname.startsWith("/fleet/files") && (await handleFiles(pathname, req, res))) return;
+    if (pathname.startsWith("/fleet/updates") && (await handleUpdates(pathname, req, res, login)))
+      return;
     if (pathname === "/fleet/whoami") {
       send(res, 200, { login });
       return;

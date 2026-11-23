@@ -9,6 +9,10 @@
 #   fleet/install-client.sh --no-build use the existing apps/web/dist
 #   fleet/install-client.sh --force    skip the version match check
 #   fleet/install-client.sh --hub URL  where agents here publish artifacts (the fleet hub)
+#   fleet/install-client.sh --skills-only  only the agent skills and hook: no build, no restart
+#
+# A full install also sets up fleet/updater.mjs on a timer: when the Board asks machines to
+# update, this checkout pulls and refreshes its skills on its own (never restarting T3).
 #
 # A `t3 update` installs a fresh upstream client; re-run this afterwards.
 # Run from a T3 chat, the update/swap/restart step is handed to a separate
@@ -27,7 +31,7 @@ if ! command -v vp >/dev/null && [[ -f "$HOME/.config/vite-plus/env" ]]; then
   . "$HOME/.config/vite-plus/env"
 fi
 
-build=1 force=0 restore=0 update=0 detached=0 hub=""
+build=1 force=0 restore=0 update=0 detached=0 skills_only=0 hub=""
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   arg="${args[$i]}"
@@ -35,6 +39,7 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     --hub) i=$((i + 1)); hub="${args[$i]:-}"; [[ -n "$hub" ]] || { echo "--hub needs the hub's URL" >&2; exit 2; } ;;
     --hub=*) hub="${arg#--hub=}" ;;
     --no-build) build=0 ;;
+    --skills-only) skills_only=1 ;;
     --force) force=1 ;;
     --restore) restore=1 ;;
     --update) update=1 ;;
@@ -98,6 +103,57 @@ console.log("Turn reports to planners: on (a Stop hook in ~/.claude/settings.jso
 NODE
 }
 
+# Runs fleet/updater.mjs every 2 minutes: a systemd user timer on Linux and WSL, launchd on a Mac.
+install_updater() {
+  local node updater="$repo_root/fleet/updater.mjs"
+  node="$(command -v node)" || { echo "No node on PATH: skipped the fleet updater."; return 0; }
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local plist="$HOME/Library/LaunchAgents/com.t3.fleet-updater.plist"
+    mkdir -p "$(dirname "$plist")"
+    cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.t3.fleet-updater</string>
+  <key>ProgramArguments</key><array><string>$node</string><string>$updater</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$PATH</string></dict>
+  <key>StartInterval</key><integer>120</integer>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>$repo_root/fleet/updater.log</string>
+  <key>StandardErrorPath</key><string>$repo_root/fleet/updater.log</string>
+</dict></plist>
+PLIST
+    launchctl bootout "gui/$(id -u)/com.t3.fleet-updater" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+    echo "Fleet updater: on (launchd, every 2 minutes)."
+  elif systemctl --user show-environment >/dev/null 2>&1; then
+    local units="$HOME/.config/systemd/user"
+    mkdir -p "$units"
+    cat >"$units/t3-fleet-updater.service" <<UNIT
+[Unit]
+Description=Fleet updater: pull and refresh agent skills when the Board asks
+[Service]
+Type=oneshot
+Environment=PATH=$PATH
+ExecStart=$node $updater
+UNIT
+    cat >"$units/t3-fleet-updater.timer" <<UNIT
+[Unit]
+Description=Check the fleet hub for update requests every 2 minutes
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+[Install]
+WantedBy=timers.target
+UNIT
+    systemctl --user daemon-reload
+    systemctl --user enable --now t3-fleet-updater.timer >/dev/null
+    echo "Fleet updater: on (systemd timer, every 2 minutes)."
+  else
+    echo "Fleet updater: no systemd or launchd here; run 'node $updater' to update by hand."
+  fi
+}
+
 restart_service() {
   if t3 service status 2>/dev/null | grep -qi "installed"; then
     t3 service restart
@@ -123,6 +179,12 @@ detach_if_inside_t3() {
   echo "T3 restarts in a few seconds; check $log_file afterwards."
   exit 0
 }
+
+if [[ "$skills_only" == 1 ]]; then
+  install_agent_skills
+  install_report_hook
+  exit 0
+fi
 
 if [[ "$restore" == 1 ]]; then
   client_paths
@@ -166,6 +228,7 @@ fi
 
 install_agent_skills
 install_report_hook
+install_updater
 if [[ -n "$hub" ]]; then
   mkdir -p "$HOME/.config/t3-fleet"
   printf '%s\n' "$hub" > "$HOME/.config/t3-fleet/hub-url"
@@ -194,6 +257,8 @@ rm -rf "$staging"
 cp -a "$dist_dir" "$staging"
 rm -rf "$client_dir"
 mv "$staging" "$client_dir"
+mkdir -p "$HOME/.config/t3-fleet"
+git -C "$repo_root" rev-parse HEAD >"$HOME/.config/t3-fleet/client-commit"
 echo "Installed the fleet board client into t3 $(installed_version) ($client_dir)."
 echo "Upstream copy kept at $backup_dir; undo with: fleet/install-client.sh --restore"
 restart_service
