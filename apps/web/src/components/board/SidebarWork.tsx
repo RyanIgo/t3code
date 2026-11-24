@@ -155,7 +155,7 @@ export function SidebarWork() {
     );
   };
   const section = (title: string, count: number, children: ReactNode, action?: ReactNode) => (
-    <section className="flex flex-col gap-0.5">
+    <section key={title} className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2 px-2 pt-3 pb-1">
         <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
           {title} · {count}
