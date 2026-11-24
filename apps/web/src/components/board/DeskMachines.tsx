@@ -124,9 +124,9 @@ export function MachinesCard(props: {
   const status = (machine: Machine) => {
     if (props.nowMs - Date.parse(machine.seenAt) > OFFLINE_MS)
       return { label: `Off since ${time(machine.seenAt)}`, tone: "outline" as const };
-    if (installing(machine)) return { label: "Installing… T3 restarts", tone: "info" as const };
     if (request && machine.requestDone !== request.id)
       return { label: "Updating…", tone: "info" as const };
+    if (installing(machine)) return { label: "Installing… T3 restarts", tone: "info" as const };
     if (!machine.ok) return { label: "Didn't update", tone: "error" as const };
     return { label: "Up to date", tone: "success" as const };
   };
