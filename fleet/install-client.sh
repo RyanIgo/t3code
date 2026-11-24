@@ -320,7 +320,12 @@ fi
 
 install_agent_skills
 install_report_hook
-install_updater
+# Run by the updater itself (the Board's Install): re-registering it would stop this very run.
+if [[ -n "${T3_FLEET_FROM_UPDATER:-}" ]]; then
+  echo "Fleet updater: left as it is (this install was started by it)."
+else
+  install_updater
+fi
 if [[ -n "$hub" ]]; then
   mkdir -p "$HOME/.config/t3-fleet"
   printf '%s\n' "$hub" > "$HOME/.config/t3-fleet/hub-url"

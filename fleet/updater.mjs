@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Fleet updater (on a timer from install-client.sh): when the hub holds an update request this
-// machine hasn't done, pull and refresh the agent skills. Never restarts T3; a changed web client
-// is only reported. `node fleet/updater.mjs --now` updates without a request.
+// Fleet updater (on a timer): pulls and refreshes skills when the hub asks; never restarts T3
+// unless the Board's Install names this machine, which runs the full install. `--now` updates.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
@@ -26,12 +25,13 @@ function hubUrl() {
   return new URL(configured).origin;
 }
 
-const run = (command, args) =>
+const run = (command, args, timeout = 5 * 60_000) =>
   NodeChildProcess.execFileSync(command, args, {
     cwd: repo,
+    env: { ...process.env, T3_FLEET_FROM_UPDATER: "1" },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
-    timeout: 5 * 60_000,
+    timeout,
   }).trim();
 const git = (...args) => run("git", args);
 
@@ -68,8 +68,8 @@ function clientBehind() {
   }
 }
 
-/** Pulls and refreshes the skills; returns what happened in a line. */
-function update() {
+/** Pulls and refreshes the skills (or, with `full`, installs the T3 app); returns what happened. */
+function update(full = false) {
   const branch = git("rev-parse", "--abbrev-ref", "HEAD");
   let upstream = "";
   try {
@@ -82,6 +82,10 @@ function update() {
   const before = git("rev-parse", "--short", "HEAD");
   git("pull", "--ff-only", "--quiet");
   const after = git("rev-parse", "--short", "HEAD");
+  if (full) {
+    run("bash", [NodePath.join(repo, "fleet", "install-client.sh")], 40 * 60_000);
+    return { ok: true, result: `Installed the T3 app at ${after} and restarted T3.` };
+  }
   run("bash", [NodePath.join(repo, "fleet", "install-client.sh"), "--skills-only"]);
   return {
     ok: true,
@@ -97,18 +101,21 @@ async function main() {
   const state = readState();
   const response = await fetch(`${hub}/fleet/updates`, { signal: AbortSignal.timeout(15_000) });
   if (!response.ok) throw new Error(`hub answered ${response.status}`);
-  const { request } = await response.json();
+  const { request, install } = await response.json();
   let outcome = { ok: state.ok ?? true, result: state.result ?? null };
   let updatedAt = state.updatedAt ?? null;
   const pending = request && request.id !== state.requestDone;
-  if (now || pending) {
+  const installing =
+    install && install.id !== state.installDone && install.machines?.includes(NodeOS.hostname());
+  if (now || pending || installing) {
     try {
-      outcome = update();
+      outcome = update(Boolean(installing));
     } catch (error) {
       outcome = { ok: false, result: String(error.stderr || error.message).slice(0, 500) };
     }
     updatedAt = new Date().toISOString();
     if (request) state.requestDone = request.id;
+    if (installing) state.installDone = install.id;
     NodeFS.mkdirSync(configDir, { recursive: true });
     NodeFS.writeFileSync(stateFile, JSON.stringify({ ...state, ...outcome, updatedAt }, null, 2));
     console.log(outcome.result);
@@ -125,6 +132,7 @@ async function main() {
       subject: git("log", "-1", "--format=%s"),
       branch: git("rev-parse", "--abbrev-ref", "HEAD"),
       requestDone: state.requestDone ?? null,
+      installDone: state.installDone ?? null,
       clientBehind: clientBehind(),
       updatedAt,
       ...outcome,

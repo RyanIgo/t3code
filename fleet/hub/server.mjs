@@ -904,6 +904,20 @@ async function handleUpdates(pathname, req, res, login) {
     send(res, 200, state);
     return true;
   }
+  // Rigo asks named machines (ones the Board saw idle) to install the new T3 app: it restarts T3.
+  if (pathname === "/fleet/updates/install" && req.method === "POST") {
+    const body = await readJsonBody(req);
+    const machines = (Array.isArray(body?.machines) ? body.machines : [])
+      .map((machine) => text(machine, 80))
+      .filter(Boolean)
+      .slice(0, 20);
+    if (machines.length === 0) return (send(res, 400, { error: "machines required" }), true);
+    const state = await changeUpdates((next, at) => {
+      next.install = { id: NodeCrypto.randomBytes(4).toString("hex"), at, by: login, machines };
+    });
+    send(res, 200, state);
+    return true;
+  }
   if (pathname === "/fleet/updates/report" && req.method === "POST") {
     const body = await readJsonBody(req);
     const machine = text(body?.machine, 80);
@@ -917,6 +931,7 @@ async function handleUpdates(pathname, req, res, login) {
         subject: text(body.subject, 200),
         branch: text(body.branch, 120),
         requestDone: text(body.requestDone, 40),
+        installDone: text(body.installDone, 40),
         result: text(body.result, 600),
         ok: body.ok === true,
         clientBehind: body.clientBehind === true,
@@ -924,7 +939,7 @@ async function handleUpdates(pathname, req, res, login) {
         updatedAt: text(body.updatedAt, 40),
       };
     });
-    send(res, 200, { request: state.request });
+    send(res, 200, { request: state.request, install: state.install ?? null });
     return true;
   }
   return false;

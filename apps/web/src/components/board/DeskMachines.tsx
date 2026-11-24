@@ -1,8 +1,8 @@
 /**
  * Fleet fork: every machine's fleet checkout, and one button that asks them all to pull the
  * latest and refresh their agent skills (fleet/updater.mjs does it within a couple of minutes,
- * without restarting T3). A machine whose T3 client changed says so; installing that restarts T3,
- * so it stays a step Rigo runs on that machine himself.
+ * without restarting T3). Installing a changed T3 app restarts T3, so it's offered only for
+ * machines the Board sees idle, and only when Rigo presses Install.
  */
 import { useAtomValue } from "@effect/atom-react";
 import { useEffect, useState } from "react";
@@ -22,6 +22,7 @@ interface Machine {
   readonly subject: string | null;
   readonly branch: string | null;
   readonly requestDone: string | null;
+  readonly installDone?: string | null;
   readonly result: string | null;
   readonly ok: boolean;
   readonly clientBehind: boolean;
@@ -30,6 +31,12 @@ interface Machine {
 
 interface Updates {
   readonly request: { readonly id: string; readonly at: string; readonly by: string | null } | null;
+  /** The machines last asked to install the new T3 app (each restarts T3 when it does). */
+  readonly install?: {
+    readonly id: string;
+    readonly at: string;
+    readonly machines: ReadonlyArray<string>;
+  } | null;
   readonly machines: Record<string, Machine>;
 }
 
@@ -97,14 +104,48 @@ export function MachinesCard(props: {
       setAsking(false);
     }
   };
+  const install = updates?.install ?? null;
+  const installing = (machine: Machine) =>
+    !!install && install.machines.includes(machine.machine) && machine.installDone !== install.id;
+  const askInstall = async (names: ReadonlyArray<string>) => {
+    if (names.length === 0) return;
+    setAsking(true);
+    try {
+      const response = await fetch("/fleet/updates/install", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ machines: names }),
+      });
+      if (response.ok) setUpdates((await response.json()) as Updates);
+    } finally {
+      setAsking(false);
+    }
+  };
   const status = (machine: Machine) => {
     if (props.nowMs - Date.parse(machine.seenAt) > OFFLINE_MS)
       return { label: `Off since ${time(machine.seenAt)}`, tone: "outline" as const };
+    if (installing(machine)) return { label: "Installing… T3 restarts", tone: "info" as const };
     if (request && machine.requestDone !== request.id)
       return { label: "Updating…", tone: "info" as const };
     if (!machine.ok) return { label: "Didn't update", tone: "error" as const };
     return { label: "Up to date", tone: "success" as const };
   };
+  const workingOn = (machine: Machine) => {
+    const environment = environmentOf(machine);
+    return environment
+      ? props.chats.filter(
+          (chat) => chat.working && chat.environmentId === environment.environmentId,
+        )
+      : null;
+  };
+  // Installing restarts T3, so only machines the Board can see are idle.
+  const readyToInstall = machines.filter(
+    (machine) =>
+      machine.clientBehind &&
+      !installing(machine) &&
+      props.nowMs - Date.parse(machine.seenAt) <= OFFLINE_MS &&
+      workingOn(machine)?.length === 0,
+  );
   return (
     <section
       aria-label="Machines"
@@ -113,12 +154,26 @@ export function MachinesCard(props: {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <DeskHeading>Machines · {machines.length}</DeskHeading>
         <span className="text-2xs text-muted-foreground">
-          {request ? `Last asked to update ${time(request.at)}.` : "No update asked for yet."} Each
-          pulls and refreshes its agents' skills within 2 minutes; T3 isn't restarted.
+          {request ? `Last asked to update ${time(request.at)}.` : "No update asked for yet."}{" "}
+          Update pulls code and agents' skills within 2 minutes without restarting T3; Install puts
+          in the new T3 app and restarts T3.
         </span>
-        <Button size="xs" className="ml-auto" disabled={asking} onClick={() => void ask()}>
-          {asking ? "Asking…" : "Update all machines"}
-        </Button>
+        <span className="ml-auto flex gap-1.5">
+          {readyToInstall.length > 0 ? (
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={asking}
+              onClick={() => void askInstall(readyToInstall.map((machine) => machine.machine))}
+            >
+              Install the new T3 app on {readyToInstall.length} idle{" "}
+              {readyToInstall.length === 1 ? "machine" : "machines"}
+            </Button>
+          ) : null}
+          <Button size="xs" disabled={asking} onClick={() => void ask()}>
+            {asking ? "Asking…" : "Update all machines"}
+          </Button>
+        </span>
       </div>
       {machines.length === 0 ? (
         <p className="text-xs text-muted-foreground">
@@ -130,11 +185,7 @@ export function MachinesCard(props: {
           {machines.map((machine) => {
             const shown = status(machine);
             const environment = environmentOf(machine);
-            const working = environment
-              ? props.chats.filter(
-                  (chat) => chat.working && chat.environmentId === environment.environmentId,
-                )
-              : null;
+            const working = workingOn(machine);
             return (
               <li key={machine.machine} className="flex flex-col gap-0.5 text-sm">
                 <span className="flex flex-wrap items-center gap-2">
@@ -167,14 +218,23 @@ export function MachinesCard(props: {
                     Working: {working.map((chat) => chatTitle(chat.title)).join(" · ")}
                   </span>
                 ) : null}
-                {machine.clientBehind ? (
-                  <span className="text-xs text-muted-foreground">
+                {machine.clientBehind && !installing(machine) ? (
+                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                     {working === null
-                      ? "T3's own screens changed. The Board can't see this machine's chats, so check nothing runs there, then run "
+                      ? "New T3 app ready. The Board can't see this machine's chats: install it from a terminal there (fleet/install-client.sh) when nothing runs."
                       : working.length > 0
-                        ? `T3's own screens changed. Wait for the ${working.length} working ${working.length === 1 ? "chat" : "chats"} to finish, then run `
-                        : "T3's own screens changed. Nothing is running there: safe to run "}
-                    <code>fleet/install-client.sh</code> on this machine (it restarts T3).
+                        ? `New T3 app ready. Install once the ${working.length} working ${working.length === 1 ? "chat finishes" : "chats finish"} (it restarts T3).`
+                        : "New T3 app ready. Nothing is running there."}
+                    {working?.length === 0 ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={asking}
+                        onClick={() => void askInstall([machine.machine])}
+                      >
+                        Install (restarts T3)
+                      </Button>
+                    ) : null}
                   </span>
                 ) : null}
               </li>
