@@ -207,15 +207,27 @@ fi
 fork_version="$(git -C "$repo_root" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
 fork_version="${fork_version#v}"
 needs_update=0
-if [[ "$fork_version" != "$(installed_version)" ]]; then
-  if [[ "$update" == 1 && -n "$fork_version" ]]; then
+machine_version="$(installed_version)"
+if [[ -n "$fork_version" && "$fork_version" != "$machine_version" ]]; then
+  newest="$(node -e 'const [a, b] = process.argv.slice(1); const n = (v) => v.split(/[.-]/).map(Number);
+const [x, y] = [n(a), n(b)]; for (let i = 0; i < 3; i++) if (x[i] !== y[i]) { console.log(x[i] > y[i] ? a : b); process.exit(0); }
+console.log(a);' "$fork_version" "$machine_version")"
+  if [[ "$newest" == "$machine_version" ]]; then
+    # Never move a machine back: the fork has to catch up with it instead.
+    cat >&2 <<EOF
+The fleet build is behind this machine: it's based on t3 $fork_version, and this machine runs
+t3 $machine_version. Installing it would need a downgrade, which the fleet never does.
+Bring the fleet branch up to v$machine_version (or newer) first; this machine's agent skills
+stay current meanwhile (fleet/install-client.sh --skills-only).
+EOF
+    [[ "$force" == 1 ]] || exit 1
+  elif [[ "$update" == 1 ]]; then
     needs_update=1
   elif [[ "$force" != 1 ]]; then
     cat >&2 <<EOF
-Version mismatch: this fork is based on t3 $fork_version, but this machine runs t3 $(installed_version).
-The web client and server must match. Either:
-  fleet/install-client.sh --update  # move this machine to the fork's version, then install
-or rebase the fork onto v$(installed_version). (--force skips this check.)
+This machine runs t3 $machine_version; the fleet build is based on t3 $fork_version.
+The web client and server must match. To move this machine up to $fork_version and install:
+  fleet/install-client.sh --update
 EOF
     exit 1
   fi
