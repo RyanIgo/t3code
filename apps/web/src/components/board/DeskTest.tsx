@@ -83,6 +83,8 @@ export function TestPage(props: {
   const [conversation, setConversation] = useState(false);
   const [text, setText] = useState("");
   const [blocker, setBlocker] = useState(false);
+  // Folded to one line so the sheet keeps the screen; opens on a click or a pasted screenshot.
+  const [writing, setWriting] = useState(false);
   const [uploading, setUploading] = useState(0);
   // A sheet published by a subagent names a thread that isn't a chat; the chat working in the
   // folder the app starts from is the one that can fix it, on the machine its terminal opens on.
@@ -156,6 +158,7 @@ export function TestPage(props: {
     );
     if (ok) {
       setText("");
+      setWriting(false);
       setBlocker(false);
       toastManager.add({
         type: "success",
@@ -237,9 +240,31 @@ export function TestPage(props: {
         aria-label="Feedback to the work chat"
         className="flex shrink-0 flex-col gap-1.5 border-t border-border bg-card px-3 py-2"
       >
-        {chat ? (
+        {chat && !writing && !text ? (
+          <button
+            type="button"
+            onClick={() => setWriting(true)}
+            className="flex min-w-0 cursor-pointer items-center gap-1.5 truncate text-left text-xs"
+          >
+            <span aria-hidden>▸</span>
+            <b className="font-semibold">
+              Feedback to {workChat ? chatTitle(chat.title) : "the planner"}
+            </b>
+            <span className="truncate text-muted-foreground">
+              · {chatStatus(chat).label} · what's wrong or missing, with a screenshot
+            </span>
+          </button>
+        ) : chat ? (
           <>
             <span className="truncate text-xs">
+              <button
+                type="button"
+                aria-label="Fold the feedback box"
+                onClick={() => setWriting(false)}
+                className="mr-1.5 cursor-pointer"
+              >
+                ▾
+              </button>
               <b className="font-semibold">
                 Feedback to {workChat ? chatTitle(chat.title) : "the planner"}
               </b>
@@ -257,6 +282,7 @@ export function TestPage(props: {
             <Textarea
               aria-label="Feedback for the chat"
               rows={2}
+              autoFocus
               placeholder="What's wrong or missing? Paste or drop a screenshot to show it."
               value={text}
               onChange={(event) => setText(event.target.value)}

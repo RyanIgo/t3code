@@ -56,9 +56,8 @@ export function artifactSheetHtml(): string {
 <details class="intro-box" id="intro-box" open><summary>About this test</summary><p class="intro" id="intro"></p></details><p class="tally" id="tally"></p>
 <div class="retests" id="retests" hidden><span><b id="retest-count"></b> fixed by the chat and ready to re-test.</span><label><input type="checkbox" id="only-retests"> Show only these</label></div></header>
 <main id="rows"></main>
-<footer id="foot"><div class="foot-line"><div class="sum" id="sum"></div><button type="button" class="quiet" id="next">Next unchecked ↓</button></div>
-<details id="note-box"><summary>Add a note for the chat (optional)</summary><textarea id="overall" aria-label="Note for the chat" placeholder="Anything about the whole test: what to change, what worked, what to look at next."></textarea></details>
-<div class="foot-line"><button type="button" id="submit">Send results</button><span id="sent" role="status"></span></div></footer>
+<footer id="foot"><div class="foot-line"><div class="sum" id="sum"></div><button type="button" class="quiet" id="next" title="Next unchecked">Next ↓</button></div>
+<div class="foot-line"><button type="button" id="submit">Send results</button><span id="sent" role="status"></span><details id="note-box"><summary>Note for the chat</summary><textarea id="overall" aria-label="Note for the chat" placeholder="Anything about the whole test: what to change, what worked, what to look at next."></textarea></details></div></footer>
 <script>${SHEET_SCRIPT}</script></body></html>`);
 }
 
@@ -98,19 +97,19 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute
 .shots{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.shots img{max-height:96px;max-width:160px;border:1px solid var(--border);border-radius:6px;display:block}
 textarea{display:block;box-sizing:border-box;width:100%;margin-top:8px;font:inherit;font-size:13px;color:var(--foreground);background:var(--background);border:1px solid var(--border);border-radius:6px;padding:6px 8px;min-height:34px;resize:vertical}
 .by{margin-top:4px;font-size:11px;color:var(--muted-foreground)}
-footer{position:sticky;bottom:0;display:flex;flex-direction:column;gap:8px;margin:12px -16px -18px;padding:10px 16px 12px;background:var(--background);border-top:1px solid var(--border)}
-.foot-line{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.sum{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+footer{position:sticky;bottom:0;display:flex;flex-direction:column;gap:5px;margin:12px -16px -18px;padding:6px 12px 8px;background:var(--background);border-top:1px solid var(--border)}
+.foot-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.sum{flex:1;min-width:0;font-size:12px;color:var(--muted-foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sum b{font-weight:600}.sum .fail{color:var(--destructive)}.sum .retest{color:var(--primary)}
 .chip{font-size:12px;border-radius:999px;padding:2px 9px;background:var(--muted);color:var(--foreground)}
 .chip.pass{background:color-mix(in srgb,var(--success) 15%,transparent)}
 .chip.fail{background:color-mix(in srgb,var(--destructive) 15%,transparent)}
 .chip.blocked{background:color-mix(in srgb,var(--warning) 20%,transparent)}
 .chip.retest{background:color-mix(in srgb,var(--primary) 15%,transparent)}
-footer #submit{font:inherit;font-size:13px;font-weight:600;border:1px solid var(--primary);border-radius:6px;background:var(--primary);color:var(--primary-foreground);padding:7px 16px;cursor:pointer}
+footer #submit{font:inherit;font-size:13px;font-weight:600;border:1px solid var(--primary);border-radius:6px;background:var(--primary);color:var(--primary-foreground);padding:5px 12px;cursor:pointer}
 footer #submit:disabled{opacity:.6;cursor:default}
 footer .quiet{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--foreground);padding:3px 9px;cursor:pointer}
 #note-box summary{cursor:pointer;font-size:12px;color:var(--muted-foreground)}
-#note-box textarea{min-height:56px}
+#note-box textarea{min-height:56px}#note-box[open]{flex-basis:100%;order:3}
 #sent{font-size:12px;color:var(--muted-foreground);flex:1}
 #sent.ok{color:var(--foreground)}
 .retests{display:flex;gap:10px;align-items:center;flex-wrap:wrap;border:1px solid var(--primary);border-radius:var(--radius,8px);background:color-mix(in srgb,var(--primary) 8%,transparent);padding:8px 12px;margin:0 0 10px;font-size:13px}
@@ -144,9 +143,9 @@ if(!hosted&&/^https?:/.test(location.protocol+"//")){var tp=document.getElementB
 function retestsLeft(){return rows.filter(function(r){return r.retest&&!st(r.id).status;}).length;}
 function tally(){var c={pass:0,fail:0,skip:0,blocked:0},d=0;rows.forEach(function(r){var s=st(r.id).status;if(s){c[s]++;d++;}});var open=rows.length-d,rl=retestsLeft();
 document.getElementById("tally").textContent=d+" of "+rows.length+" done · "+c.pass+" passed · "+c.fail+" failed"+(c.blocked?" · "+c.blocked+" blocked":"")+(c.skip?" · "+c.skip+" skipped":"");
-var sum=document.getElementById("sum");sum.textContent="";[["pass","✓ "+c.pass+" passed"],["fail","✗ "+c.fail+" failed"],["blocked",c.blocked?"⊘ "+c.blocked+" blocked":""],["skip",c.skip?c.skip+" skipped":""],["retest",rl?"↻ "+rl+" to re-test":""],["open",open?"○ "+open+" left":""]].forEach(function(x){if(!x[1])return;var e=document.createElement("span");e.className="chip "+x[0];e.textContent=x[1];sum.appendChild(e);});
+var sum=document.getElementById("sum");sum.textContent="";[["pass",c.pass+" passed"],["fail",c.fail?c.fail+" failed":""],["blocked",c.blocked?c.blocked+" blocked":""],["skip",c.skip?c.skip+" skipped":""],["retest",rl?rl+" to re-test":""],["open",open?open+" left":""]].filter(function(x){return x[1];}).forEach(function(x,i){if(i)sum.appendChild(document.createTextNode(" · "));var e=document.createElement("span");e.className=x[0];e.textContent=x[1];sum.appendChild(e);});
 document.getElementById("next").hidden=!open;
-document.getElementById("submit").textContent=(hosted?"Send results to the chat":"Save results")+(open?" ("+open+" not checked)":"");
+document.getElementById("submit").textContent=(hosted?"Send results":"Save results")+(open?" ("+open+" not checked)":"");
 var rb=document.getElementById("retests");rb.hidden=!rl;document.getElementById("retest-count").textContent=rl===1?"1 check was":rl+" checks were";}
 function when(t){try{return new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return"";}}
 function render(){var focus=document.activeElement&&document.activeElement.dataset.row,group=null;main.textContent="";if(onlyRetests===null)onlyRetests=retestsLeft()>0;document.getElementById("only-retests").checked=onlyRetests;rows.forEach(function(r){if(onlyRetests&&!r.retest)return;if(r.group&&r.group!==group){group=r.group;var h=document.createElement("h2");h.textContent=group;main.appendChild(h);}var s=st(r.id),el=document.createElement("section");el.className="row";el.dataset.row=r.id;if(s.status)el.dataset.status=s.status;
