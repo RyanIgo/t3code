@@ -6,7 +6,13 @@ import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading } from "./DeskParts";
-import { type SheetSummary, uncheckedRows, useHubSheets } from "./deskSheets";
+import {
+  type SheetSummary,
+  sheetsTestingPr,
+  sheetTurn,
+  uncheckedRows,
+  useHubSheets,
+} from "./deskSheets";
 import type { DeskNotes, PlannerDecision, PlannerTodo } from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
 import { useSendToChat } from "./deskSend";
@@ -16,13 +22,12 @@ const SHEET_DAYS = 14;
 const FRESH_SHEET_DAYS = 3;
 const DAY_MS = 86_400_000;
 
-/** Test sheets with unchecked rows, changed in the last two weeks, newest first. */
+/** Test sheets not finished clean, changed in the last two weeks, newest first. */
 function sheetsToTest(all: ReadonlyArray<SheetSummary>, nowMs: number): SheetSummary[] {
   return all
     .filter(
       (sheet) =>
-        uncheckedRows(sheet.counts) > 0 &&
-        nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * DAY_MS,
+        sheetTurn(sheet) !== "clean" && nowMs - Date.parse(sheet.updatedAt) < SHEET_DAYS * DAY_MS,
     )
     .toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
 }
@@ -374,6 +379,19 @@ export function useNowEntries(props: NowInput): {
     if (todo.app) appBySheet.set(sheet.id, todo.app);
     folded.add(todo);
   }
+  // A PR and its test sheet are one piece of work: Merge waits for the sheet, and a sheet whose PR
+  // is being sent back waits for the fix.
+  const prRef = (pr: DeskPr) => `${pr.repo.split("/").pop()}#${pr.number}`;
+  const openPrs = props.prs.filter(
+    (pr) => (pr.stage === "ready" || pr.stage === "fix") && !isDependencyUpdate(pr),
+  );
+  const prsBySheet = new Map<string, DeskPr[]>();
+  const sheetsByPr = new Map<string, SheetSummary[]>();
+  for (const pr of openPrs) {
+    const tested = sheetsTestingPr(sheets, pr, sheetApp);
+    sheetsByPr.set(pr.url, tested);
+    for (const sheet of tested) prsBySheet.set(sheet.id, [...(prsBySheet.get(sheet.id) ?? []), pr]);
+  }
   const entries: Entry[] = [
     ...props.chats
       .filter((chat) => chat.working)
@@ -452,27 +470,57 @@ export function useNowEntries(props: NowInput): {
       const { total, pass, fail, skip, blocked } = sheet.counts;
       const retest = sheet.counts.retest ?? 0;
       const left = uncheckedRows(sheet.counts);
+      const noted = sheet.counts.noted ?? 0;
       const asks = asksBySheet.get(sheet.id) ?? [];
       const fresh = props.nowMs - Date.parse(sheet.updatedAt) < FRESH_SHEET_DAYS * DAY_MS;
-      const mine = retest > 0 || asks.length > 0 || fresh;
-      return {
+      const turn = sheetTurn(sheet);
+      const prs = prsBySheet.get(sheet.id) ?? [];
+      const fixing = prs.find((pr) => pr.stage === "fix");
+      const merging = prs.find((pr) => pr.stage === "ready");
+      const common = {
         key: `sheet:${sheet.id}`,
-        lane: "test",
+        lane: "test" as const,
         app: appBySheet.get(sheet.id) ?? sheetApp(sheet),
+        title: sheet.title,
+        meta: `${pass + fail + skip + blocked + noted} of ${total} answered`,
+        onClick: () => props.onOpenSheet(sheet),
+      };
+      // Submitted: the chat has his results and notes; it comes back as re-tests when fixed.
+      if (turn === "agent")
+        return {
+          ...common,
+          badge: "Sent",
+          tone: "secondary",
+          ask: `You submitted ${ago(props.nowMs, sheet.submittedAt)} ago; the chat is acting on your ${fail + noted > 0 ? "notes" : "results"}`,
+          mine: false,
+          fold: "agents",
+        };
+      if (fixing && retest === 0)
+        return {
+          ...common,
+          badge: "Test",
+          tone: "secondary",
+          ask: `Test once ${prRef(fixing)} is fixed (it's on Send back: ${fixing.reasons.join(", ")})`,
+          mine: false,
+          fold: "agents",
+        };
+      const then = merging ? `, then Merge ${prRef(merging)}` : "";
+      const mine = retest > 0 || asks.length > 0 || fresh || turn === "issues" || !!merging;
+      return {
+        ...common,
         badge: retest > 0 ? "Retest" : "Test",
         tone: retest > 0 || fail > 0 ? "error" : "warning",
-        title: sheet.title,
-        meta: `${pass + fail + skip + blocked} of ${total} checked`,
         ask:
           retest > 0
-            ? `${retest} fixed ${retest === 1 ? "check" : "checks"} to re-test`
-            : asks[0]
-              ? `Planner asks: ${asks[0]}${asks.length > 1 ? ` (+${asks.length - 1} more)` : ""}`
-              : `${left} ${left === 1 ? "check" : "checks"} left`,
+            ? `${retest} fixed ${retest === 1 ? "check" : "checks"} to re-test${then}`
+            : turn === "issues"
+              ? `Every check answered: press Submit so the chat gets your ${fail > 0 ? "failures and notes" : "notes"}`
+              : asks[0]
+                ? `Planner asks: ${asks[0]}${asks.length > 1 ? ` (+${asks.length - 1} more)` : ""}${then}`
+                : `${left} ${left === 1 ? "check" : "checks"} left${then}`,
         mine,
         ...(mine ? { minutes: Math.max(2, retest > 0 ? retest : left) } : { fold: "sheets" }),
         waiting: ago(props.nowMs, sheet.updatedAt),
-        onClick: () => props.onOpenSheet(sheet),
       } as Entry;
     }),
     ...props.prs
@@ -481,11 +529,38 @@ export function useNowEntries(props: NowInput): {
           (pr.stage === "ready" || pr.stage === "landed" || pr.stage === "fix") &&
           !isDependencyUpdate(pr),
       )
+      // A ready PR whose test sheet is still Rigo's shows once, as that sheet ("…, then Merge").
+      .filter(
+        (pr) =>
+          pr.stage !== "ready" ||
+          !(sheetsByPr.get(pr.url) ?? []).some((sheet) => {
+            const turn = sheetTurn(sheet);
+            return turn === "rigo" || turn === "issues";
+          }),
+      )
       .map((pr): Entry => {
         const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
         const ref = `${pr.repo.split("/").pop()}#${pr.number}`;
         // GitHub can call a PR ready while its chats are still pushing to it: not Rigo's yet.
         const busy = pr.chats.filter((chat) => chat.working || chat.needsYou);
+        // Its test results went back to the chat: Merge waits for the fixes and a re-test.
+        const sent =
+          pr.stage === "ready" &&
+          (sheetsByPr.get(pr.url) ?? []).some((sheet) => sheetTurn(sheet) === "agent");
+        if (sent && busy.length === 0)
+          return {
+            key: `pr:${pr.url}`,
+            lane: "merge",
+            app: pr.app ?? OTHER,
+            badge: "Agents on it",
+            tone: "info",
+            title: pr.title && pr.title !== ref ? pr.title : (pr.item?.title ?? pr.title),
+            meta: ref,
+            ask: "Merge after the chat acts on your test results and you re-test",
+            mine: false,
+            fold: "agents",
+            onClick: () => props.onOpenPr(pr),
+          };
         const title = pr.title && pr.title !== ref ? pr.title : (pr.item?.title ?? pr.title);
         return busy.length > 0
           ? {

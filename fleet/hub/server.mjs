@@ -404,10 +404,14 @@ function sheetCounts(artifact) {
     skip: 0,
     blocked: 0,
     retest: 0,
+    // Rows Rigo answered with a note instead of pass/fail: feedback, not a check still to do.
+    noted: 0,
   };
   for (const row of artifact.rows ?? []) {
-    const status = artifact.state?.rows?.[row.id]?.status;
+    const result = artifact.state?.rows?.[row.id];
+    const status = result?.status;
     if (status && counts[status] !== undefined) counts[status] += 1;
+    else if (!status && result?.note?.trim()) counts.noted += 1;
     // A fixed check Rigo hasn't looked at again yet.
     if (row.retest && !status) counts.retest += 1;
   }
@@ -538,7 +542,12 @@ async function handleArtifacts(pathname, req, res, login, owner) {
           thread: artifact.thread,
           version: artifact.version,
           updatedAt: artifact.updatedAt,
-          ...(artifact.kind === "sheet" ? { counts: sheetCounts(artifact) } : {}),
+          ...(artifact.kind === "sheet"
+            ? {
+                counts: sheetCounts(artifact),
+                submittedAt: artifact.submissions?.at(-1)?.at ?? null,
+              }
+            : {}),
         });
       }
       reply(200, {

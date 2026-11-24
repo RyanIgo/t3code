@@ -18,6 +18,8 @@ interface SheetCounts {
   readonly blocked: number;
   /** Checks the chat fixed that haven't been tested again yet (from a newer hub). */
   readonly retest?: number;
+  /** Checks answered with a note but no pass/fail: feedback for the chat (from a newer hub). */
+  readonly noted?: number;
 }
 
 /** A hub test sheet as the artifact list gives it. */
@@ -28,6 +30,8 @@ export interface SheetSummary {
   /** The chat that published it, when it was published from one. */
   readonly thread: { readonly threadId: string } | null;
   readonly counts: SheetCounts;
+  /** When Rigo last pressed Submit (from a newer hub). */
+  readonly submittedAt?: string | null;
 }
 
 /** The parts of a full sheet the Review tab shows above the checks. */
@@ -111,9 +115,56 @@ export function useSheetDetail(id: string | null): SheetDetail | null {
   return detail?.id === id ? detail : null;
 }
 
-/** Checks not yet marked. */
+/** Checks not yet marked. A note counts as an answer: it's feedback for the chat. */
 export const uncheckedRows = (counts: SheetCounts) =>
-  Math.max(0, counts.total - counts.pass - counts.fail - counts.skip - counts.blocked);
+  Math.max(
+    0,
+    counts.total - counts.pass - counts.fail - counts.skip - counts.blocked - (counts.noted ?? 0),
+  );
+
+/**
+ * Whose move a sheet is. "agent": Rigo submitted and the chat hasn't republished since (its
+ * fixes come back as re-tests). "rigo": checks left or re-tests. "clean": every check passed or
+ * skipped. "issues": answered, with failures or notes, and not submitted.
+ */
+export function sheetTurn(sheet: SheetSummary): "agent" | "rigo" | "clean" | "issues" {
+  const { fail, blocked } = sheet.counts;
+  const retest = sheet.counts.retest ?? 0;
+  const noted = sheet.counts.noted ?? 0;
+  if (retest > 0) return "rigo";
+  const submitted =
+    sheet.submittedAt != null && Date.parse(sheet.submittedAt) >= Date.parse(sheet.updatedAt);
+  if (uncheckedRows(sheet.counts) === 0 && fail + blocked + noted === 0) return "clean";
+  if (submitted) return "agent";
+  return uncheckedRows(sheet.counts) > 0 ? "rigo" : "issues";
+}
+
+/** Each "#n" a title names, with the repo written before it when there is one. */
+function titleRefs(title: string): Array<{ repo: string | null; number: number }> {
+  return [...title.matchAll(/(?:([\w.-]+)\s?)?#(\d+)/g)].map((match) => ({
+    repo: /^[a-z][\w.-]*-[\w.-]+$/i.test(match[1] ?? "") ? (match[1] ?? "").toLowerCase() : null,
+    number: Number(match[2]),
+  }));
+}
+
+/**
+ * The sheets that test one pull request: their title names its repo and number, or only its
+ * number when the sheet belongs to the same app.
+ */
+export function sheetsTestingPr(
+  sheets: ReadonlyArray<SheetSummary>,
+  pr: { readonly repo: string; readonly number: number; readonly app: string | null },
+  appOf: (sheet: SheetSummary) => string,
+): SheetSummary[] {
+  const repo = pr.repo.split("/").pop()?.toLowerCase() ?? "";
+  return sheets.filter((sheet) =>
+    titleRefs(sheet.title).some(
+      (ref) =>
+        ref.number === pr.number &&
+        (ref.repo === repo || (ref.repo === null && pr.app !== null && appOf(sheet) === pr.app)),
+    ),
+  );
+}
 
 /** A sheet an agent left without the app block or a single link to open. */
 export function sheetIsIncomplete(detail: SheetDetail): boolean {

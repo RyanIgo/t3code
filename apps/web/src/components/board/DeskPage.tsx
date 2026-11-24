@@ -996,11 +996,9 @@ export function DeskPage(props: {
           onOpenDecision={openDecision}
           todos={plannerTodos(notes.notes)}
           onOpenTodo={(todo) => openPlanner(todo.threadId)}
-          onOpenSheet={(sheet) => {
-            const item = itemForSheet(sheet, items, notes.notes);
-            if (item) setModal({ itemId: item.itemId, chat: null, sequence: [], tab: "review" });
-            else openExternal(new URL(`/a/${sheet.id}`, window.location.origin).toString());
-          }}
+          // Always the sheet that was pressed: an item's Review tab shows its newest sheet, so
+          // several sheets on one story all opened the same screen.
+          onOpenSheet={(sheet) => setTestSheet(sheet.id)}
         />
       );
     return (
