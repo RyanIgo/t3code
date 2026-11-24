@@ -30,6 +30,10 @@ if ! command -v vp >/dev/null && [[ -f "$HOME/.config/vite-plus/env" ]]; then
   # shellcheck disable=SC1091
   . "$HOME/.config/vite-plus/env"
 fi
+# No global vp: use the repo's own copy, installed with its dependencies.
+if ! command -v vp >/dev/null && [[ -x "$repo_root/node_modules/.bin/vp" ]]; then
+  export PATH="$repo_root/node_modules/.bin:$PATH"
+fi
 
 build=1 force=0 restore=0 update=0 detached=0 skills_only=0 hub=""
 args=("$@")
