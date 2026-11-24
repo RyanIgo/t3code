@@ -396,6 +396,32 @@ async function decide(question, options) {
 }
 
 /** `decisions [app]`: questions still waiting, and recent answers. */
+/** `retire <decision id> "<what happened>"`: takes a card events overtook off Rigo's queue. */
+async function retire(id, words) {
+  const why = words.join(" ").trim();
+  if (!id || id.startsWith("-") || !why)
+    fail(
+      'Usage: node desk.mjs retire <decision id> "<what overtook it, e.g. PR #282 merged Nov 24>"',
+    );
+  let found = null;
+  await changeNotes((doc, at) => {
+    const decision = doc.decisions?.[id];
+    if (!decision) fail(`No decision ${id}. List them with: node desk.mjs decisions "<app>"`);
+    found = decision;
+    if (decision.answer) return;
+    doc.decisions[id] = {
+      ...decision,
+      answer: { choice: "Overtaken", note: why.slice(0, 1000), at },
+      updatedAt: at,
+    };
+  });
+  console.log(
+    found?.answer
+      ? `Already answered: ${found.question} → ${found.answer.choice}`
+      : `Retired: ${found.question} (Overtaken: ${why})`,
+  );
+}
+
 async function decisions(given) {
   const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
   const app = given ? resolveApp((await call("/fleet/desk")).body, given) : null;
@@ -1034,6 +1060,7 @@ else if (command === "feedback") await feedback(first, rest);
 else if (command === "role") await role(first, rest);
 else if (command === "decide") await decide(first, rest);
 else if (command === "decisions") await decisions(first);
+else if (command === "retire") await retire(first, rest);
 else if (command === "plan") await plan(first, rest);
 else if (command === "agents") await agents(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
@@ -1042,5 +1069,5 @@ else if (command === "report" && first === "--hook") await reportHook().catch(()
 else if (command === "report") await report([first, ...rest]);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | feedback [done <id> "<what>"] | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | plan set|show',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | feedback [done <id> "<what>"] | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | retire <id> "<why>" | plan set|show',
   );

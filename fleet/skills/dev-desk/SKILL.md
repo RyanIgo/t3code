@@ -191,6 +191,12 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   it load?", "What weren't you seeing?" are checks: they belong as rows on the item's test sheet
   (t3-artifacts), where he answers them while testing. Ask a decision only for a choice whose
   answer changes what agents do next.
+- **Retire what events overtook.** At every turn, read `decisions <app>`: a waiting card whose
+  PR has since merged or closed, whose release already went out, or whose question the work has
+  answered is dead weight on Rigo's queue. Retire it yourself, including cards your app's story
+  leads filed: `desk.mjs retire <id> "<what overtook it, e.g. PR #282 merged Nov 24>"` (ids are in
+  `decisions <app>`), and say so in one line in your next message. Story leads don't file decisions about the work (only their
+  mockup recommendation); they ask you.
 - **Never ask twice.** Before `decide`, read `decisions <app>`: if he already answered the same
   question (or one about the same item), act on that answer. Ask again only when something new
   makes the old answer wrong, and say what changed in `--why`. `decide` warns when a waiting or
