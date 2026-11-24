@@ -19,6 +19,7 @@ import {
 } from "./deskSheets";
 import type { DeskNotes, PlannerDecision, PlannerTodo } from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
+import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
 
 const SHEET_DAYS = 14;
@@ -592,6 +593,17 @@ export function useNowEntries(props: NowInput): {
       .map((chat) => {
         const next = work[chat.threadId]?.next ?? null;
         const planner = work[chat.threadId]?.role === "planner";
+        // Its item shipped: whatever it last asked of Rigo is stale, and it wraps up on its own.
+        const shipped =
+          !planner && props.notes && props.items
+            ? shippedFocus(props.notes, chat.threadId, props.items)
+            : null;
+        if (shipped)
+          return chatEntry(chat, "review", "Merged", "secondary", {
+            mine: false,
+            fold: "agents",
+            ask: `${deskRef(shipped) ?? "Its item"} shipped: ${next?.startsWith(WRAP_ASKED) ? "wrapping up" : "wrap-up next"}`,
+          });
         return next && RIGO_NEXT.test(next) && !planner
           ? chatEntry(chat, "review", "Read", "success", {
               mine: true,

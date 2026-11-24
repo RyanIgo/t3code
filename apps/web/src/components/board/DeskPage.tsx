@@ -33,6 +33,7 @@ import {
   chatsForItem,
   chatStatus,
   currentSprint,
+  chatTitle,
   type DeskItem,
   deskRef,
   deskTitle,
@@ -70,6 +71,7 @@ import {
   saveDeskLink,
   saveDeskPin,
   useDeskNotes,
+  saveNextStep,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
 import { SprintCockpit } from "./DeskSprintCockpit";
@@ -83,6 +85,9 @@ import {
   useHubSheets,
 } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
+import { toastManager } from "../ui/toast";
+import { chatsToWrapUp, WRAP_ASKED, wrapUpMessage } from "./wrapUp.logic";
+import { useSendToChat } from "./deskSend";
 import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
@@ -156,6 +161,32 @@ function useDatedTodayChats(notes: DeskNotes, chats: ReadonlyArray<CardChatState
       });
     }
   }, [notes, chats, updateThreadMetadata]);
+}
+
+/**
+ * Wrap-up after merge: once a story lead's item has shipped, asks that chat (once) to wrap up,
+ * without asking Rigo. Recording the ask as its next step first keeps it from being sent twice.
+ */
+function useWrapUpNudges(
+  notes: DeskNotes,
+  chats: ReadonlyArray<CardChatState>,
+  items: ReadonlyArray<DeskItem>,
+) {
+  const sendToChat = useSendToChat();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- messages chats on their machines when their item ships
+  useEffect(() => {
+    for (const { chat, item } of chatsToWrapUp(notes, chats, items)) {
+      saveNextStep(chat.threadId, `${WRAP_ASKED} of ${deskRef(item) ?? item.title}`);
+      void sendToChat(chat, wrapUpMessage(item)).then((sent) => {
+        if (sent)
+          toastManager.add({
+            type: "info",
+            title: `Asked "${chatTitle(chat.title)}" to wrap up`,
+            description: `${deskRef(item) ?? item.title} has shipped.`,
+          });
+      });
+    }
+  }, [notes, chats, items, sendToChat]);
 }
 
 function launcherApp(context: DeskChatContext): string | null {
@@ -281,6 +312,7 @@ export function DeskPage(props: {
   const nowMs = minuteTickToMs(useNowMinute());
   const sprint = currentSprint(view?.sprints ?? [], nowMs);
   useDeliverReports(notes.notes, items, props.pinnable, nowMs);
+  useWrapUpNudges(notes.notes, props.pinnable, items);
   // A Desk link followed while already here (e.g. from a chat in the work window) only changes
   // the fragment; apply it the same way and clear it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for `#desk=…` fragment changes in the browser's address
