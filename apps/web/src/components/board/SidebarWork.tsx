@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { CalendarCheckIcon, CheckCheckIcon, StarIcon } from "lucide-react";
+import { CalendarCheckIcon, CheckCheckIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
@@ -12,6 +12,7 @@ import { readLocalApi } from "../../localApi";
 import { cn } from "../../lib/utils";
 import { environmentSummaries } from "../../state/presentation";
 import { Badge } from "../ui/badge";
+import { AppDot, deskLevel, LEVELS, LevelIcon, VerbChip } from "./deskLevels";
 import { Button } from "../ui/button";
 import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, deskTitle } from "./desk.logic";
@@ -108,40 +109,42 @@ export function SidebarWork() {
     }
   };
 
-  const row = (
-    entry: WorkRow,
-    options: { readonly planner?: boolean; readonly showApp?: boolean } = {},
-  ) => {
+  const row = (entry: WorkRow, options: { readonly showApp?: boolean } = {}) => {
     const status = chatStatus(entry.chat);
     const age = formatFleetBoardAge(entry.chat.since, nowMs);
+    const level = deskLevel(entry.role, entry.item);
     return (
       <li key={`${entry.chat.environmentId}:${entry.chat.threadId}`}>
         <button
           type="button"
           onClick={() => open(entry)}
           className={cn(
-            "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-md px-2 py-1.5 text-left hover:bg-accent",
+            "flex w-full min-w-0 cursor-pointer flex-col gap-0.5 rounded-md border-s-2 border-transparent px-2 py-1.5 text-left hover:bg-accent",
+            level && LEVELS[level].edge,
+            entry.parent && "ms-4",
             activeThread === entry.chat.threadId && "bg-accent",
           )}
         >
           <span className="flex min-w-0 items-center gap-1.5 text-sm">
-            {options.planner ? (
-              <StarIcon className="size-3.5 shrink-0 text-muted-foreground" aria-label="Planner" />
-            ) : null}
+            {level ? <LevelIcon level={level} /> : null}
             <span className="min-w-0 flex-1 truncate">
               {entry.item
                 ? `${entry.item.number !== null ? `#${entry.item.number} ` : ""}${deskTitle(entry.item)}`
                 : chatTitle(entry.chat.title)}
             </span>
             <span className="shrink-0">
-              <Badge variant={status.tone} size="sm">
-                {status.label}
-              </Badge>
+              {entry.chat.needsYou ? (
+                <VerbChip verb="Needs you" className="w-auto" />
+              ) : (
+                <Badge variant={status.tone} size="sm">
+                  {status.label}
+                </Badge>
+              )}
             </span>
           </span>
           <span className="truncate text-2xs text-muted-foreground">
             {[
-              entry.role ? CHAT_ROLE_LABEL[entry.role] : "No role",
+              level ? LEVELS[level].label : entry.role ? CHAT_ROLE_LABEL[entry.role] : "No role",
               options.showApp ? entry.app : null,
               entry.item ? chatTitle(entry.chat.title) : null,
               machine.get(entry.chat.environmentId as EnvironmentId) ?? null,
@@ -154,9 +157,16 @@ export function SidebarWork() {
       </li>
     );
   };
-  const section = (title: string, count: number, children: ReactNode, action?: ReactNode) => (
+  const section = (
+    title: string,
+    count: number,
+    children: ReactNode,
+    action?: ReactNode,
+    app?: string,
+  ) => (
     <section key={title} className="flex flex-col gap-0.5">
       <div className="flex items-center gap-2 px-2 pt-3 pb-1">
+        {app ? <AppDot app={app} /> : null}
         <h3 className="text-2xs font-semibold tracking-wide text-muted-foreground uppercase">
           {title} · {count}
         </h3>
@@ -207,7 +217,7 @@ export function SidebarWork() {
           group.app,
           group.planners.length + group.work.length + group.loose.length,
           <>
-            {group.planners.map((entry) => row(entry, { planner: true }))}
+            {group.planners.map((entry) => row(entry))}
             {group.work.map((entry) => row(entry))}
             {group.loose.length > 0 ? (
               <li>
@@ -220,6 +230,8 @@ export function SidebarWork() {
               </li>
             ) : null}
           </>,
+          undefined,
+          group.app,
         ),
       )}
       {view.wrapUp.length > 0 ? (

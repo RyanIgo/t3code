@@ -19,6 +19,8 @@ import {
   useHubSheets,
 } from "./deskSheets";
 import {
+  chatFocus,
+  chatRoleOf,
   type DeskNotes,
   nextMonday,
   type PlannerDecision,
@@ -26,6 +28,15 @@ import {
   pushedUntil,
 } from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
+import {
+  AppDot,
+  appColor,
+  type DeskLevel,
+  deskLevel,
+  itemLevel,
+  LevelMark,
+  VerbChip,
+} from "./deskLevels";
 import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
 
@@ -90,6 +101,8 @@ export interface Entry {
   readonly fold?: "agents" | "sheets";
   /** The priority (P0–P3) of the item behind the row, when there is one. */
   readonly priority?: string | null;
+  /** The kind of chat or work behind the row: planner, story, helper or quick fix. */
+  readonly level?: DeskLevel | null;
   readonly onClick: () => void;
 }
 
@@ -529,7 +542,6 @@ function QueueRow(props: {
   };
   const meta = [
     entry.priority ?? null,
-    entry.app === OTHER ? null : entry.app,
     entry.meta,
     entry.waiting ? `waiting ${entry.waiting}` : null,
     entry.minutes ? `~${entry.minutes} min` : null,
@@ -537,21 +549,31 @@ function QueueRow(props: {
     .filter(Boolean)
     .join(" · ");
   return (
-    <li className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md border border-border bg-card px-3 py-2">
+    <li
+      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md border border-s-4 border-border bg-card px-3 py-2"
+      style={{ borderInlineStartColor: appColor(entry.app === OTHER ? null : entry.app) }}
+    >
       <button
         type="button"
         onClick={entry.onClick}
         className="flex min-w-0 flex-[1_1_20rem] cursor-pointer items-start gap-2 text-left"
       >
-        <Badge variant={entry.tone} size="sm" className="mt-0.5 w-20 shrink-0 justify-center">
-          {entry.badge}
-        </Badge>
+        <VerbChip verb={entry.badge} className="mt-0.5" />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
           {entry.ask ? (
             <span className="line-clamp-2 text-xs text-muted-foreground">{entry.ask}</span>
           ) : null}
-          {meta ? <span className="text-2xs text-muted-foreground">{meta}</span> : null}
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-muted-foreground">
+            {entry.level ? <LevelMark level={entry.level} short /> : null}
+            {entry.app === OTHER ? null : (
+              <span className="inline-flex items-center gap-1">
+                <AppDot app={entry.app} />
+                {entry.app}
+              </span>
+            )}
+            {meta ? <span>{meta}</span> : null}
+          </span>
         </span>
       </button>
       <span className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -652,6 +674,13 @@ export function useNowEntries(props: NowInput): {
   const sheets = sheetsToTest(allSheets, props.nowMs);
   const work = props.notes?.work ?? {};
   const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
+  const levelOfChat = (chat: CardChatState): DeskLevel | null =>
+    props.notes
+      ? deskLevel(
+          chatRoleOf(props.notes, chat),
+          itemByUrl.get(chatFocus(props.notes, chat.threadId) ?? "") ?? null,
+        )
+      : null;
   const itemByUrl = new Map(
     (props.items ?? []).flatMap((item) => (item.url ? [[item.url, item] as const] : [])),
   );
@@ -687,6 +716,7 @@ export function useNowEntries(props: NowInput): {
     title: chatTitle(chat.title),
     meta: ago(props.nowMs, chat.since),
     priority: chatPriority(chat),
+    level: levelOfChat(chat),
     onClick: () => props.onOpenChat(chat),
     ...extra,
   });
@@ -795,6 +825,7 @@ export function useNowEntries(props: NowInput): {
         title: deskTitle(item),
         meta: deskRef(item) ?? "",
         priority: item.priority,
+        level: itemLevel(item),
         onClick: () => props.onOpenItem(item),
       };
       if (item.lane === "Blocked")
@@ -828,6 +859,7 @@ export function useNowEntries(props: NowInput): {
       const merging = prs.find((pr) => pr.stage === "ready");
       const common = {
         key: `sheet:${sheet.id}`,
+        level: "lead" as const,
         lane: "test" as const,
         app: appBySheet.get(sheet.id) ?? sheetApp(sheet),
         title: sheet.title,
@@ -916,6 +948,7 @@ export function useNowEntries(props: NowInput): {
         if (sent && busy.length === 0)
           return {
             key: `pr:${pr.url}`,
+            level: itemLevel(pr.item),
             lane: "merge",
             app: pr.app ?? OTHER,
             badge: "Agents on it",
@@ -932,6 +965,7 @@ export function useNowEntries(props: NowInput): {
         return busy.length > 0
           ? {
               key: `pr:${pr.url}`,
+              level: itemLevel(pr.item),
               lane: "merge",
               app: pr.app ?? OTHER,
               badge: "Agents on it",
@@ -946,6 +980,7 @@ export function useNowEntries(props: NowInput): {
             }
           : {
               key: `pr:${pr.url}`,
+              level: itemLevel(pr.item),
               lane: "merge",
               app: pr.app ?? OTHER,
               badge: stage.label,
@@ -959,19 +994,31 @@ export function useNowEntries(props: NowInput): {
             };
       }),
   ];
-  const decisions = (props.decisions ?? []).map((decision): Entry => ({
-    key: `decision:${decision.id}`,
-    lane: "review",
-    app: decision.app ?? OTHER,
-    badge: "Decide",
-    tone: "warning",
-    title: decision.question,
-    meta: "",
-    ...(decision.recommended ? { ask: `Recommended: ${decision.recommended}` } : {}),
-    mine: true,
-    minutes: 1,
-    onClick: () => props.onOpenDecision?.(decision),
-  }));
+  const decisions = (props.decisions ?? []).map((decision): Entry => {
+    // Who asked, and why, so a card overtaken by events looks it before it's opened.
+    const filer = props.chats.find((chat) => chat.threadId === decision.threadId);
+    const why = [decision.why, decision.recommended ? `Recommended: ${decision.recommended}` : null]
+      .filter(Boolean)
+      .join(" · ");
+    return {
+      key: `decision:${decision.id}`,
+      lane: "review",
+      app: decision.app ?? OTHER,
+      badge: "Decide",
+      tone: "warning",
+      title: decision.question,
+      meta: filer ? `asked by "${chatTitle(filer.title)}"` : "",
+      ...(why ? { ask: why } : {}),
+      level: props.notes
+        ? (deskLevel(props.notes.work[decision.threadId]?.role, null) ?? "planner")
+        : "planner",
+      waiting: ago(props.nowMs, decision.createdAt),
+      since: decision.createdAt,
+      mine: true,
+      minutes: 1,
+      onClick: () => props.onOpenDecision?.(decision),
+    };
+  });
   // A planner's line about an item or PR already listed shows once, as that row.
   const listed = new Set([
     ...props.waiting.flatMap((item) => [item.url, ...item.pullRequests.map((pr) => pr.url)]),
@@ -984,6 +1031,7 @@ export function useNowEntries(props: NowInput): {
       const decide = /^decide\b/i.test(todo.line.text);
       return {
         key: `todo:${todo.threadId}:${todo.line.text}`,
+        level: "planner" as const,
         lane: "review",
         app: todo.app ?? OTHER,
         badge: finished.has(todo) ? "Sheet done" : decide ? "Decide" : "Do",

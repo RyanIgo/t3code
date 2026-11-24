@@ -95,12 +95,40 @@ describe("sidebar work view", () => {
     const ids = (rows: ReadonlyArray<{ chat: CardChatState }>) =>
       rows.map((row) => row.chat.threadId);
     expect(view.today?.chat.threadId).toBe("today-chat");
-    expect(ids(view.needsYou)).toEqual(["asking-chat"]);
-    expect(view.needsYou[0]?.item?.number).toBe(3);
+    // A chat that needs Rigo stays in its app's block, first there.
+    expect(ids(view.needsYou)).toEqual([]);
     expect(view.apps.map((group) => group.app)).toEqual(["Precon"]);
     expect(ids(view.apps[0]?.planners ?? [])).toEqual(["planner-chat"]);
-    expect(ids(view.apps[0]?.work ?? [])).toEqual(["focused-chat", "titled-chat"]);
+    expect(ids(view.apps[0]?.work ?? [])).toEqual(["asking-chat", "focused-chat", "titled-chat"]);
     expect(ids(view.apps[0]?.loose ?? [])).toEqual(["loose-chat"]);
     expect(ids(view.wrapUp).toSorted()).toEqual(["done-item-chat", "merged-chat", "old-today"]);
+  });
+
+  it("puts each helper right under its story lead", () => {
+    const at = "2026-11-19T08:00:00Z";
+    const notes = {
+      ...withFocus(EMPTY_DESK_NOTES, item(1).url ?? "", "lead-chat", at),
+      work: {
+        ...withFocus(EMPTY_DESK_NOTES, item(1).url ?? "", "lead-chat", at).work,
+        "helper-chat": {
+          items: [],
+          next: null,
+          role: "helper" as const,
+          parent: "lead-chat",
+          updatedAt: at,
+        },
+      },
+    };
+    const view = buildWorkSidebar({
+      chats: [chat("helper-chat"), chat("other-chat", { title: "#2 Other" }), chat("lead-chat")],
+      items: [item(1), item(2)],
+      notes,
+      apps: ["Precon"],
+      appOfRepo: () => "Precon",
+      repoOf: () => "app",
+      nowMs: Date.parse("2026-11-19T15:00:00"),
+    });
+    const work = (view.apps[0]?.work ?? []).map((row) => row.chat.threadId);
+    expect(work.indexOf("helper-chat")).toBe(work.indexOf("lead-chat") + 1);
   });
 });

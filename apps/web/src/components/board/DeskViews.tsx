@@ -32,7 +32,15 @@ import {
   workKind,
 } from "./desk.logic";
 import { FeedbackButton } from "./DeskInbox";
-import { APP_DIRECTION, type DeskNotes, focusedChat, noteAt } from "./deskNotes.logic";
+import {
+  APP_DIRECTION,
+  chatFocus,
+  chatRoleOf,
+  type DeskNotes,
+  focusedChat,
+  noteAt,
+} from "./deskNotes.logic";
+import { ChatLevelBand, deskLevel } from "./deskLevels";
 import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import {
   DeskHeading,
@@ -462,6 +470,38 @@ export function DeskModal(props: {
   // A planner or sprint chat on its own is a planning session: the plan beside the conversation.
   const planning = item === null && props.roster !== undefined && props.roster !== null;
   const [planPane, setPlanPane] = useState<"plan" | "chat">("plan");
+  // Where you are: the shown chat's level, app, story and your move there, in its color.
+  const bandChat = shown && !draft ? shown : null;
+  const bandWork = bandChat ? notes.work[bandChat.threadId] : undefined;
+  const bandFocus = bandChat ? chatFocus(notes, bandChat.threadId) : null;
+  const bandItem =
+    (bandFocus ? props.view.items.find((entry) => entry.url === bandFocus) : undefined) ??
+    item ??
+    null;
+  const bandLevel = bandChat
+    ? planning
+      ? "planner"
+      : deskLevel(chatRoleOf(notes, bandChat), bandItem)
+    : null;
+  const bandLead =
+    bandLevel === "helper" && bandWork?.parent
+      ? props.allChats.find((entry) => entry.threadId === bandWork.parent)
+      : undefined;
+  const bandMove =
+    bandWork?.next && /^\s*(?:rigo|you)\s*[:\-–—]\s*/i.test(bandWork.next)
+      ? bandWork.next.replace(/^\s*(?:rigo|you)\s*[:\-–—]\s*/i, "")
+      : null;
+  const band = bandLevel ? (
+    <ChatLevelBand
+      level={bandLevel}
+      app={bandItem?.app ?? bandWork?.app ?? null}
+      about={bandLevel === "planner" ? null : bandItem ? deskTitle(bandItem) : null}
+      move={bandMove}
+      lead={
+        bandLead ? { title: chatTitle(bandLead.title), onOpen: () => openChatHere(bandLead) } : null
+      }
+    />
+  ) : null;
   // Cards first (Rigo, 2026-11-24): the plan is the window; the conversation opens beside it on demand.
   const [chatOpen, setChatOpen] = useState(false);
   const shownKey = shown && !draft ? chatKeyOf(shown) : null;
@@ -596,6 +636,7 @@ export function DeskModal(props: {
             Close
           </Button>
         </header>
+        {band}
         {planning ? (
           <div className="flex min-h-0 flex-1 flex-col border-t border-border lg:flex-row">
             <div className="flex shrink-0 gap-1 border-b border-border px-3 py-1.5 lg:hidden">

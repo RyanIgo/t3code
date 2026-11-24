@@ -14,6 +14,8 @@ export interface WorkRow {
   /** The item the chat is on, when the Desk knows it. */
   readonly item: DeskItem | null;
   readonly app: string | null;
+  /** A helper's story lead (thread id), when it's recorded; the sidebar nests it there. */
+  readonly parent: string | null;
 }
 
 export interface WorkApp {
@@ -28,6 +30,7 @@ export interface WorkApp {
 
 export interface WorkSidebar {
   readonly today: WorkRow | null;
+  /** Earlier days' chats still busy; everything else sits in its app's block. */
   readonly needsYou: ReadonlyArray<WorkRow>;
   readonly apps: ReadonlyArray<WorkApp>;
   /** Chats whose item is done, or whose PRs all merged with no open item: ready to settle. */
@@ -93,7 +96,13 @@ export function buildWorkSidebar(input: {
     const item = role === "planner" ? null : itemFor(chat);
     const app =
       item?.app ?? input.notes.work[chat.threadId]?.app ?? link?.app ?? input.appOfRepo(chat);
-    const row: WorkRow = { chat, role, item, app };
+    const row: WorkRow = {
+      chat,
+      role,
+      item,
+      app,
+      parent: role === "helper" ? (input.notes.work[chat.threadId]?.parent ?? null) : null,
+    };
     const busy = chat.working || chat.needsYou;
     if (link?.kind === "today") {
       if (link.day === today) todayRow = row;
@@ -110,13 +119,10 @@ export function buildWorkSidebar(input: {
       wrapUp.push(row);
       continue;
     }
-    if (chat.needsYou || chat.column === "done") {
-      needsYou.push(row);
-      continue;
-    }
+    // A chat that needs Rigo stays in its app's block, tagged there (one place per chat).
     const target = group(app ?? "Other");
     if (role === "planner") target.planners.push(row);
-    else if (item) target.work.push(row);
+    else if (item || row.parent) target.work.push(row);
     else target.loose.push(row);
   }
   const order = (app: string) => {
@@ -135,11 +141,28 @@ export function buildWorkSidebar(input: {
       .map(([app, rows]) => ({
         app,
         planners: rows.planners.toSorted(newest),
-        work: rows.work.toSorted(
-          (a, b) => Number(b.chat.working) - Number(a.chat.working) || newest(a, b),
+        work: nestHelpers(
+          rows.work.toSorted(
+            (a, b) =>
+              Number(b.chat.needsYou) - Number(a.chat.needsYou) ||
+              Number(b.chat.working) - Number(a.chat.working) ||
+              newest(a, b),
+          ),
         ),
         loose: rows.loose.toSorted(newest),
       })),
     wrapUp: wrapUp.toSorted(newest),
   };
+}
+
+/** Each helper right after its story lead; helpers whose lead isn't here keep their place. */
+function nestHelpers(rows: ReadonlyArray<WorkRow>): WorkRow[] {
+  const leads = new Set(rows.filter((row) => !row.parent).map((row) => row.chat.threadId));
+  const out: WorkRow[] = [];
+  for (const row of rows) {
+    if (row.parent && leads.has(row.parent)) continue;
+    out.push(row);
+    out.push(...rows.filter((helper) => helper.parent === row.chat.threadId));
+  }
+  return out;
 }

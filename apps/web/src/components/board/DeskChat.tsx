@@ -10,7 +10,9 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 import type { CardChatState } from "./boardCards.logic";
 import { type DeskChatContext, contextLabel, deskFragment, deskPlace } from "./deskChat.logic";
 import { chatTitle } from "./desk.logic";
-import type { DeskChatLink } from "./deskNotes.logic";
+import { chatFocus, chatRoleOf, type DeskChatLink } from "./deskNotes.logic";
+import { AppDot, deskLevel, LevelMark } from "./deskLevels";
+import { useDesk } from "./deskStore";
 import { useDeskNotes } from "./deskNotesStore";
 import { type PinChoice, PinMenu } from "./DeskPins";
 import { isHostedStaticApp } from "../../hostedPairing";
@@ -267,6 +269,27 @@ export function DeskDetailsSection(props: { readonly threadRef: ScopedThreadRef 
         </Button>
       </div>
     </ThreadDetailsSection>
+  );
+}
+
+/**
+ * In a chat's header: the chat's level (Planner, Story lead, Helper, Quick fix) and app, in the
+ * Board's colors, so a planner never looks like a story lead.
+ */
+export function DeskLevelChip(props: { readonly threadRef: ScopedThreadRef }) {
+  const notes = useDeskNotes().notes;
+  const items = useDesk().view?.items ?? [];
+  const chat = { environmentId: props.threadRef.environmentId, threadId: props.threadRef.threadId };
+  const focus = chatFocus(notes, chat.threadId);
+  const item = focus ? (items.find((entry) => entry.url === focus) ?? null) : null;
+  const level = deskLevel(chatRoleOf(notes, chat), item);
+  if (!level) return null;
+  const app = item?.app ?? notes.work[chat.threadId]?.app ?? null;
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1.5">
+      <LevelMark level={level} />
+      {app ? <AppDot app={app} /> : null}
+    </span>
   );
 }
 

@@ -1,5 +1,5 @@
 /* oxlint-disable t3code/no-untranslated-copy -- fleet fork: its additions here are English-only, for one team */
-import { DeskBreadcrumb, DeskLinkChip, DeskPinButton } from "../board/DeskChat";
+import { DeskBreadcrumb, DeskLevelChip, DeskLinkChip, DeskPinButton } from "../board/DeskChat";
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
@@ -492,6 +492,7 @@ export const ChatHeader = memo(function ChatHeader({
       {isServerThread && supportsReviewWindow() && !isReviewWindow() ? (
         <ReviewWindowButton environmentId={activeThreadEnvironmentId} threadId={activeThreadId} />
       ) : null}
+      {isServerThread ? <DeskLevelChip threadRef={activeThreadRef} /> : null}
       {isServerThread ? <DeskLinkChip threadRef={activeThreadRef} /> : null}
       {isServerThread ? <DeskPinButton threadRef={activeThreadRef} /> : null}
       {isServerThread ? <GuestShareIndicator threadRef={activeThreadRef} /> : null}
