@@ -294,7 +294,8 @@ function many(list, name) {
 }
 
 async function decide(question, options) {
-  if (!question?.trim()) {
+  // A flag where the question goes (`decide --help`) would be filed as a question to Rigo.
+  if (!question?.trim() || question.trim().startsWith("-")) {
     fail(
       'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"] [--goal (the question is a proposed sprint goal)]',
     );
