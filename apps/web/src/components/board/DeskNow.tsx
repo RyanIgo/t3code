@@ -667,6 +667,19 @@ export function useNowEntries(props: NowInput): {
           mine: false,
           fold: "agents",
         };
+      // Its chat is working (on feedback sent from the Test page, say): nothing to test until it's done.
+      const busy = props.chats.find(
+        (chat) => chat.threadId === sheet.thread?.threadId && (chat.working || chat.needsYou),
+      );
+      if (busy?.working && retest === 0)
+        return {
+          ...common,
+          badge: "Test",
+          tone: "secondary",
+          ask: `${chatTitle(busy.title)} is working on it; test when it hands back`,
+          mine: false,
+          fold: "agents",
+        };
       if (fixing && retest === 0)
         return {
           ...common,
