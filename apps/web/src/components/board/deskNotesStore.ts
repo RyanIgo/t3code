@@ -19,6 +19,7 @@ import {
   withInboxNote,
   withNextStep,
   withDecisionAnswer,
+  withPushBack,
   withPlanLineDone,
   withPlanLineQuestion,
   withReportsSent,
@@ -190,6 +191,14 @@ export function saveDeskFocus(itemUrl: string, threadId: string | null) {
 }
 
 /** Records Rigo's answer to a planner's question. */
+/** Pushes a Now row back until a date, or brings it back (until null). */
+export function savePushBack(key: string, until: string | null, title: string) {
+  save(
+    withPushBack(snapshot.notes, key, until, title, new Date().toISOString()),
+    "Couldn't save the push back",
+  );
+}
+
 export function saveDecisionAnswer(id: string, choice: string, note: string | null) {
   save(
     withDecisionAnswer(snapshot.notes, id, choice, note, new Date().toISOString()),

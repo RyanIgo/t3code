@@ -540,17 +540,6 @@ export function PlanPane(props: {
           <span className="text-xs text-muted-foreground">No sprint goal yet.</span>
         )}
       </header>
-      <BigPicture
-        app={props.app}
-        sprint={props.sprint.title}
-        note={noteAt(props.notes, { kind: "framing", sprint: props.sprint.title, app: props.app })}
-        onSaved={(text) =>
-          void sendToChat(
-            props.planner,
-            `I updated the big picture for ${props.app}, ${props.sprint.title}:\n\n${text}\n\nAdjust the plan and your open decisions to it, and tell me in a line what changes.`,
-          )
-        }
-      />
       {decisions.length > 0 || decided.length > 0 ? (
         <section className="flex flex-col gap-2">
           <DeskHeading>Decisions · {decisions.length}</DeskHeading>
@@ -586,6 +575,17 @@ export function PlanPane(props: {
           ) : null}
         </section>
       ) : null}
+      <BigPicture
+        app={props.app}
+        sprint={props.sprint.title}
+        note={noteAt(props.notes, { kind: "framing", sprint: props.sprint.title, app: props.app })}
+        onSaved={(text) =>
+          void sendToChat(
+            props.planner,
+            `I updated the big picture for ${props.app}, ${props.sprint.title}:\n\n${text}\n\nAdjust the plan and your open decisions to it, and tell me in a line what changes.`,
+          )
+        }
+      />
       <section className="flex flex-col">
         <DeskHeading>
           Waiting on you · {waiting.length + prsWaiting.length + ownTodos.length}

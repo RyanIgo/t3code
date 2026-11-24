@@ -22,6 +22,9 @@ import {
   withFocus,
   withNote,
   withPin,
+  nextMonday,
+  pushedUntil,
+  withPushBack,
 } from "./deskNotes.logic";
 
 describe("desk notes", () => {
@@ -476,5 +479,23 @@ describe("desk notes", () => {
       ["Sign off", "you", false],
       ["Done", "agents", true],
     ]);
+  });
+});
+
+describe("push back", () => {
+  it("defaults to next Monday at 8, even on a Monday", () => {
+    const monday = nextMonday(Date.parse("2026-11-23T15:00:00")); // a Monday
+    expect(monday.getDay()).toBe(1);
+    expect(monday.getDate()).toBe(30);
+    expect(nextMonday(Date.parse("2026-11-24T15:00:00")).getDate()).toBe(30);
+  });
+  it("keeps a row pushed until its date, survives a round trip, and brings it back", () => {
+    const at = "2026-11-24T15:00:00.000Z";
+    const pushed = withPushBack(EMPTY_DESK_NOTES, "pr:x", "2026-11-30T13:00:00.000Z", "PR", at);
+    const read = parseDeskNotes(JSON.stringify(pushed));
+    expect(pushedUntil(read, "pr:x", Date.parse(at))).toBe("2026-11-30T13:00:00.000Z");
+    expect(pushedUntil(read, "pr:x", Date.parse("2026-12-01T00:00:00Z"))).toBeNull();
+    const back = withPushBack(read, "pr:x", null, "PR", "2026-11-25T09:00:00.000Z");
+    expect(pushedUntil(back, "pr:x", Date.parse("2026-11-25T10:00:00Z"))).toBeNull();
   });
 });

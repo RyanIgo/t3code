@@ -52,6 +52,16 @@ export interface DeskNotes {
   readonly framing: Readonly<Record<string, Readonly<Record<string, DeskNote>>>>;
   /** Questions planners put to Rigo, answered in the Plan pane, on Now or on the phone. */
   readonly decisions: Readonly<Record<string, PlannerDecision>>;
+  /** Now-queue row key → "not my priority right now": the row waits in Pushed back until then. */
+  readonly pushed: Readonly<Record<string, PushBack>>;
+}
+
+/** A row Rigo pushed back. An `until` in the past means it's back on his queue. */
+export interface PushBack {
+  readonly until: string;
+  /** The row's title when he pushed it, for the planner's message and the fold. */
+  readonly title: string;
+  readonly updatedAt: string;
 }
 
 /** A question a planner puts to Rigo, with its options and the one it recommends. */
@@ -336,6 +346,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   inbox: {},
   framing: {},
   decisions: {},
+  pushed: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -419,6 +430,54 @@ function readSheets(value: unknown): Record<string, DeskSheet> {
 }
 
 /** Reads a stored notes document, dropping anything malformed. */
+function readPushed(value: unknown): Record<string, PushBack> {
+  if (typeof value !== "object" || value === null) return {};
+  const out: Record<string, PushBack> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const record = entry as Partial<PushBack> | null;
+    if (
+      typeof record?.until === "string" &&
+      typeof record.updatedAt === "string" &&
+      Number.isFinite(Date.parse(record.until))
+    ) {
+      out[key] = {
+        until: record.until,
+        title: typeof record.title === "string" ? record.title.slice(0, 300) : "",
+        updatedAt: record.updatedAt,
+      };
+    }
+  }
+  return out;
+}
+
+/** Pushes a Now row back until `until`, or brings it back now (until null). */
+export function withPushBack(
+  notes: DeskNotes,
+  key: string,
+  until: string | null,
+  title: string,
+  at: string,
+): DeskNotes {
+  return {
+    ...notes,
+    pushed: { ...notes.pushed, [key]: { until: until ?? at, title, updatedAt: at } },
+  };
+}
+
+/** When a Now row comes back, if it's pushed back now. */
+export function pushedUntil(notes: DeskNotes, key: string, nowMs: number): string | null {
+  const entry = notes.pushed[key];
+  return entry && Date.parse(entry.until) > nowMs ? entry.until : null;
+}
+
+/** Next Monday at 8 am local time: Push back's default. */
+export function nextMonday(nowMs: number): Date {
+  const date = new Date(nowMs);
+  date.setDate(date.getDate() + ((8 - date.getDay()) % 7 || 7));
+  date.setHours(8, 0, 0, 0);
+  return date;
+}
+
 export function parseDeskNotes(raw: string | null): DeskNotes {
   if (!raw) return EMPTY_DESK_NOTES;
   let value: unknown;
@@ -458,6 +517,7 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
       ).map(([sprint, byApp]) => [sprint, readNotes(byApp)]),
     ),
     decisions: readDecisions(record.decisions),
+    pushed: readPushed(record.pushed),
   };
 }
 
@@ -939,6 +999,7 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
       ),
     ),
     decisions: mergeNotes(remote.decisions, local.decisions),
+    pushed: mergeNotes(remote.pushed, local.pushed),
   };
 }
 

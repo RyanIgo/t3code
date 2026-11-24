@@ -72,6 +72,7 @@ import {
   saveDeskPin,
   useDeskNotes,
   saveNextStep,
+  savePushBack,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
 import { SprintCockpit } from "./DeskSprintCockpit";
@@ -102,7 +103,7 @@ import { BacklogView } from "./DeskBacklog";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { collectPrs, type DeskPr } from "./deskPrs.logic";
 import { CatchupSection } from "./DeskToday";
-import { NowView } from "./DeskNow";
+import { type Entry, NowView } from "./DeskNow";
 import { changesSince } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
@@ -163,6 +164,10 @@ function useDatedTodayChats(notes: DeskNotes, chats: ReadonlyArray<CardChatState
   }, [notes, chats, updateThreadMetadata]);
 }
 
+// Asked in this page's lifetime. The notes poll can bring back a copy saved before the ask
+// reached the hub, which would otherwise ask the same chat again.
+const wrapUpAsked = new Set<string>();
+
 /**
  * Wrap-up after merge: once a story lead's item has shipped, asks that chat (once) to wrap up,
  * without asking Rigo. Recording the ask as its next step first keeps it from being sent twice.
@@ -176,6 +181,9 @@ function useWrapUpNudges(
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- messages chats on their machines when their item ships
   useEffect(() => {
     for (const { chat, item } of chatsToWrapUp(notes, chats, items)) {
+      const asked = `${chat.threadId} ${item.url}`;
+      if (wrapUpAsked.has(asked)) continue;
+      wrapUpAsked.add(asked);
       saveNextStep(chat.threadId, `${WRAP_ASKED} of ${deskRef(item) ?? item.title}`);
       void sendToChat(chat, wrapUpMessage(item)).then((sent) => {
         if (sent)
@@ -248,6 +256,7 @@ export function DeskPage(props: {
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
   const notes = useDeskNotes();
+  const sendToChat = useSendToChat();
   const hubSheets = useHubSheets();
   useDatedTodayChats(notes.notes, props.pinnable);
   const board = useBoard();
@@ -664,6 +673,25 @@ export function DeskPage(props: {
     return (
       props.pinnable.find((entry) => `${entry.environmentId}:${entry.threadId}` === pinned) ?? null
     );
+  };
+  // Push back: "not my priority right now". The row waits until the date; its planner is told so
+  // it stops asking and re-plans around it.
+  const pushBack = (entry: Entry, until: Date | null) => {
+    savePushBack(entry.key, until ? until.toISOString() : null, entry.title);
+    const planner = plannerOf(entry.app);
+    const when = until?.toLocaleString([], { weekday: "short", month: "short", day: "numeric" });
+    if (planner)
+      void sendToChat(
+        planner,
+        until
+          ? `Pushed back until ${when}: "${entry.title}" (${entry.badge}). Not my priority right now: don't ask me about it before then, re-plan around it, and say in one line if that moves anything.`
+          : `Brought back: "${entry.title}" (${entry.badge}) is on my queue again.`,
+      );
+    toastManager.add({
+      type: "success",
+      title: until ? `Pushed back until ${when}` : "Back on your queue",
+      description: planner ? `${entry.app}'s planner was told.` : entry.title,
+    });
   };
   const sprintPanel = () => {
     if (!sprintShown) {
@@ -1119,6 +1147,7 @@ export function DeskPage(props: {
       {overlays}
       {mode === "now" ? (
         <NowView
+          onPushBack={pushBack}
           nowMs={nowMs}
           chats={props.chats}
           waiting={waitingOnYou(items)}

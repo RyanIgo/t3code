@@ -462,8 +462,8 @@ export function DeskModal(props: {
   // A planner or sprint chat on its own is a planning session: the plan beside the conversation.
   const planning = item === null && props.roster !== undefined && props.roster !== null;
   const [planPane, setPlanPane] = useState<"plan" | "chat">("plan");
-  // On a wide screen the plan can fold away so wide tables in the chat get the full width.
-  const [planHidden, setPlanHidden] = useState(false);
+  // Cards first (Rigo, 2026-11-24): the plan is the window; the conversation opens beside it on demand.
+  const [chatOpen, setChatOpen] = useState(false);
   const shownKey = shown && !draft ? chatKeyOf(shown) : null;
   // The chat's own details card is remembered open per chat; here its facts are the line above
   // the conversation, so it starts closed and opens only from its button.
@@ -613,29 +613,44 @@ export function DeskModal(props: {
             <aside
               aria-label="Sprint plan"
               className={cn(
-                "flex min-h-0 flex-col border-border lg:w-[26rem] lg:shrink-0 lg:border-e",
+                "flex min-h-0 min-w-0 flex-1 flex-col border-border",
                 planPane === "chat" && "max-lg:hidden",
-                planHidden && "lg:hidden",
+                chatOpen && "lg:border-e",
               )}
             >
-              {props.roster}
+              <div className="flex min-h-0 w-full max-w-3xl flex-1 flex-col self-center">
+                {props.roster}
+              </div>
+              {chatOpen ? null : (
+                <button
+                  type="button"
+                  onClick={() => setChatOpen(true)}
+                  className="hidden shrink-0 cursor-pointer items-center gap-2 border-t border-border px-4 py-2 text-left text-sm text-muted-foreground hover:bg-accent lg:flex"
+                >
+                  <span aria-hidden>▸</span>
+                  <span className="font-medium text-foreground">Conversation with the planner</span>
+                  {shown ? <span className="truncate">· {chatTitle(shown.title)}</span> : null}
+                </button>
+              )}
             </aside>
-            <div className="hidden shrink-0 border-e border-border lg:flex lg:flex-col">
-              <Button
-                variant="ghost"
-                size="xs"
-                aria-label={planHidden ? "Show the plan" : "Hide the plan"}
-                onClick={() => setPlanHidden(!planHidden)}
-              >
-                {planHidden ? "Plan ›" : "‹"}
-              </Button>
-            </div>
             <section
               className={cn(
-                "relative flex min-h-0 min-w-0 flex-1 flex-col",
+                "relative flex min-h-0 min-w-0 flex-col lg:w-[min(46rem,50%)] lg:shrink-0",
                 planPane === "plan" && "max-lg:hidden",
+                !chatOpen && "lg:hidden",
               )}
             >
+              <div className="hidden shrink-0 items-center gap-2 border-b border-border px-3 py-1 lg:flex">
+                <span className="text-xs font-medium">Conversation with the planner</span>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="ms-auto"
+                  onClick={() => setChatOpen(false)}
+                >
+                  Fold away
+                </Button>
+              </div>
               <ChatEmbedContext value>
                 <ChatPeekContext value>
                   {shown ? (

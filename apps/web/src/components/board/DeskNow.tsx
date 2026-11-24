@@ -1,10 +1,11 @@
-import { type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { Schema } from "effect";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
@@ -17,7 +18,13 @@ import {
   uncheckedRows,
   useHubSheets,
 } from "./deskSheets";
-import type { DeskNotes, PlannerDecision, PlannerTodo } from "./deskNotes.logic";
+import {
+  type DeskNotes,
+  nextMonday,
+  type PlannerDecision,
+  type PlannerTodo,
+  pushedUntil,
+} from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
 import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
@@ -75,6 +82,8 @@ export interface Entry {
   readonly minutes?: number;
   /** How long it has waited on him. */
   readonly waiting?: string;
+  /** Since when it has waited on him (ISO), for Oldest first. */
+  readonly since?: string | null;
   /** The planner to-do behind the row, for Done and "give it to an agent". */
   readonly todo?: PlannerTodo;
   /** Groups rows that aren't Rigo's: agents working, finished turns, older sheets. */
@@ -122,6 +131,8 @@ export interface NowInput {
   /** Planners' open lines on Rigo, each opening its planning session. */
   readonly todos?: ReadonlyArray<PlannerTodo>;
   readonly onOpenTodo?: (todo: PlannerTodo) => void;
+  /** Pushes a row back until a date (null brings it back); its planner is told. */
+  readonly onPushBack?: (entry: Entry, until: Date | null) => void;
   /** Every Desk item: gives chats, sheets and to-dos their item's priority. */
   readonly items?: ReadonlyArray<DeskItem>;
 }
@@ -147,12 +158,20 @@ export function NowView(
   );
   // The app Rigo committed to: its rows go to the top of the queue, in their usual order.
   const [firstApp, setFirstApp] = useLocalStorage("t3-fleet:now-first-app", "", Schema.String);
+  const [order, setOrder] = useLocalStorage("t3-fleet:now-order", ORDERS[0].id, Schema.String);
   const priorityOf = (entry: Entry) => entry.priority ?? NO_PRIORITY;
   const entries = all
     .filter((entry) => appFilter === ANY || entry.app === appFilter)
     .filter((entry) => priorityFilter === ANY || priorityOf(entry) === priorityFilter)
     .toSorted((a, b) => Number(b.app === firstApp) - Number(a.app === firstApp));
-  const queue = entries.filter((entry) => entry.mine);
+  const pushedOf = (entry: Entry) =>
+    props.notes ? pushedUntil(props.notes, entry.key, props.nowMs) : null;
+  const pushed = entries.filter((entry) => entry.mine && pushedOf(entry));
+  const queue = orderQueue(
+    entries.filter((entry) => entry.mine && !pushedOf(entry)),
+    order,
+    firstApp,
+  );
   const agents = entries.filter((entry) => entry.fold === "agents");
   const older = entries.filter((entry) => entry.fold === "sheets");
   const mineAll = all.filter((entry) => entry.mine);
@@ -209,13 +228,30 @@ export function NowView(
           onPriority={setPriorityFilter}
           onFirstApp={setFirstApp}
         />
+        <OrderChoice order={order} onOrder={setOrder} />
         {queue.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
-            {queue.map((entry) => (
-              <QueueRow key={entry.key} entry={entry} chats={props.chats} />
-            ))}
+            {queue.map((entry, index) => {
+              const group = groupOf(entry, order);
+              const startsGroup = group !== null && group !== groupOf(queue[index - 1], order);
+              return (
+                <Fragment key={entry.key}>
+                  {startsGroup ? (
+                    <li className="pt-2 first:pt-0">
+                      <DeskHeading>{group}</DeskHeading>
+                    </li>
+                  ) : null}
+                  <QueueRow entry={entry} chats={props.chats} onPushBack={props.onPushBack} />
+                </Fragment>
+              );
+            })}
           </ul>
         ) : null}
+        <PushedFold
+          entries={pushed}
+          until={(entry) => pushedOf(entry) ?? ""}
+          onBringBack={(entry) => props.onPushBack?.(entry, null)}
+        />
         <Fold
           label={`Agents on it · ${agents.length}`}
           hint="Working, waiting on a build, tests or a merge, or finished with nothing asked of you."
@@ -235,6 +271,130 @@ export function NowView(
 const ANY = "Any";
 const NO_PRIORITY = "No priority";
 const PRIORITIES = ["P0", "P1", "P2", "P3", NO_PRIORITY];
+
+const ORDERS = [
+  { id: "verb", label: "Next step" },
+  { id: "app", label: "App" },
+  { id: "priority", label: "Priority" },
+  { id: "oldest", label: "Oldest first" },
+] as const;
+
+const PRIORITY_RANK = (entry: Entry) => {
+  const index = PRIORITIES.indexOf(entry.priority ?? NO_PRIORITY);
+  return index === -1 ? PRIORITIES.length : index;
+};
+const sinceMs = (entry: Entry) => (entry.since ? Date.parse(entry.since) || Infinity : Infinity);
+
+/** The queue in the order Rigo picked; within a group, the usual next-step order. */
+function orderQueue(list: ReadonlyArray<Entry>, order: string, firstApp: string): Entry[] {
+  if (order === "app")
+    return list.toSorted(
+      (a, b) =>
+        Number(b.app === firstApp) - Number(a.app === firstApp) ||
+        Number(a.app === OTHER) - Number(b.app === OTHER) ||
+        a.app.localeCompare(b.app),
+    );
+  if (order === "priority") return list.toSorted((a, b) => PRIORITY_RANK(a) - PRIORITY_RANK(b));
+  // First in, first out: what has waited on him longest comes first; rows with no date go last.
+  if (order === "oldest") return list.toSorted((a, b) => sinceMs(a) - sinceMs(b));
+  return [...list];
+}
+
+function groupOf(entry: Entry | undefined, order: string): string | null {
+  if (!entry) return null;
+  if (order === "app") return entry.app;
+  if (order === "priority") return entry.priority ?? NO_PRIORITY;
+  return null;
+}
+
+function OrderChoice(props: { readonly order: string; readonly onOrder: (order: string) => void }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-1">
+      <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">Order</span>
+      {ORDERS.map((choice) => (
+        <Chip
+          key={choice.id}
+          on={props.order === choice.id}
+          onClick={() => props.onOrder(choice.id)}
+        >
+          {choice.label}
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+const until = (iso: string) =>
+  new Date(iso).toLocaleString([], { weekday: "short", month: "short", day: "numeric" });
+
+/** Rows Rigo said aren't his priority right now, each back on his queue on its date. */
+function PushedFold(props: {
+  readonly entries: ReadonlyArray<Entry>;
+  readonly until: (entry: Entry) => string;
+  readonly onBringBack: (entry: Entry) => void;
+}) {
+  if (props.entries.length === 0) return null;
+  return (
+    <details className="rounded-lg border border-border bg-muted/40 px-3 py-2">
+      <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2">
+        <span aria-hidden className="text-xs text-muted-foreground">
+          ▸
+        </span>
+        <DeskHeading>Pushed back · {props.entries.length}</DeskHeading>
+        <span className="text-2xs text-muted-foreground">
+          Not your priority right now. Each comes back on its date; its planner knows.
+        </span>
+      </summary>
+      <ul className="mt-2 flex flex-col gap-1">
+        {props.entries.map((entry) => (
+          <li key={entry.key} className="flex min-w-0 items-baseline gap-2 text-sm">
+            <Badge variant="outline" size="sm" className="shrink-0">
+              {entry.badge}
+            </Badge>
+            <button
+              type="button"
+              onClick={entry.onClick}
+              className="min-w-0 flex-1 cursor-pointer truncate text-left hover:underline"
+            >
+              {entry.title}
+            </button>
+            <span className="shrink-0 text-2xs text-muted-foreground">
+              back {until(props.until(entry))}
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => props.onBringBack(entry)}>
+              Bring back
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** "Not my priority right now": back on Monday, tomorrow, or in two weeks. */
+function PushBackMenu(props: { readonly onPick: (until: Date) => void }) {
+  const at8 = (date: Date) => {
+    date.setHours(8, 0, 0, 0);
+    return date;
+  };
+  const choices: ReadonlyArray<[string, () => Date]> = [
+    ["Until Monday", () => nextMonday(Date.now())],
+    ["Until tomorrow", () => at8(new Date(Date.now() + DAY_MS))],
+    ["For two weeks", () => at8(new Date(Date.now() + 14 * DAY_MS))],
+  ];
+  return (
+    <Menu>
+      <MenuTrigger render={<Button size="xs" variant="ghost" />}>Push back</MenuTrigger>
+      <MenuPopup align="end">
+        {choices.map(([label, date]) => (
+          <MenuItem key={label} onClick={() => props.onPick(date())}>
+            {label}
+          </MenuItem>
+        ))}
+      </MenuPopup>
+    </Menu>
+  );
+}
 
 function Chip(props: {
   readonly on: boolean;
@@ -329,7 +489,11 @@ function QueueFilters(props: {
   );
 }
 
-function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<CardChatState> }) {
+function QueueRow(props: {
+  readonly entry: Entry;
+  readonly chats: ReadonlyArray<CardChatState>;
+  readonly onPushBack?: ((entry: Entry, until: Date | null) => void) | undefined;
+}) {
   const { entry } = props;
   const sendToChat = useSendToChat();
   const [handed, setHanded] = useState<"done" | "agent" | "yes" | "no" | null>(null);
@@ -423,6 +587,9 @@ function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<
               ) : null}
             </>
           )
+        ) : null}
+        {props.onPushBack ? (
+          <PushBackMenu onPick={(date) => props.onPushBack?.(entry, date)} />
         ) : null}
         <Button
           size="xs"
@@ -583,7 +750,7 @@ export function useNowEntries(props: NowInput): {
               ? "Answer"
               : "Needs you",
           "warning",
-          { mine: true, minutes: 2, waiting: ago(props.nowMs, chat.since) },
+          { mine: true, minutes: 2, waiting: ago(props.nowMs, chat.since), since: chat.since },
         ),
       ),
     // A finished turn is Rigo's only when the chat handed it to him ("next: Rigo: …"); otherwise
@@ -610,6 +777,7 @@ export function useNowEntries(props: NowInput): {
               ask: next.replace(RIGO_NEXT, ""),
               minutes: 2,
               waiting: ago(props.nowMs, chat.since),
+              since: chat.since,
             })
           : chatEntry(chat, "review", "Finished", "secondary", {
               mine: false,
@@ -718,6 +886,7 @@ export function useNowEntries(props: NowInput): {
         mine,
         ...(mine ? { minutes: Math.max(2, retest > 0 ? retest : left) } : { fold: "sheets" }),
         waiting: ago(props.nowMs, sheet.updatedAt),
+        since: sheet.updatedAt,
       } as Entry;
     }),
     ...props.prs
@@ -827,7 +996,9 @@ export function useNowEntries(props: NowInput): {
           : (todo.line.why ?? "from the planner"),
         mine: true,
         ...(decide ? { minutes: 1 } : {}),
-        ...(todo.line.since ? { waiting: ago(props.nowMs, todo.line.since) } : {}),
+        ...(todo.line.since
+          ? { waiting: ago(props.nowMs, todo.line.since), since: todo.line.since }
+          : {}),
         todo,
         onClick: () => props.onOpenTodo?.(todo),
       };
