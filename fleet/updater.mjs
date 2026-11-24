@@ -133,6 +133,12 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`fleet updater: ${error.message}`);
+  // fetch() only says "fetch failed"; the cause names it (ENOTFOUND, ECONNREFUSED, a timeout).
+  const cause = error.cause?.code ?? error.cause?.message ?? error.name;
+  let hub = "(no hub address)";
+  try {
+    hub = hubUrl();
+  } catch {}
+  console.error(`fleet updater: ${error.message}${cause ? ` (${cause})` : ""} reaching ${hub}`);
   process.exit(1);
 });

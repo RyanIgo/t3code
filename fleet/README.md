@@ -53,19 +53,30 @@ version the fork is based on (`git describe --tags`) if needed, backs up the ups
 `client.upstream`, swaps this one in, and restarts the service. Then reload T3 and click **Board** at the top of
 the sidebar (or ⌘K → Open board).
 
-Run from a T3 chat, the update and restart step continues in a separate systemd job (the restart
-would otherwise kill the chat), so the chat drops for a moment; the output is in `fleet/install.log`.
+Run from a T3 chat, the update and restart step continues in a separate job (systemd on Linux,
+launchd on a Mac), since the restart would otherwise kill the chat. The chat may stop; the output
+is in `fleet/install.log` and the outcome in `~/.config/t3-fleet/last-install.json`.
 
 Later, after pulling changes or a `t3 update` (which puts the upstream client back):
 
 ```sh
-fleet/install-client.sh            # rebuild and reinstall
-fleet/install-client.sh --update   # same, moving t3 to the fork's version first
+fleet/install-client.sh            # install dependencies, rebuild and reinstall
+fleet/install-client.sh --update   # same, moving t3 up to the fork's release first
+fleet/install-client.sh --check    # what this machine runs, as one table; changes nothing
 fleet/install-client.sh --restore  # undo: put the upstream client back
 ```
 
-`--update` never downgrades t3. If this machine runs a newer t3 than the fork, rebase the fork
-(below) instead.
+The fork's release is its newest plain `v<x.y.z>` tag; nightly and preview tags are ignored.
+`--update` only moves t3 up. If this machine runs a newer t3 than the fork, the installer stops:
+bring the fork up to that release first (below).
+
+Restarting T3 stops every chat running on the machine. Check the Board's **Agents → Machines**
+card says the machine is idle first.
+
+**WSL with Tailscale on the Windows side:** if `t3-hub.<tailnet>.ts.net` doesn't resolve (the
+updater says `ENOTFOUND`), point WSL's DNS at Tailscale: set `generateResolvConf = false` in
+`/etc/wsl.conf` and put `nameserver 100.100.100.100` then `nameserver 1.1.1.1` in
+`/etc/resolv.conf`.
 
 ## See other machines on the board
 
@@ -184,14 +195,18 @@ can't reach it. Publish it from WSL with the Windows CLI, then pair with `t3 pai
 
 ## Pull in upstream
 
+Merge each new stable release into `feat/fleet-board` (no rebase: the branch is shared and
+never force-pushed). Stable tags only; nightlies move several times a day.
+
 ```sh
 git fetch upstream --tags
-git rebase v<new-version>        # stable tags only; nightlies move several times a day
-vp i && vp test run apps/web/src/components/board
+git merge v<new-version>         # resolve clashes by starting from upstream's file, re-adding ours
+vp i && vp run typecheck && vp test run apps/web/src/components/board
+git push origin feat/fleet-board v<new-version>   # the tag too: the installer reads it
 ```
 
-If a rebase conflicts, it will be in the upstream files above. Each change is small and marked;
-re-apply it by hand.
+Forgetting the tag leaves machines reading an older tag as the fork's release. Then roll out one
+machine at a time with `fleet/install-client.sh --update`, the hub (`fleet/deploy-hub.sh`) first.
 
 ## Dev loop
 

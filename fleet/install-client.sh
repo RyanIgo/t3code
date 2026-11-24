@@ -10,13 +10,16 @@
 #   fleet/install-client.sh --force    skip the version match check
 #   fleet/install-client.sh --hub URL  where agents here publish artifacts (the fleet hub)
 #   fleet/install-client.sh --skills-only  only the agent skills and hook: no build, no restart
+#   fleet/install-client.sh --check    print what this machine runs, as one table; changes nothing
 #
 # A full install also sets up fleet/updater.mjs on a timer: when the Board asks machines to
 # update, this checkout pulls and refreshes its skills on its own (never restarting T3).
 #
 # A `t3 update` installs a fresh upstream client; re-run this afterwards.
-# Run from a T3 chat, the update/swap/restart step is handed to a separate
-# systemd job (the restart would kill the chat); output goes to fleet/install.log.
+# Run from a T3 chat, the update/swap/restart step is handed to a separate job (systemd on
+# Linux, launchd on a Mac), since the restart kills the chat; it logs to fleet/install.log and
+# the outcome lands in ~/.config/t3-fleet/last-install.json. First install on a new machine:
+# clone, then fleet/setup.sh (see fleet/README.md).
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +38,7 @@ if ! command -v vp >/dev/null && [[ -x "$repo_root/node_modules/.bin/vp" ]]; the
   export PATH="$repo_root/node_modules/.bin:$PATH"
 fi
 
-build=1 force=0 restore=0 update=0 detached=0 skills_only=0 hub=""
+build=1 force=0 restore=0 update=0 detached=0 skills_only=0 check=0 hub=""
 args=("$@")
 for ((i = 0; i < ${#args[@]}; i++)); do
   arg="${args[$i]}"
@@ -44,11 +47,12 @@ for ((i = 0; i < ${#args[@]}; i++)); do
     --hub=*) hub="${arg#--hub=}" ;;
     --no-build) build=0 ;;
     --skills-only) skills_only=1 ;;
+    --check) check=1 ;;
     --force) force=1 ;;
     --restore) restore=1 ;;
     --update) update=1 ;;
     --detached) detached=1 ;; # internal: already running in its own systemd job
-    -h | --help) sed -n '2,16p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -159,30 +163,88 @@ UNIT
 }
 
 restart_service() {
-  if t3 service status 2>/dev/null | grep -qi "installed"; then
-    t3 service restart
-  else
-    echo "No background service; restart t3 yourself to pick up the change."
+  if t3 service restart; then
+    restarted=1
+    return 0
   fi
+  echo "Couldn't restart T3's background service. 't3 service status' says:"
+  t3 service status 2>&1 | sed 's/^/  /' | head -5
+  echo "If it asks for a repair, run: t3 service install (it restarts T3)."
 }
 
 # Restarting the service kills every agent it launched, including a chat that
 # is running this script. Re-run the rest in its own systemd job instead.
 detach_if_inside_t3() {
   [[ "$detached" == 1 ]] && return 0
-  grep -q 'app-t3code' /proc/self/cgroup 2>/dev/null || return 0
-  command -v systemd-run >/dev/null || return 0
+  grep -q 'app-t3code' /proc/self/cgroup 2>/dev/null || [[ -n "${T3CODE_THREAD_ID:-}" ]] || return 0
   local args=(--detached --no-build)
   [[ "$restore" == 1 ]] && args+=(--restore)
   [[ "$update" == 1 ]] && args+=(--update)
   [[ "$force" == 1 ]] && args+=(--force)
-  systemd-run --user --collect --quiet --unit="t3-fleet-install-$$" \
-    --setenv=PATH="$PATH" --setenv=T3CODE_HOME="$t3_home" \
-    bash -c "sleep 3; exec '$repo_root/fleet/install-client.sh' ${args[*]} >'$log_file' 2>&1"
-  echo "Running inside T3: the swap and restart continue in a separate job."
-  echo "T3 restarts in a few seconds; check $log_file afterwards."
+  local job="t3-fleet-install-$$"
+  local run="sleep 3; '$repo_root/fleet/install-client.sh' ${args[*]} >>'$log_file' 2>&1"
+  printf 'Install started %s from a T3 chat; the rest runs in job %s.\n' "$(date)" "$job" >"$log_file"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    local plist="$HOME/Library/LaunchAgents/com.t3.$job.plist"
+    cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.t3.$job</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>-c</string>
+    <string>$run; rm -f '$plist'; launchctl bootout gui/\$(id -u)/com.t3.$job</string></array>
+  <key>EnvironmentVariables</key><dict><key>PATH</key><string>$PATH</string><key>T3CODE_HOME</key><string>$t3_home</string></dict>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+PLIST
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+  elif command -v systemd-run >/dev/null; then
+    systemd-run --user --collect --quiet --unit="$job" \
+      --setenv=PATH="$PATH" --setenv=T3CODE_HOME="$t3_home" bash -c "$run"
+  else
+    echo "Inside T3 with no systemd or launchd to hand the restart to: run this from a terminal." >&2
+    exit 1
+  fi
+  echo "Running inside T3: the swap and restart continue in job $job."
+  echo "T3 restarts in a few seconds (this chat may stop). Then check: fleet/install-client.sh --check"
   exit 0
 }
+
+# One line per thing this machine runs, so a new chat can confirm an install without the log.
+check_machine() {
+  local head commit timer hub_url hub_ok skills
+  head="$(git -C "$repo_root" rev-parse --short HEAD)"
+  commit="$(cut -c1-10 "$HOME/.config/t3-fleet/client-commit" 2>/dev/null || echo none)"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    timer="$(launchctl print "gui/$(id -u)/com.t3.fleet-updater" >/dev/null 2>&1 && echo on || echo off)"
+  else
+    timer="$(systemctl --user is-active t3-fleet-updater.timer 2>/dev/null || true)"
+  fi
+  hub_url="$(cat "$HOME/.config/t3-fleet/hub-url" 2>/dev/null || true)"
+  hub_ok="$([[ -n "$hub_url" ]] && curl -fsS -o /dev/null --max-time 10 "$hub_url/fleet/updates" && echo reachable || echo "not reachable")"
+  skills="$(diff -rq "$repo_root/fleet/skills/dev-desk" "$HOME/.claude/skills/dev-desk" >/dev/null 2>&1 && echo current || echo stale)"
+  printf '%-16s %-14s %s\n' check expected found \
+    "t3 version" "$(fork_release)" "$(installed_version)" \
+    "fleet client" "$head" "$commit" \
+    "updater" "on" "$timer" \
+    "hub" "reachable" "${hub_url:-none} $hub_ok" \
+    "skills" "current" "$skills"
+  [[ -f "$HOME/.config/t3-fleet/last-install.json" ]] &&
+    echo "Last install: $(cat "$HOME/.config/t3-fleet/last-install.json")"
+  return 0
+}
+
+# The upstream release this branch is built on: plain release tags only, never nightlies.
+fork_release() {
+  local tag
+  tag="$(git -C "$repo_root" describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' 2>/dev/null || true)"
+  echo "${tag#v}"
+}
+
+if [[ "$check" == 1 ]]; then
+  check_machine
+  exit 0
+fi
 
 if [[ "$skills_only" == 1 ]]; then
   install_agent_skills
@@ -204,8 +266,12 @@ if [[ "$restore" == 1 ]]; then
   exit 0
 fi
 
-fork_version="$(git -C "$repo_root" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
-fork_version="${fork_version#v}"
+fork_version="$(fork_release)"
+if [[ ! "$fork_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Can't tell which t3 release this branch is built on (no v<x.y.z> tag in its history)." >&2
+  echo "Fetch the release tags (git fetch --tags origin) and try again." >&2
+  exit 1
+fi
 needs_update=0
 machine_version="$(installed_version)"
 if [[ -n "$fork_version" && "$fork_version" != "$machine_version" ]]; then
@@ -233,8 +299,18 @@ EOF
   fi
 fi
 
+if [[ "$detached" != 1 ]]; then
+  echo "This install will:"
+  [[ "$build" == 1 ]] && echo "  - install dependencies from the lockfile and build the web client"
+  echo "  - copy the fleet's agent skills into ~/.claude/skills (and ~/.codex/skills), replacing them"
+  echo "  - make sure ~/.claude/settings.json has the turn-report Stop hook"
+  echo "  - turn on the fleet updater (every 2 minutes; pulls and refreshes skills, never restarts)"
+  [[ "$needs_update" == 1 ]] && echo "  - move t3 $machine_version up to $fork_version"
+  echo "  - swap in the fleet client and restart T3, which stops every chat running on this machine"
+fi
+
 if [[ "$build" == 1 ]]; then
-  (cd "$repo_root" && vp run --filter @t3tools/web build)
+  (cd "$repo_root" && vp install --frozen-lockfile && vp run --filter @t3tools/web build)
 fi
 dist_dir="$repo_root/apps/web/dist"
 if [[ ! -f "$dist_dir/index.html" ]]; then
@@ -252,6 +328,19 @@ if [[ -n "$hub" ]]; then
 fi
 
 detach_if_inside_t3
+
+before_version="$(installed_version)"
+# The outcome, for a chat that couldn't watch: written however the run ends.
+record_install() {
+  local code=$?
+  mkdir -p "$HOME/.config/t3-fleet"
+  printf '{"at":"%s","before":"%s","after":"%s","commit":"%s","result":"%s"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$before_version" "$(installed_version)" \
+    "$(git -C "$repo_root" rev-parse --short HEAD)" "$([[ $code == 0 ]] && echo ok || echo "failed ($code)")" \
+    >"$HOME/.config/t3-fleet/last-install.json"
+}
+trap record_install EXIT
+restarted=0
 
 if [[ "$needs_update" == 1 ]]; then
   echo "Moving t3 $(installed_version) to the fork's version $fork_version..."
@@ -278,3 +367,4 @@ git -C "$repo_root" rev-parse HEAD >"$HOME/.config/t3-fleet/client-commit"
 echo "Installed the fleet board client into t3 $(installed_version) ($client_dir)."
 echo "Upstream copy kept at $backup_dir; undo with: fleet/install-client.sh --restore"
 restart_service
+echo "t3 $(installed_version) · fleet $(git -C "$repo_root" rev-parse --short HEAD) · $([[ $restarted == 1 ]] && echo restarted || echo "not restarted") · check: fleet/install-client.sh --check"
