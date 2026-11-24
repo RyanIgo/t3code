@@ -35,6 +35,8 @@ import { type SheetSummary, useHubSheets } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
 import ChatMarkdown from "../ChatMarkdown";
 import { Textarea } from "../ui/textarea";
+import { commentsText, contextSections } from "./decisionFeedback.logic";
+import { DeskNoteField } from "./DeskNoteField";
 import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
 import { useState } from "react";
@@ -364,7 +366,8 @@ export function AgentsView(props: {
 /** Answering a planner's question, or asking it for more, from anywhere on the Board. */
 export function useDecisionActions(planner: CardChatState | null, app: string) {
   const sendToChat = useSendToChat();
-  const send = (text: string) => (planner ? void sendToChat(planner, text) : undefined);
+  const send = (text: string): Promise<boolean> =>
+    planner ? sendToChat(planner, text) : Promise.resolve(false);
   return {
     answer: (decision: PlannerDecision, choice: string, note: string | null) => {
       saveDecisionAnswer(decision.id, choice, note);
@@ -374,18 +377,23 @@ export function useDecisionActions(planner: CardChatState | null, app: string) {
       if (decision.goalFor && goal) {
         saveDeskNote({ kind: "sprintGoal", sprint: decision.goalFor, app }, goal);
       }
-      send(`Decision: ${decision.question} → ${choice}${note?.trim() ? `. ${note.trim()}` : ""}`);
+      void send(
+        `Decision: ${decision.question} → ${choice}${note?.trim() ? `\n\n${note.trim()}` : ""}`,
+      );
     },
     reply: (decision: PlannerDecision, note: string) =>
       send(
-        `About "${decision.question}" (not answering yet): ${note}\n\nTake this into account and update that decision (desk.mjs decide --id ${decision.id}) if it changes the options, the background or your recommendation. Reply here in one line.`,
+        `About "${decision.question}" (not answering yet). My comments:\n\n${note}\n\nRevise the proposal with these: update that decision (desk.mjs decide --id ${decision.id}) so its background, options and recommendation reflect them. Reply here in one line saying what changed.`,
       ),
     tellMore: (decision: PlannerDecision) =>
-      send(
+      void send(
         `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
       ),
   };
 }
+
+/** The time now, as "10:52 AM", for a sent message's confirmation. */
+const clockNow = () => new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
 /**
  * Fleet fork: the plan side of a planning session (a planner or sprint chat opened on its own).
@@ -556,6 +564,7 @@ export function PlanPane(props: {
               onAnswer={answer}
               onTellMore={() => tellMore(decision)}
               onReply={reply}
+              voiceEnvironmentId={props.planner.environmentId}
             />
           ))}
           {decided.length > 0 ? (
@@ -985,11 +994,29 @@ export function DecisionCard(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   readonly onAnswer: (decision: PlannerDecision, choice: string, note: string | null) => void;
   readonly onTellMore: () => void;
-  /** Sends the note to the planner without answering yet. */
-  readonly onReply?: (decision: PlannerDecision, note: string) => void;
+  /** Sends the comments to the planner without answering yet; resolves whether it got them. */
+  readonly onReply?: (decision: PlannerDecision, note: string) => Promise<boolean>;
+  /** The planner's machine, which voice input runs through. */
+  readonly voiceEnvironmentId?: string | null;
 }) {
   const { decision } = props;
   const [note, setNote] = useState("");
+  // Comments on each part of the proposal (a story, the quick fixes), sent together.
+  const sections = decision.context ? contextSections(decision.context) : [];
+  const [comments, setComments] = useState<Record<number, string>>({});
+  const [commenting, setCommenting] = useState<ReadonlySet<number>>(new Set());
+  const [sent, setSent] = useState<{ readonly ok: boolean; readonly at: string } | null>(null);
+  const feedback = commentsText(sections, comments, note);
+  const sendComments = async () => {
+    if (!props.onReply || !feedback) return;
+    const ok = await props.onReply(decision, feedback);
+    setSent({ ok, at: clockNow() });
+    if (ok) {
+      setComments({});
+      setCommenting(new Set());
+      setNote("");
+    }
+  };
   const [asked, setAsked] = useState(false);
   // The recommended option starts picked; nothing is sent until Rigo presses Send.
   const [choice, setChoice] = useState<string | null>(
@@ -998,8 +1025,33 @@ export function DecisionCard(props: {
       : null,
   );
   const send = () => {
-    if (choice) props.onAnswer(decision, choice, note.trim() || null);
+    if (choice) props.onAnswer(decision, choice, feedback || null);
   };
+  const noteField = (
+    id: string,
+    value: string,
+    onChange: (text: string) => void,
+    placeholder: string,
+    rows = 3,
+  ) =>
+    props.voiceEnvironmentId ? (
+      <DeskNoteField
+        id={id}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        rows={rows}
+        environmentId={props.voiceEnvironmentId}
+      />
+    ) : (
+      <Textarea
+        id={id}
+        rows={rows}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    );
   const links = [...new Set([...(decision.itemUrl ? [decision.itemUrl] : []), ...decision.links])];
   const outcomeOf = (option: string) =>
     decision.outcomes.find((entry) => entry.option === option) ?? null;
@@ -1014,10 +1066,45 @@ export function DecisionCard(props: {
       {decision.why ? <span className="text-xs text-muted-foreground">{decision.why}</span> : null}
       {decision.context ? (
         <details open className="rounded-md bg-muted/50 px-2 py-1.5 text-xs">
-          <summary className="cursor-pointer font-medium">Background</summary>
-          <div className="pt-1 [&_p]:mb-1">
-            <ChatMarkdown text={decision.context} cwd={undefined} />
-          </div>
+          <summary className="cursor-pointer font-medium">
+            Background{props.onReply && sections.length > 1 ? " · comment on any part" : ""}
+          </summary>
+          {props.onReply && sections.length > 1 ? (
+            <div className="flex flex-col gap-2 pt-1">
+              {sections.map((section, index) => (
+                <div
+                  key={section.body}
+                  className="flex flex-col gap-1 border-b border-border/60 pb-2 last:border-b-0"
+                >
+                  <div className="[&_p]:mb-1">
+                    <ChatMarkdown text={section.body} cwd={undefined} />
+                  </div>
+                  {commenting.has(index) || comments[index] ? (
+                    noteField(
+                      `decision-comment-${decision.id}-${index}`,
+                      comments[index] ?? "",
+                      (text) => setComments((current) => ({ ...current, [index]: text })),
+                      `Your comment on "${section.title}"`,
+                      2,
+                    )
+                  ) : (
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="self-start"
+                      onClick={() => setCommenting((current) => new Set(current).add(index))}
+                    >
+                      Comment on this
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="pt-1 [&_p]:mb-1">
+              <ChatMarkdown text={decision.context} cwd={undefined} />
+            </div>
+          )}
         </details>
       ) : null}
       {links.length > 0 ? (
@@ -1090,19 +1177,25 @@ export function DecisionCard(props: {
             ? "Your wording for the goal (optional)"
             : "Add context for the planner (optional)"}
         </label>
-        <Textarea
-          id={`decision-note-${decision.id}`}
-          rows={3}
-          placeholder="Anything the planner should know with your answer: what you heard, what to watch out for, who to ask."
-          value={note}
-          onChange={(event) => setNote(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-              event.preventDefault();
-              send();
-            }
-          }}
-        />
+        {noteField(
+          `decision-note-${decision.id}`,
+          note,
+          setNote,
+          "Anything the planner should know: what you heard, the focus you want, what to watch out for. Use the microphone to talk it through.",
+        )}
+        {sent ? (
+          <span
+            role="status"
+            className={cn(
+              "text-xs",
+              sent.ok ? "text-muted-foreground" : "text-destructive-foreground",
+            )}
+          >
+            {sent.ok
+              ? `Comments sent to the planner at ${sent.at}. It will revise this card and reply in its chat.`
+              : "Couldn't reach the planner's chat (its machine may be off or asleep). Your comments are still here; try again."}
+          </span>
+        ) : null}
         {/* Stays in view at the bottom of a long card, so sending never needs a scroll. */}
         <div className="sticky bottom-0 -mx-2.5 -mb-2.5 flex flex-wrap items-center gap-2 rounded-b-lg border-t border-border bg-card px-2.5 py-2">
           <Button
@@ -1117,13 +1210,9 @@ export function DecisionCard(props: {
             {asked ? "Asked for more" : "Tell me more first"}
           </Button>
           <span className="flex-1" />
-          {props.onReply && note.trim() ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => props.onReply?.(decision, note.trim())}
-            >
-              Send the note, decide later
+          {props.onReply && feedback ? (
+            <Button size="sm" variant="outline" onClick={() => void sendComments()}>
+              Send comments, decide later
             </Button>
           ) : null}
           <Button size="sm" disabled={!choice} onClick={send}>

@@ -1209,9 +1209,10 @@ function useNeedRows(input: NeedInput): Need[] {
               askedPlanner(decision.id);
             }}
             onReply={(asked, note) => {
-              reply(asked, note);
               askedPlanner(decision.id);
+              return reply(asked, note);
             }}
+            voiceEnvironmentId={planner.environmentId}
           />
         ),
       });
