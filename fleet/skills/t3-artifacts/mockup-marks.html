@@ -1,0 +1,175 @@
+<!--
+  Mockup marks for a hub HTML artifact (dev-desk "Mockup first"). Paste this whole block at the end
+  of the mockup page's <body>. Wrap each screen in
+    <section data-screen="ap-view" data-title="AP's view"> … the mocked screen … </section>
+  and set data-round on <body> (e.g. <body data-round="2">). Each screen gets Right / Change this /
+  Flag TODO / Not relevant (Drop, or Send to Backlog) and a note; marks save as Rigo goes, and
+  "Send marks to the lead" submits them to the chat that published the page.
+-->
+<style>
+  .t3m-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 10px 0 18px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border, #ccc);
+    font:
+      13px system-ui,
+      sans-serif;
+  }
+  .t3m-bar button,
+  .t3m-bar select {
+    font: inherit;
+    border: 1px solid var(--border, #ccc);
+    background: transparent;
+    color: inherit;
+    border-radius: 6px;
+    padding: 3px 9px;
+    cursor: pointer;
+  }
+  .t3m-bar button[aria-pressed="true"] {
+    background: var(--primary, #2f5bd3);
+    border-color: var(--primary, #2f5bd3);
+    color: var(--primary-foreground, #fff);
+  }
+  .t3m-bar textarea {
+    flex-basis: 100%;
+    font: inherit;
+    min-height: 48px;
+    border: 1px solid var(--border, #ccc);
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    padding: 6px;
+  }
+  .t3m-foot {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 8px 0;
+    background: var(--background, #fff);
+    border-top: 1px solid var(--border, #ccc);
+    font:
+      13px system-ui,
+      sans-serif;
+  }
+  .t3m-foot button {
+    font: inherit;
+    font-weight: 600;
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 14px;
+    background: var(--primary, #2f5bd3);
+    color: var(--primary-foreground, #fff);
+    cursor: pointer;
+  }
+</style>
+<script>
+  (() => {
+    const MARKS = [
+      ["right", "Right"],
+      ["change", "Change this"],
+      ["todo", "Flag TODO"],
+      ["irrelevant", "Not relevant"],
+    ];
+    const api = window.t3artifact;
+    const screens = [...document.querySelectorAll("section[data-screen]")];
+    const round = document.body.dataset.round || "1";
+    let marks =
+      (api &&
+        api.state &&
+        api.state.data &&
+        api.state.data.round === round &&
+        api.state.data.marks) ||
+      {};
+    const status = document.createElement("span");
+    const save = () => api && api.save({ round, marks });
+    const paint = [];
+    for (const section of screens) {
+      const id = section.dataset.screen;
+      const bar = document.createElement("div");
+      bar.className = "t3m-bar";
+      const buttons = MARKS.map(([value, label]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = label;
+        button.addEventListener("click", () => {
+          marks[id] = { ...(marks[id] || {}), mark: value };
+          save();
+          render();
+        });
+        bar.append(button);
+        return [value, button];
+      });
+      const where = document.createElement("select");
+      where.setAttribute("aria-label", "What happens to it");
+      where.innerHTML =
+        '<option value="drop">Drop it (recorded on the story)</option><option value="backlog">Send to Backlog</option>';
+      where.addEventListener("change", () => {
+        marks[id] = { ...(marks[id] || {}), where: where.value };
+        save();
+      });
+      bar.append(where);
+      const note = document.createElement("textarea");
+      note.placeholder = "Note for the lead (what to change, or context for later)";
+      note.addEventListener("change", () => {
+        marks[id] = { ...(marks[id] || {}), note: note.value };
+        save();
+      });
+      bar.append(note);
+      section.append(bar);
+      const render = () => {
+        const current = marks[id] || {};
+        for (const [value, button] of buttons)
+          button.setAttribute("aria-pressed", String(current.mark === value));
+        where.hidden = current.mark !== "irrelevant";
+        where.value = current.where || "drop";
+        if (document.activeElement !== note) note.value = current.note || "";
+      };
+      paint.push(render);
+      render();
+    }
+    const foot = document.createElement("div");
+    foot.className = "t3m-foot";
+    const send = document.createElement("button");
+    send.type = "button";
+    send.textContent = "Send marks to the lead";
+    send.addEventListener("click", () => {
+      const missing = screens.filter((s) => !(marks[s.dataset.screen] || {}).mark).length;
+      const line = (s) => {
+        const m = marks[s.dataset.screen] || {};
+        const label = (MARKS.find(([v]) => v === m.mark) || [null, "Not marked"])[1];
+        const where =
+          m.mark === "irrelevant" ? (m.where === "backlog" ? " → Backlog" : " → dropped") : "";
+        return `- ${s.dataset.title || s.dataset.screen}: ${label}${where}${m.note ? ` — ${m.note}` : ""}`;
+      };
+      const text = `Mockup round ${round} marks${missing ? ` (${missing} not marked)` : ""}:\n${screens.map(line).join("\n")}`;
+      if (!api) {
+        status.textContent = "This page isn't on the hub, so marks can't be sent.";
+        return;
+      }
+      api.submit(text, { round, marks }).then(
+        () => {
+          status.textContent = "Sent to the lead.";
+        },
+        () => {
+          status.textContent = "Didn't send. Try again.";
+        },
+      );
+    });
+    foot.append(send, status);
+    document.body.append(foot);
+    if (api)
+      api.onChange((state) => {
+        if (state && state.data && state.data.round === round) {
+          marks = state.data.marks || {};
+          paint.forEach((fn) => fn());
+        }
+      });
+  })();
+</script>

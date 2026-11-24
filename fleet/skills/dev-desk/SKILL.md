@@ -64,22 +64,25 @@ node ~/.claude/skills/dev-desk/desk.mjs next "Stage BuildingConnected bids once 
   step, or what you're waiting on and from whom. Clear it (`next ""`) when the item is done.
 - If Rigo or a planner moved you to another item (a message saying "You're now on …"), finish or
   park what you were doing, run `focus` with the new item, and say where the old one stands.
-- A planner that starts work chats records each one right away with
-  `focus <item> --thread <the new chat's thread id>` (from create_threads, t3_thread_launch or
-  delegate_task), and names the chat after its item ("#229 Compliance: …"). When it moves a
-  chat to other work, it tells the chat, and the chat runs `focus` itself.
+- A planner that starts a story lead records it right away with
+  `focus <story> --thread <the new chat's thread id>` (from create_threads, t3_thread_launch or
+  delegate_task), and names the chat after its story ("#276 AP and Administration each see their
+  data"). When it moves a chat to other work, it tells the chat, and the chat runs `focus` itself.
 
 ## Levels: who does what
 
 Every chat works at one level, recorded on the Desk and shown on the Board. Rigo steers each app
 through its planner; the Board's Now tab is his list of where he's needed across every app (there
-is no Today chat any more). He also talks to work chats directly to scope a feature.
+is no Today chat any more). He also talks to story leads directly to scope a story.
 
-| Level                                  | Owns                                                                                                                                  | Does not                                                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| **Planner** (one per app, per sprint)  | the app's sprint plan and goals; starting, naming and reassigning work chats; turning feedback into items; bringing decisions to Rigo | write code, open or merge PRs, test, or publish test sheets (the item's work chat does; the sheet shows in its Review tab) |
-| **Work** (one item)                    | one issue or PR: code, PR, test sheet, wrap-up                                                                                        | change the plan, pick its own next item, take on a second item                                                             |
-| **Helper** (a subagent or a side task) | the job its parent gave it                                                                                                            | talk to Rigo; its results and questions go to its parent                                                                   |
+The unit of work is the **story** (see "Stories: the unit of work" below): Rigo plans, reviews,
+tests and merges stories; the small issues inside a story are **pieces** that agents handle.
+
+| Level                                                     | Owns                                                                                                                                                          | Does not                                                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| **Planner** (one per app, per sprint)                     | the app's sprint plan, goals and stories; starting, naming and reassigning story leads; turning feedback into plans Rigo approves; bringing decisions to Rigo | write code, open or merge PRs, test, or publish test sheets or mockups (the story lead does) |
+| **Story lead** (role `work`; one story, or one quick fix) | the whole story: splitting it into pieces, a helper per piece, the mockup loop, the PRs, the one test sheet, the wrap-up                                      | change the plan, pick its own next story, take on a second story                             |
+| **Helper** (a subagent or a side task)                    | one piece or job its parent gave it                                                                                                                           | talk to Rigo; its results and questions go to its parent                                     |
 
 ```sh
 node ~/.claude/skills/dev-desk/desk.mjs role planner --app "BizDev Leads"            # this chat is BizDev's planner
@@ -88,38 +91,57 @@ node ~/.claude/skills/dev-desk/desk.mjs role work --thread <id>                 
 node ~/.claude/skills/dev-desk/desk.mjs agents "BizDev Leads"                        # the app's chats by level, and what's off
 ```
 
-- **At the start of a chat**, know your level: a chat started from an item is Work (`focus`
-  records it); from an app or sprint, Planner; delegated by another chat, Helper. If nothing
-  says, ask Rigo in one line, then record it with `role`.
+- **At the start of a chat**, know your level: a chat started from a story or quick fix is its
+  Story lead (`focus` records it); from an app or sprint, Planner; delegated by another chat,
+  Helper. If nothing says, ask Rigo in one line, then record it with `role`.
 - **Stay at your level.** When Rigo asks something that belongs to another level, say so in one
   line ("That's the BizDev planner's call: sprint priorities"), put his message in that chat's
   message box with `t3_thread_send` (queue, don't steer) when you can reach it, and give him its
   link. Don't answer it yourself.
-- **Planners** name the work chats they start "#<n> <plain title>", run `focus <item> --thread <id>`
-  and `role work --thread <id>` for each, and give delegated chats `role helper --parent <your
-  thread id>`. A work chat that needs a decision asks its planner; the planner asks Rigo.
-- **Work chats** finish one item. More work found along the way becomes a note to the planner
-  (or `capture`), not a second item in the same chat.
-- **Turns report themselves.** At the end of every turn of a work chat or helper, a hook records
+- **Planners** name the story leads they start "#<n> <plain story title>", run
+  `focus <story> --thread <id>` and `role work --thread <id>` for each, and give delegated chats
+  `role helper --parent <your thread id>`. A story lead that needs a decision about the work asks
+  its planner; the planner asks Rigo. (The one decision a lead files itself is its mockup
+  recommendation, below.)
+- **Story leads** finish one story. They split it into pieces and hand each to a helper
+  (`delegate_task`, then `role helper --parent <lead's thread id> --thread <helper's id>`), run
+  helpers side by side where pieces don't depend on each other, check and combine their results,
+  and own everything Rigo sees for the story. Work found along the way that isn't part of the
+  story becomes a note to the planner (or `capture`), not a second story in the same chat.
+- **Turns report themselves.** At the end of every turn of a story lead or helper, a hook records
   what it said and its `next` step for its planner and sends them as a "[Desk update]" message
   (batched, at most one every few minutes). So keep `next` true; you don't need to tell the
   planner what you did. Message it yourself only for a question or a decision it must make.
-- **One test sheet per story or bug**, made by its work chat (t3-app-review), never one sheet for
-  a whole sprint: Rigo tests it on the Board's Test page with that chat under it, and his
-  feedback, blockers and submitted results go straight to the chat that can fix them.
+- **One test sheet per story or quick fix**, made by its story lead (t3-app-review), never one
+  sheet per piece or for a whole sprint: Rigo tests it on the Board's Test page with that chat
+  under it, and his feedback, blockers and submitted results go straight to the chat that can
+  fix them. When the story had a mockup, the sheet checks "does it match the marked mockup, and
+  is the data right", nothing more.
 - **Planners** treat a "[Desk update]" as news, not a request: update the checklist (`plan set`)
   if the picture changed, act if something needs you, and otherwise end the turn with one line
   or nothing. Don't reply to the chat unless it needs something.
-- **Rigo scoping with a work chat** is expected: shape the feature with him, write what was
+- **Rigo scoping with a story lead** is expected: shape the story with him, write what was
   agreed into the issue (acceptance criteria, "Where it stands"), add a `note` for anything the
   next chat should know, and tell the planner in one queued line (`t3_thread_send`) so its plan
-  stays true. If what he asks is another item, say so and `capture` it for the planner.
+  stays true. If what he asks is another story, say so and `capture` it for the planner.
+- **Feedback gets a plan Rigo approves.** Feedback (from him, a user session, the Feedback
+  button, a test sheet note that asks for something new) often spans a story, a piece and a quick
+  fix. Its planner writes one `decide` card for it, options `"Approve|Change|Push back"`, whose
+  `--context` lists one line per part: where it goes (a quick fix; a piece of story #n; a new
+  story under feature X) and why, each part linked back to the feedback. File, start or change
+  nothing before "Approve". A small tweak to the story a lead is on right now, said to that lead
+  directly, is the exception: the lead takes it into the story and tells the planner.
 - **Steering from a user session is expedited.** When Rigo brings what a user said while using
   the app (a session, a demo, a test with them) and it changes a feature, a bug or what comes
-  first: act on it now, ahead of the queue. A work chat on that item takes it on at once and
-  tells the planner; anywhere else, `capture … --source "User session"` and send the planner one
-  queued line at once. The planner re-plans in its next turn (priority, sprint, who's on it) and
-  says what moved. Triage proposes "User session" notes first, with Expedite.
+  first: make its feedback plan now, ahead of the queue, with "User session" in the question, and
+  act the moment he approves. Elsewhere, `capture … --source "User session"` and send the planner
+  one queued line at once. Triage proposes "User session" notes first, with Expedite.
+- **Keep the chat thread plain conversation.** Rigo reads cards, mockups and sheets in the side
+  panel (the Board's Plan pane, Test page and Review window), never embedded in the thread: it
+  confuses him there. So no `html_render` pages and no `questions` blocks in a thread. Decisions
+  go through `decide`; checks, mockups and anything with marks go to a hub artifact
+  (t3-artifacts). In the thread, point to it in one line ("Mockup round 2 is in the side panel:
+  3 screens, ~5 min").
 
 ### A new planner each sprint
 
@@ -215,11 +237,17 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   - **Keep the list short and moving.** At every `plan set`, look at his open lines: each shows on
     his queue with how long it has waited. One that has sat two days is stuck: ask yourself why
     (unclear, not ready, not his, or he doesn't agree) and fix that, rather than leaving it.
-- **End every work-chat turn with `next` saying whose move it is.** His queue lists a finished
-  turn only when its `next` starts with "Rigo:" and says what he does, e.g. `next "Rigo: test
-  bid intake on its sheet (11 checks, ~15 min)"`. Anything else ("waiting on CI", "merging after
-  the release") folds under "Agents on it", where he doesn't need to open it. Don't hand him a
-  turn just to read it: if nothing needs him, `next` says what's next for you.
+- **End every story-lead turn with `next` saying whose move it is.** His queue lists a finished
+  turn only when its `next` starts with "Rigo:" and names one of his verbs: **review** (a mockup
+  round), **test** (the sheet), **merge**, or **do** (a step only he can take), e.g.
+  `next "Rigo: review mockup round 2 of #276 (3 screens, ~5 min)"` or
+  `next "Rigo: test bid intake on its sheet (11 checks, ~15 min)"`. Never "Rigo: read …",
+  "look at …" or "check the chat": if he needs to know something, it belongs on the sheet, the
+  mockup or a `decide` card. Anything else ("waiting on CI", "merging after the release") folds
+  under "Agents on it", where he doesn't need to open it.
+- **Say times as agents actually take them.** A first mockup takes about an hour, a revised round
+  less, a piece often an hour or two. Don't say "a day" or "a few days" for agent work unless it
+  truly waits on something that long (a person, a release window), and then say what.
 - **Say where.** A step on a machine names it the way the Board shows it ("on admin's Mac
   mini"), and says how to get there: the **Terminal** button next to your chat in the item's
   window opens a terminal on that machine, in your folder. Better still, don't hand him a
@@ -253,6 +281,68 @@ When Rigo asks you to reconcile, or once a week:
    interrupting work).
 6. Show Rigo a table: chat · level · item · state · what changed, and flag anything you weren't
    sure about. Ask before settling or stopping any chat.
+7. **Group into stories.** Where several work chats are on pieces of one user outcome, propose
+   the grouping as one `decide` card per app ("Group the warehouse work into 2 stories?",
+   options `"Approve|Change|Push back"`), `--context` listing each story: its one-sentence title,
+   its pieces (repo#n), the chat that becomes its lead and the chats that become its helpers, and
+   any item left as a quick fix. On "Approve": make the pieces sub-issues of the story, rename the
+   lead "#<n> <story title>", `role helper --parent <lead> --thread <id>` the others, tell each
+   chat its new place in one queued line, and `plan set`. Nothing is closed or stopped.
+
+## Stories: the unit of work
+
+Agreed with Rigo on 2026-11-24 (his "How the Dev Work Fits" page). Three words, three lifespans:
+
+- **Feature** (months): an area of an app, e.g. `Warehouse · Access`. Rigo looks at it when
+  planning a sprint, not day to day.
+- **Story** (one sprint): what users get from a feature this sprint, in one sentence a user would
+  recognize: "AP and Administration each see exactly their data." It gets one story lead, one
+  mockup (if needed), one test sheet and one Merge (all its PRs together). It's sized to be mocked
+  up, built, tested and shipped within its sprint. This is what Rigo deals with.
+- **Piece** (hours to days): a GitHub sub-issue of its story: a fix, a migration, an access rule.
+  A helper does it; Rigo never sees a piece on its own unless it blocks the story.
+- **Quick fix**: a production bug or maintenance (upgrade, security) that belongs to no story.
+  It gets its own small story-lead chat and reaches Rigo as test, then merge.
+
+Pieces are sub-issues of their story:
+
+```sh
+id=$(gh api repos/<owner>/<repo>/issues/<piece n> --jq .id)
+gh api -X POST repos/<owner>/<repo>/issues/<story n>/sub_issues -F sub_issue_id="$id"
+```
+
+### Mockup first
+
+A story that changes a screen is mocked up before it's built, so Rigo sees the screens in an hour
+rather than after the slow data and access work.
+
+1. **Recommend.** Once the lead has split the story into pieces, it files its mockup
+   recommendation as a decision, the one it files itself:
+   `decide "Mockup for #276: Clickable?" --app "<app>" --item <story url> --options "Not needed|Sketch|Clickable|Detailed" --rec Clickable --why "<one line: which screens change and why that level>"`.
+   Sketch = boxes, labels and layout, minutes. Clickable = linked screens with sample data, about
+   an hour. Detailed = real field names, edge cases and empty states, a couple of hours. No screen
+   change (data jobs, upgrades, access rules): recommend "Not needed" and go straight to Build.
+2. **First round in about an hour.** Publish the mockup as a hub HTML artifact (t3-artifacts), one
+   `<section data-screen="…" data-title="…">` per screen, `<body data-round="1">`, with
+   `~/.claude/skills/t3-artifacts/mockup-marks.html` pasted at the end of the body. It gives
+   each screen Right / Change this / Flag TODO / Not relevant (Drop, or Send to Backlog) and a
+   note, and a "Send marks to the lead" button. Say the effort level at the top of the page.
+   Then `next "Rigo: review mockup round 1 of #<n> (<k> screens, ~<m> min)"`.
+3. **Loop.** His marks arrive as a `[From page: …]` message. Revise every Change screen and
+   publish the next round in place (same `id`, `data-round` + 1), usually within the hour. He can
+   change the effort level between rounds; follow what he says. For **Flag TODO**, `capture` it
+   (`--source Other --app "<app>"`, his note as context). For **Not relevant → Drop**, add
+   "Left out: <screen> (Not relevant, <date>)" to the story's Engineering section so no chat
+   proposes it again; **→ Send to Backlog** is a `capture` like Flag TODO.
+4. **The loop ends** when no screen is marked Change, or when he tells you to stop or go straight
+   to Build. Write the Right screens into the story's acceptance criteria; the test sheet checks
+   against them. Then build.
+
+### Wrap-up after merge
+
+When a story's PRs merge, its lead wraps up straight away without asking (see "Wrapping up"
+below) and settles its helpers. A planner that sees a merged story whose lead is idle (a
+"[Desk update]", `agents`, or reconciling) sends that lead one queued line: "#<n> merged: wrap up."
 
 ## Rigo's inbox
 
@@ -305,7 +395,8 @@ node ~/.claude/skills/dev-desk/desk.mjs capture "<what Rigo was told>" --who Mad
     sheet is finished with nothing failed, the acceptance criteria are ticked, and the chat is
     settled. A closed item with any of these left shows as "Done, needs wrap-up" until it's cleared.
 
-Existing parent / sub-issue links are kept; features are a field, not a parent.
+Features are a field, not a parent. Stories are parents: a story's pieces are its sub-issues
+(see "Stories: the unit of work"). Existing parent / sub-issue links are kept.
 
 When you **file an issue**, add it to the project and set App, Feature (or none for maintenance)
 and Work type. Ask Rigo when the feature isn't obvious rather than guessing.

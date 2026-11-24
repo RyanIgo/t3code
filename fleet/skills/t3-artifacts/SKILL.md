@@ -84,7 +84,18 @@ theme variables, like `html_render` pages, and `window.t3artifact`:
 - `t3artifact.submit(text, data)`: records a submission and, in this chat, sends you `text` and `data`.
 - `t3artifact.onChange(fn)`: called when someone else's save arrives.
 
+## Mockups
+
+For a story's mockup round (dev-desk "Mockup first"), publish an HTML page with one
+`<section data-screen="<id>" data-title="<name>">` per screen and `<body data-round="<n>">`, and
+paste `mockup-marks.html` (next to this file) at the end of the body. Rigo marks each screen Right,
+Change this, Flag TODO or Not relevant, with a note, and "Send marks to the lead" sends them to you
+as one message. Publish later rounds in place (same `id`, round + 1).
+
 ## Rules
+
+- In the thread, point to the artifact in one line ("Mockup round 2 is in the side panel"); Rigo
+  works on it beside the chat, not in it.
 
 - Say in one line what the user should do on it; don't restate the page.
 - One artifact per job. Update it in place rather than publishing a new one.

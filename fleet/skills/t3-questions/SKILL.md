@@ -1,9 +1,11 @@
 ---
 name: t3-questions
-description: Ask the user several questions at once in a T3 Code chat as a question sheet they answer in a form (pick-one or pick-any options plus a written answer for each), instead of a long list of questions in prose. Use when you need three or more decisions, clarifications or confirmations before you can continue. Answers come back as one message.
+description: Ask several questions at once as a question sheet inside a T3 Code chat. In the fleet, use it ONLY when Rigo explicitly asks for questions in the chat; he wants decisions in the side panel, so planners and story leads use dev-desk `decide` (one card per question) instead.
 ---
 
 # Question sheets (T3 Code fleet fork)
+
+> **Fleet rule (Rigo, 2026-11-24):** questions for Rigo go through dev-desk `decide`, which shows as a card in the side panel, not as a form in the thread. Use a `questions` block only when he asks for one.
 
 When you need the user to answer several things, put the questions in a fenced block with the language `questions`. T3 Code turns it into a form: the user picks options, writes notes, and sends all the answers back to this chat as one message. They can answer inside the chat or in the Review window on a second screen, and half-finished answers are kept.
 

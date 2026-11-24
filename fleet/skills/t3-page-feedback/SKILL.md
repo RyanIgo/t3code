@@ -1,9 +1,11 @@
 ---
 name: t3-page-feedback
-description: Build an interactive page in a T3 Code thread that sends the user's choices straight back to the chat. Use when the user should decide, rank, approve, pick, rate or fill something in, and a page with controls beats asking in text (priority lists, plans to approve, options to compare, forms, sliders). Needs T3 Code's html_render tool.
+description: Build an interactive page inside a T3 Code thread (html_render) that sends the user's choices back to the chat. In the fleet, use it ONLY when Rigo explicitly asks for a page in the chat itself; he wants cards, mockups and sheets in the side panel, not the thread. Otherwise use dev-desk `decide` for choices and t3-artifacts for anything with marks or checks.
 ---
 
 # Interactive pages with feedback (T3 Code fleet fork)
+
+> **Fleet rule (Rigo, 2026-11-24):** keep chat threads plain conversation. Interactive elements belong in the side panel: decisions via dev-desk `decide` (the Board's Plan pane), mockups and checks via a hub artifact (t3-artifacts). Use `html_render` only when he asks for a page in the chat.
 
 A page you publish with `html_render` can send the user's input back into this chat. Use it when a decision is easier to make by clicking than by typing: approve or defer items, rank priorities, pick between options, fill a short form, tune numbers.
 
