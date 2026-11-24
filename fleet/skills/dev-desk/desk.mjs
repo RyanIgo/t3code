@@ -586,6 +586,40 @@ async function inbox() {
 }
 
 /**
+ * `feedback`: Rigo's Board feedback still waiting for a fix batch, oldest first.
+ * `feedback done <id> "<what changed>"`: record how one was handled, so it leaves the list.
+ */
+async function feedback(sub, rest) {
+  const waiting = (note) =>
+    note.source === "Board feedback" && note.result?.label?.startsWith("Kept for");
+  if (sub === "done") {
+    const [id, ...words] = rest;
+    const what = words.join(" ").trim();
+    if (!id || !what) fail('Usage: node desk.mjs feedback done <id> "<what changed>"');
+    await changeNotes((doc, at) => {
+      const note = doc.inbox?.[id];
+      if (!note || note.source !== "Board feedback") fail(`No Board feedback ${id}.`);
+      doc.inbox[id] = { ...note, result: { url: null, label: what.slice(0, 300) }, updatedAt: at };
+    });
+    console.log(`Recorded: ${id} → ${what}`);
+    return;
+  }
+  const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
+  const notes = Object.values(doc.inbox ?? {})
+    .filter(waiting)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (notes.length === 0) {
+    console.log("No Board feedback waiting.");
+    return;
+  }
+  for (const note of notes) {
+    console.log(`## ${note.id} · ${note.createdAt.slice(0, 16)}`);
+    console.log(note.text);
+    console.log("");
+  }
+}
+
+/**
  * `propose <id> <comment|new|planner|dismiss> [--item url] [--repo o/r] [--app a] [--type t]
  * [--priority p] [--title t] [--sprint s] [--feature f] [--story "As …"] [--criteria "a|b|c"] --reason r`
  */
@@ -995,6 +1029,7 @@ else if (command === "note") await note(first, rest.join(" "));
 else if (command === "focus") await focus(first, rest);
 else if (command === "next") await nextStep([first, ...rest].join(" "));
 else if (command === "inbox") await inbox();
+else if (command === "feedback") await feedback(first, rest);
 else if (command === "role") await role(first, rest);
 else if (command === "decide") await decide(first, rest);
 else if (command === "decisions") await decisions(first);
@@ -1006,5 +1041,5 @@ else if (command === "report" && first === "--hook") await reportHook().catch(()
 else if (command === "report") await report([first, ...rest]);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | plan set|show',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | feedback [done <id> "<what>"] | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | plan set|show',
   );

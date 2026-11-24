@@ -1,4 +1,4 @@
-import { ImagePlusIcon, InboxIcon, NotebookPenIcon } from "lucide-react";
+import { ImagePlusIcon, InboxIcon, MessageSquareWarningIcon, NotebookPenIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "../ui/badge";
@@ -59,15 +59,45 @@ export function QuickNoteButton(props: { readonly apps: ReadonlyArray<string> })
   );
 }
 
+/** Fleet fork: Rigo's notes on the Board itself, with where he was, for the next fix batch. */
+export function FeedbackButton(props: {
+  readonly apps: ReadonlyArray<string>;
+  /** Where he is now: the tab, and the chat, item or sheet open on it. */
+  readonly context: () => string;
+}) {
+  const [context, setContext] = useState<string | null>(null);
+  const app = props.apps.find((entry) => /dev platform/i.test(entry)) ?? null;
+  return (
+    <>
+      <Button size="xs" variant="outline" onClick={() => setContext(props.context())}>
+        <MessageSquareWarningIcon />
+        Feedback
+      </Button>
+      {context !== null ? (
+        <QuickNoteDialog
+          apps={props.apps}
+          feedback={{ context, app }}
+          onClose={() => setContext(null)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 /** The quick-note box itself, for the header button and the phone's bottom bar. */
 export function QuickNoteDialog(props: {
   readonly apps: ReadonlyArray<string>;
   readonly onClose: () => void;
+  readonly feedback?: { readonly context: string; readonly app: string | null };
 }) {
   return (
     <Dialog open onOpenChange={(next) => !next && props.onClose()}>
       <DialogPopup className="sm:max-w-lg">
-        <QuickNoteForm apps={props.apps} onClose={props.onClose} />
+        <QuickNoteForm
+          apps={props.apps}
+          onClose={props.onClose}
+          {...(props.feedback ? { feedback: props.feedback } : {})}
+        />
       </DialogPopup>
     </Dialog>
   );
@@ -84,6 +114,8 @@ export function QuickNoteForm(props: {
   readonly defaultApp?: string | null;
   /** Instead of closing: hands the saved note on (to start it right away, say). */
   readonly onSaved?: (note: InboxNote) => void;
+  /** Feedback on the Board itself: where Rigo was, kept for the next fix batch, not triaged. */
+  readonly feedback?: { readonly context: string; readonly app: string | null };
 }) {
   const setOpen = (next: boolean) => {
     if (!next) props.onClose?.();
@@ -119,24 +151,42 @@ export function QuickNoteForm(props: {
   const save = () => {
     if (!text.trim()) return;
     const at = new Date().toISOString();
-    const note: InboxNote = {
-      id: newId(),
-      text: text.trim(),
-      source,
-      who: who.trim() || null,
-      app,
-      createdAt: at,
-      updatedAt: at,
-      state: "new",
-      proposal: null,
-      result: null,
-    };
+    const feedback = props.feedback;
+    const note: InboxNote = feedback
+      ? {
+          id: newId(),
+          text: `${text.trim()}\n\nOn: ${feedback.context}`,
+          source: "Board feedback",
+          who: "Rigo",
+          app: feedback.app,
+          createdAt: at,
+          updatedAt: at,
+          state: "filed",
+          proposal: null,
+          result: { url: null, label: "Kept for Claude's next Board fix batch" },
+        }
+      : {
+          id: newId(),
+          text: text.trim(),
+          source,
+          who: who.trim() || null,
+          app,
+          createdAt: at,
+          updatedAt: at,
+          state: "new",
+          proposal: null,
+          result: null,
+        };
     saveInboxNote(note);
     if (props.onSaved) {
       props.onSaved(note);
       return;
     }
-    toastManager.add({ type: "success", title: "Saved to the inbox" });
+    toastManager.add({
+      type: "success",
+      title: feedback ? "Feedback saved" : "Saved to the inbox",
+      ...(feedback ? { description: "Claude reads it with the rest at the next fix batch." } : {}),
+    });
     setText("");
     setWho("");
     setApp(null);
@@ -151,10 +201,19 @@ export function QuickNoteForm(props: {
           save();
         }}
       >
-        {props.inline ? null : <DialogTitle>Quick note</DialogTitle>}
+        {props.inline ? null : (
+          <DialogTitle>{props.feedback ? "Feedback on the Board" : "Quick note"}</DialogTitle>
+        )}
+        {props.feedback ? (
+          <p className="text-xs text-muted-foreground">On: {props.feedback.context}</p>
+        ) : null}
         <Textarea
-          aria-label="What was asked or reported"
-          placeholder="What was asked or reported, in your words. Paste or drop a picture to attach it."
+          aria-label={props.feedback ? "What's confusing or wrong" : "What was asked or reported"}
+          placeholder={
+            props.feedback
+              ? "What's confusing, wrong or missing here, and what you expected. Paste or drop a screenshot."
+              : "What was asked or reported, in your words. Paste or drop a picture to attach it."
+          }
           rows={props.inline ? 6 : 5}
           autoFocus={!props.inline}
           value={text}
@@ -193,7 +252,7 @@ export function QuickNoteForm(props: {
             <span className="text-xs text-muted-foreground">Attaching {uploading}…</span>
           ) : null}
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className={cn("grid grid-cols-1 gap-2 sm:grid-cols-3", props.feedback && "hidden")}>
           <Select
             value={source}
             onValueChange={(value) => {
@@ -240,8 +299,9 @@ export function QuickNoteForm(props: {
         </div>
         {props.inline ? null : (
           <p className="text-xs text-muted-foreground">
-            It waits in the inbox on Now. A triage agent proposes where it goes; nothing is filed
-            until you approve.
+            {props.feedback
+              ? "Nothing for you to sort: Claude reads Board feedback together at the next fix batch and tells you what changed."
+              : "It waits in the inbox on Now. A triage agent proposes where it goes; nothing is filed until you approve."}
           </p>
         )}
         <div className="flex justify-end gap-2">
@@ -251,7 +311,7 @@ export function QuickNoteForm(props: {
             </Button>
           )}
           <Button type="submit" size="sm" disabled={!text.trim() || uploading > 0}>
-            Save to inbox
+            {props.feedback ? "Send feedback" : "Save to inbox"}
           </Button>
         </div>
       </form>

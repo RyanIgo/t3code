@@ -31,6 +31,7 @@ import {
   chatTitle,
   workKind,
 } from "./desk.logic";
+import { FeedbackButton } from "./DeskInbox";
 import { APP_DIRECTION, type DeskNotes, focusedChat, noteAt } from "./deskNotes.logic";
 import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import {
@@ -578,6 +579,19 @@ export function DeskModal(props: {
               Mark reviewed
             </Button>
           ) : null}
+          <FeedbackButton
+            apps={props.view.apps ?? []}
+            context={() =>
+              [
+                "the Board's window",
+                item ? `${deskRef(item) ?? ""} ${deskTitle(item)}`.trim() : null,
+                shown ? `chat "${chatTitle(shown.title)}"` : null,
+                `${tab} tab`,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            }
+          />
           <Button variant="ghost" size="sm" onClick={props.onClose}>
             Close
           </Button>

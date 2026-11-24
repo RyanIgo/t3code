@@ -174,7 +174,8 @@ export function NowView(
 function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<CardChatState> }) {
   const { entry } = props;
   const sendToChat = useSendToChat();
-  const [handed, setHanded] = useState<"done" | "agent" | null>(null);
+  const [handed, setHanded] = useState<"done" | "agent" | "yes" | "no" | null>(null);
+  const decide = entry.badge === "Decide";
   const planner = entry.todo
     ? (props.chats.find((chat) => chat.threadId === entry.todo?.threadId) ?? null)
     : null;
@@ -184,6 +185,17 @@ function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<
     savePlanLineDone(entry.todo.threadId, todoText);
     if (planner) void sendToChat(planner, `Done: ${todoText}`);
     setHanded("done");
+  };
+  // A planner's question written as a to-do: answer it from the row, and the line is settled.
+  const answer = (choice: "yes" | "no") => {
+    if (!entry.todo) return;
+    savePlanLineDone(entry.todo.threadId, todoText);
+    if (planner)
+      void sendToChat(
+        planner,
+        `Decision on "${todoText}": ${choice === "yes" ? "yes, go ahead" : "no"}. Update the checklist; tell me only if it changes what I do.`,
+      );
+    setHanded(choice);
   };
   const toAgent = () => {
     if (!planner) return;
@@ -223,13 +235,28 @@ function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<
         {entry.todo ? (
           handed ? (
             <span className="text-xs text-muted-foreground">
-              {handed === "done" ? "Ticked, planner told" : "Handed to the planner"}
+              {handed === "done"
+                ? "Ticked, planner told"
+                : handed === "agent"
+                  ? "Handed to the planner"
+                  : `Answered ${handed}, planner told`}
             </span>
           ) : (
             <>
-              <Button size="xs" variant="outline" onClick={done}>
-                Done
-              </Button>
+              {decide ? (
+                <>
+                  <Button size="xs" onClick={() => answer("yes")}>
+                    Yes
+                  </Button>
+                  <Button size="xs" variant="outline" onClick={() => answer("no")}>
+                    No
+                  </Button>
+                </>
+              ) : (
+                <Button size="xs" variant="outline" onClick={done}>
+                  Done
+                </Button>
+              )}
               {planner ? (
                 <Button size="xs" variant="ghost" onClick={toAgent}>
                   Not mine
@@ -238,8 +265,12 @@ function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<
             </>
           )
         ) : null}
-        <Button size="xs" onClick={entry.onClick}>
-          {entry.badge === "Sheet done" ? "Open" : entry.badge}
+        <Button
+          size="xs"
+          variant={decide && entry.todo ? "ghost" : "default"}
+          onClick={entry.onClick}
+        >
+          {entry.badge === "Sheet done" || (decide && entry.todo) ? "Open" : entry.badge}
         </Button>
       </span>
     </li>
@@ -388,17 +419,35 @@ export function useNowEntries(props: NowInput): {
               ask: next ?? (planner ? "planner: its asks are on your queue" : "nothing asked"),
             });
       }),
-    ...props.waiting.map((item): Entry => ({
-      key: `item:${item.itemId}`,
-      lane: "review",
-      app: item.app ?? OTHER,
-      badge: item.lane === "Blocked" ? "Blocked" : "Review",
-      tone: item.lane === "Blocked" ? "error" : "info",
-      title: deskTitle(item),
-      meta: deskRef(item) ?? "",
-      mine: true,
-      onClick: () => props.onOpenItem(item),
-    })),
+    // A blocked item is Rigo's to unblock. One "In Review" with an open PR is really that PR:
+    // shown once as its Merge row when it's ready, otherwise folded with what it waits on.
+    ...props.waiting.flatMap((item): Entry[] => {
+      const base = {
+        key: `item:${item.itemId}`,
+        lane: "review" as const,
+        app: item.app ?? OTHER,
+        title: deskTitle(item),
+        meta: deskRef(item) ?? "",
+        onClick: () => props.onOpenItem(item),
+      };
+      if (item.lane === "Blocked")
+        return [{ ...base, badge: "Blocked", tone: "error", mine: true }];
+      const urls = new Set(item.pullRequests.map((pr) => pr.url));
+      const prs = props.prs.filter((pr) => urls.has(pr.url) || pr.item?.itemId === item.itemId);
+      if (prs.some((pr) => pr.stage === "ready" || pr.stage === "fix" || pr.stage === "landed"))
+        return [];
+      const why = prs.flatMap((pr) => pr.reasons).join(", ");
+      return [
+        {
+          ...base,
+          badge: "In review",
+          tone: "secondary",
+          mine: false,
+          fold: "agents",
+          ask: why ? `PR waiting: ${why}` : "PR not seen yet",
+        },
+      ];
+    }),
     ...sheets.map((sheet): Entry => {
       const { total, pass, fail, skip, blocked } = sheet.counts;
       const retest = sheet.counts.retest ?? 0;
@@ -434,18 +483,36 @@ export function useNowEntries(props: NowInput): {
       )
       .map((pr): Entry => {
         const stage = PR_LABEL[pr.stage as keyof typeof PR_LABEL];
-        return {
-          key: `pr:${pr.url}`,
-          lane: "merge",
-          app: pr.app ?? OTHER,
-          badge: stage.label,
-          tone: stage.tone,
-          title: pr.title,
-          meta: `${pr.repo.split("/").pop()}#${pr.number}`,
-          mine: true,
-          minutes: 2,
-          onClick: () => props.onOpenPr(pr),
-        };
+        const ref = `${pr.repo.split("/").pop()}#${pr.number}`;
+        // GitHub can call a PR ready while its chats are still pushing to it: not Rigo's yet.
+        const busy = pr.chats.filter((chat) => chat.working || chat.needsYou);
+        const title = pr.title && pr.title !== ref ? pr.title : (pr.item?.title ?? pr.title);
+        return busy.length > 0
+          ? {
+              key: `pr:${pr.url}`,
+              lane: "merge",
+              app: pr.app ?? OTHER,
+              badge: "Agents on it",
+              tone: "info",
+              title,
+              meta: ref,
+              ask: `${stage.label} once ${busy.map((chat) => chatTitle(chat.title)).join(", ")} ${busy.length === 1 ? "finishes" : "finish"}`,
+              mine: false,
+              fold: "agents",
+              onClick: () => props.onOpenPr(pr),
+            }
+          : {
+              key: `pr:${pr.url}`,
+              lane: "merge",
+              app: pr.app ?? OTHER,
+              badge: stage.label,
+              tone: stage.tone,
+              title,
+              meta: ref,
+              mine: true,
+              minutes: 2,
+              onClick: () => props.onOpenPr(pr),
+            };
       }),
   ];
   const decisions = (props.decisions ?? []).map((decision): Entry => ({

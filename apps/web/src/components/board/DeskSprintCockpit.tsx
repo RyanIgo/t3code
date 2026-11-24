@@ -1226,6 +1226,21 @@ function useNeedRows(input: NeedInput): Need[] {
         void sendToChat(planner, `Done: ${line.text}`);
         setOpenDecision(null);
       };
+      const answer = (choice: "yes" | "no") => {
+        savePlanLineDone(planner.threadId, line.text);
+        void sendToChat(
+          planner,
+          `Decision on "${line.text}": ${choice === "yes" ? "yes, go ahead" : "no"}. Update the checklist; tell me only if it changes what I do.`,
+        );
+        setOpenDecision(null);
+      };
+      const notMine = () => {
+        void sendToChat(
+          planner,
+          `Not mine: "${line.text}". Have an agent do it, or wait until it's ready for me (then put it back with what I do and where). If only I can do it, tell me why in one line. Update the checklist either way.`,
+        );
+        toastManager.add({ type: "info", title: "Handed back to the planner" });
+      };
       const question = (text: string) => {
         savePlanLineQuestion(planner.threadId, line.text, text);
         void sendToChat(
@@ -1283,7 +1298,19 @@ function useNeedRows(input: NeedInput): Need[] {
         ),
         action: (
           <span className="flex gap-1">
-            {button("Done", done)}
+            {/^decide\b/i.test(line.text) ? (
+              <>
+                {button("Yes", () => answer("yes"))}
+                <Button size="xs" variant="outline" onClick={() => answer("no")}>
+                  No
+                </Button>
+              </>
+            ) : (
+              button("Done", done)
+            )}
+            <Button size="xs" variant="ghost" onClick={notMine}>
+              Not mine
+            </Button>
             <Button
               size="xs"
               variant="ghost"

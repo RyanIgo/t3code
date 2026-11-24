@@ -83,7 +83,7 @@ import {
   useHubSheets,
 } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
-import { InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
+import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
 import { AgentsView, PlanPane } from "./DeskAgents";
@@ -391,6 +391,20 @@ export function DeskPage(props: {
               })}`
             : "")}
       </span>
+      {view?.configured ? (
+        <FeedbackButton
+          apps={view.apps ?? []}
+          context={() =>
+            [
+              `the Board's ${mode.charAt(0).toUpperCase()}${mode.slice(1)} tab`,
+              app && mode !== "now" && mode !== "agents" ? `app ${app}` : null,
+              typeof window === "undefined" ? null : window.location.hash || null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          }
+        />
+      ) : null}
       {view?.configured ? <QuickNoteButton apps={view.apps ?? []} /> : null}
       {view?.configured ? (
         <Button

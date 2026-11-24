@@ -118,6 +118,8 @@ export const INBOX_SOURCES = [
   "Teams",
   "Call",
   "Other",
+  // Rigo's notes on the Board itself, kept for the next fix batch rather than triaged.
+  "Board feedback",
 ] as const;
 export type InboxSource = (typeof INBOX_SOURCES)[number];
 const INBOX_ACTIONS = ["comment", "new", "planner", "chat", "dismiss"] as const;

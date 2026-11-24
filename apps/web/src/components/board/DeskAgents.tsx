@@ -493,6 +493,18 @@ export function PlanPane(props: {
     savePlanLineDone(props.planner.threadId, text);
     void sendToChat(props.planner, `Done: ${text}`);
   };
+  const todoAnswer = (text: string, choice: "yes" | "no") => {
+    savePlanLineDone(props.planner.threadId, text);
+    void sendToChat(
+      props.planner,
+      `Decision on "${text}": ${choice === "yes" ? "yes, go ahead" : "no"}. Update the checklist; tell me only if it changes what I do.`,
+    );
+  };
+  const todoNotMine = (text: string) =>
+    void sendToChat(
+      props.planner,
+      `Not mine: "${text}". Have an agent do it, or wait until it's ready for me (then put it back with what I do and where). If only I can do it, tell me why in one line. Update the checklist either way.`,
+    );
   const todoAsk = (text: string) =>
     void sendToChat(
       props.planner,
@@ -638,8 +650,22 @@ export function PlanPane(props: {
                   {line.text}
                   <span className="block text-2xs text-muted-foreground">From the planner</span>
                 </span>
-                <Button size="xs" variant="outline" onClick={() => todoDone(line.text)}>
-                  Done
+                {/^decide\b/i.test(line.text) ? (
+                  <>
+                    <Button size="xs" onClick={() => todoAnswer(line.text, "yes")}>
+                      Yes
+                    </Button>
+                    <Button size="xs" variant="outline" onClick={() => todoAnswer(line.text, "no")}>
+                      No
+                    </Button>
+                  </>
+                ) : (
+                  <Button size="xs" variant="outline" onClick={() => todoDone(line.text)}>
+                    Done
+                  </Button>
+                )}
+                <Button size="xs" variant="ghost" onClick={() => todoNotMine(line.text)}>
+                  Not mine
                 </Button>
                 <Button size="xs" variant="ghost" onClick={() => todoAsk(line.text)}>
                   Ask
