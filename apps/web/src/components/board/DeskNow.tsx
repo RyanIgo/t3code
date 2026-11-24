@@ -1,4 +1,7 @@
 import { type ReactNode, useState } from "react";
+import { Schema } from "effect";
+
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -7,6 +10,7 @@ import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
 import { DeskHeading } from "./DeskParts";
 import {
+  itemForSheet,
   type SheetSummary,
   sheetsTestingPr,
   sheetTurn,
@@ -74,6 +78,8 @@ export interface Entry {
   readonly todo?: PlannerTodo;
   /** Groups rows that aren't Rigo's: agents working, finished turns, older sheets. */
   readonly fold?: "agents" | "sheets";
+  /** The priority (P0–P3) of the item behind the row, when there is one. */
+  readonly priority?: string | null;
   readonly onClick: () => void;
 }
 
@@ -115,6 +121,8 @@ export interface NowInput {
   /** Planners' open lines on Rigo, each opening its planning session. */
   readonly todos?: ReadonlyArray<PlannerTodo>;
   readonly onOpenTodo?: (todo: PlannerTodo) => void;
+  /** Every Desk item: gives chats, sheets and to-dos their item's priority. */
+  readonly items?: ReadonlyArray<DeskItem>;
 }
 
 /**
@@ -129,10 +137,43 @@ export function NowView(
     readonly done?: ReactNode;
   },
 ) {
-  const { entries, bumps } = useNowEntries(props);
+  const { entries: all, bumps } = useNowEntries(props);
+  const [appFilter, setAppFilter] = useLocalStorage("t3-fleet:now-app", ANY, Schema.String);
+  const [priorityFilter, setPriorityFilter] = useLocalStorage(
+    "t3-fleet:now-priority",
+    ANY,
+    Schema.String,
+  );
+  // The app Rigo committed to: its rows go to the top of the queue, in their usual order.
+  const [firstApp, setFirstApp] = useLocalStorage("t3-fleet:now-first-app", "", Schema.String);
+  const priorityOf = (entry: Entry) => entry.priority ?? NO_PRIORITY;
+  const entries = all
+    .filter((entry) => appFilter === ANY || entry.app === appFilter)
+    .filter((entry) => priorityFilter === ANY || priorityOf(entry) === priorityFilter)
+    .toSorted((a, b) => Number(b.app === firstApp) - Number(a.app === firstApp));
   const queue = entries.filter((entry) => entry.mine);
   const agents = entries.filter((entry) => entry.fold === "agents");
   const older = entries.filter((entry) => entry.fold === "sheets");
+  const mineAll = all.filter((entry) => entry.mine);
+  const countBy = (key: (entry: Entry) => string, list: ReadonlyArray<Entry>) => {
+    const counts = new Map<string, number>();
+    for (const entry of list) counts.set(key(entry), (counts.get(key(entry)) ?? 0) + 1);
+    return counts;
+  };
+  // Counts follow the other filter, so each chip says what picking it would show.
+  const appCounts = countBy(
+    (entry) => entry.app,
+    mineAll.filter((entry) => priorityFilter === ANY || priorityOf(entry) === priorityFilter),
+  );
+  const priorityCounts = countBy(
+    priorityOf,
+    mineAll.filter((entry) => appFilter === ANY || entry.app === appFilter),
+  );
+  const appChoices = [...appCounts.keys()]
+    .filter((app) => app !== OTHER)
+    .toSorted((a, b) => (appCounts.get(b) ?? 0) - (appCounts.get(a) ?? 0) || a.localeCompare(b));
+  if (appFilter !== ANY && !appChoices.includes(appFilter)) appChoices.push(appFilter);
+  if (appCounts.has(OTHER)) appChoices.push(OTHER);
   const minutes = queue.reduce((sum, entry) => sum + (entry.minutes ?? 0), 0);
   const working = agents.filter((entry) => entry.lane === "working").length;
   return (
@@ -153,6 +194,20 @@ export function NowView(
             {bumps > 0 ? ` ${bumps} version bumps not shown.` : ""}
           </span>
         </header>
+        <QueueFilters
+          apps={appChoices.map((app) => ({ value: app, count: appCounts.get(app) ?? 0 }))}
+          priorities={PRIORITIES.map((priority) => ({
+            value: priority,
+            count: priorityCounts.get(priority) ?? 0,
+          }))}
+          app={appFilter}
+          priority={priorityFilter}
+          firstApp={firstApp}
+          total={mineAll.length}
+          onApp={setAppFilter}
+          onPriority={setPriorityFilter}
+          onFirstApp={setFirstApp}
+        />
         {queue.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
             {queue.map((entry) => (
@@ -172,6 +227,103 @@ export function NowView(
         />
         {props.done}
       </section>
+    </div>
+  );
+}
+
+const ANY = "Any";
+const NO_PRIORITY = "No priority";
+const PRIORITIES = ["P0", "P1", "P2", "P3", NO_PRIORITY];
+
+function Chip(props: {
+  readonly on: boolean;
+  readonly onClick: () => void;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Button
+      size="xs"
+      variant={props.on ? "default" : "outline"}
+      aria-pressed={props.on}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </Button>
+  );
+}
+
+/** Narrow the queue to one app or one priority, and put the app Rigo committed to first. */
+function QueueFilters(props: {
+  readonly apps: ReadonlyArray<{ readonly value: string; readonly count: number }>;
+  readonly priorities: ReadonlyArray<{ readonly value: string; readonly count: number }>;
+  readonly app: string;
+  readonly priority: string;
+  readonly firstApp: string;
+  readonly total: number;
+  readonly onApp: (app: string) => void;
+  readonly onPriority: (priority: string) => void;
+  readonly onFirstApp: (app: string) => void;
+}) {
+  const filtered = props.app !== ANY || props.priority !== ANY;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">App</span>
+        <Chip on={props.app === ANY} onClick={() => props.onApp(ANY)}>
+          All · {props.total}
+        </Chip>
+        {props.apps.map((app) => (
+          <Chip key={app.value} on={props.app === app.value} onClick={() => props.onApp(app.value)}>
+            {props.firstApp === app.value ? "★ " : ""}
+            {app.value} · {app.count}
+          </Chip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">Priority</span>
+        <Chip on={props.priority === ANY} onClick={() => props.onPriority(ANY)}>
+          Any
+        </Chip>
+        {props.priorities.map((priority) => (
+          <Chip
+            key={priority.value}
+            on={props.priority === priority.value}
+            onClick={() => props.onPriority(priority.value)}
+          >
+            {priority.value} · {priority.count}
+          </Chip>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+        {props.firstApp ? (
+          <>
+            <span>
+              ★ <b className="font-medium text-foreground">{props.firstApp}</b> goes first in the
+              queue.
+            </span>
+            <Button size="xs" variant="ghost" onClick={() => props.onFirstApp("")}>
+              Stop
+            </Button>
+          </>
+        ) : null}
+        {props.app !== ANY && props.app !== OTHER && props.firstApp !== props.app ? (
+          <Button size="xs" variant="outline" onClick={() => props.onFirstApp(props.app)}>
+            ★ Put {props.app} first
+          </Button>
+        ) : null}
+        {filtered ? (
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => {
+              props.onApp(ANY);
+              props.onPriority(ANY);
+            }}
+          >
+            Show everything
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -211,6 +363,7 @@ function QueueRow(props: { readonly entry: Entry; readonly chats: ReadonlyArray<
     setHanded("agent");
   };
   const meta = [
+    entry.priority ?? null,
     entry.app === OTHER ? null : entry.app,
     entry.meta,
     entry.waiting ? `waiting ${entry.waiting}` : null,
@@ -331,11 +484,25 @@ export function useNowEntries(props: NowInput): {
   const sheets = sheetsToTest(allSheets, props.nowMs);
   const work = props.notes?.work ?? {};
   const appOfChat = (chat: CardChatState) => props.appOf(chat) ?? OTHER;
+  const itemByUrl = new Map(
+    (props.items ?? []).flatMap((item) => (item.url ? [[item.url, item] as const] : [])),
+  );
+  const priorityOfUrl = (url: string | null | undefined) =>
+    (url ? itemByUrl.get(url)?.priority : null) ?? null;
+  const chatPriority = (chat: CardChatState) =>
+    priorityOfUrl(work[chat.threadId]?.items.findLast((span) => span.until === null)?.url);
   const sheetApp = (sheet: SheetSummary) => {
     const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
     if (chat) return appOfChat(chat);
     const title = sheet.title.toLowerCase();
-    return props.apps.find((app) => title.includes(app.toLowerCase())) ?? OTHER;
+    const named = props.apps.find((app) => title.includes(app.toLowerCase()));
+    if (named) return named;
+    // A repo named in the title: the app of that repo's items.
+    const repoItem = (props.items ?? []).find((item) => {
+      const repo = item.repo?.split("/").pop()?.toLowerCase();
+      return item.app && repo && title.includes(repo);
+    });
+    return repoItem?.app ?? OTHER;
   };
   const chatEntry = (
     chat: CardChatState,
@@ -351,6 +518,7 @@ export function useNowEntries(props: NowInput): {
     tone,
     title: chatTitle(chat.title),
     meta: ago(props.nowMs, chat.since),
+    priority: chatPriority(chat),
     onClick: () => props.onOpenChat(chat),
     ...extra,
   });
@@ -446,6 +614,7 @@ export function useNowEntries(props: NowInput): {
         app: item.app ?? OTHER,
         title: deskTitle(item),
         meta: deskRef(item) ?? "",
+        priority: item.priority,
         onClick: () => props.onOpenItem(item),
       };
       if (item.lane === "Blocked")
@@ -483,6 +652,9 @@ export function useNowEntries(props: NowInput): {
         app: appBySheet.get(sheet.id) ?? sheetApp(sheet),
         title: sheet.title,
         meta: `${pass + fail + skip + blocked + noted} of ${total} answered`,
+        priority:
+          (props.notes ? itemForSheet(sheet, props.items ?? [], props.notes)?.priority : null) ??
+          null,
         onClick: () => props.onOpenSheet(sheet),
       };
       // Submitted: the chat has his results and notes; it comes back as re-tests when fixed.
@@ -556,6 +728,7 @@ export function useNowEntries(props: NowInput): {
             tone: "info",
             title: pr.title && pr.title !== ref ? pr.title : (pr.item?.title ?? pr.title),
             meta: ref,
+            priority: pr.item?.priority ?? null,
             ask: "Merge after the chat acts on your test results and you re-test",
             mine: false,
             fold: "agents",
@@ -571,6 +744,7 @@ export function useNowEntries(props: NowInput): {
               tone: "info",
               title,
               meta: ref,
+              priority: pr.item?.priority ?? null,
               ask: `${stage.label} once ${busy.map((chat) => chatTitle(chat.title)).join(", ")} ${busy.length === 1 ? "finishes" : "finish"}`,
               mine: false,
               fold: "agents",
@@ -584,6 +758,7 @@ export function useNowEntries(props: NowInput): {
               tone: stage.tone,
               title,
               meta: ref,
+              priority: pr.item?.priority ?? null,
               mine: true,
               minutes: 2,
               onClick: () => props.onOpenPr(pr),
@@ -621,6 +796,7 @@ export function useNowEntries(props: NowInput): {
         tone: finished.has(todo) ? "success" : "warning",
         title: todo.line.text,
         meta: "",
+        priority: priorityOfUrl(todo.line.itemUrl),
         ask: finished.has(todo)
           ? "Its sheet is finished: press Done to tell the planner"
           : (todo.line.why ?? "from the planner"),

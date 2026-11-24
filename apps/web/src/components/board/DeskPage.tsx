@@ -1093,6 +1093,7 @@ export function DeskPage(props: {
           prs={prs}
           apps={apps}
           appOf={appOf}
+          items={items}
           pinned={
             <div className="flex flex-col gap-3">
               <InboxStrip

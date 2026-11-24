@@ -167,31 +167,32 @@ export function TestPage(props: {
     }
   };
 
+  // One row: in the chat's header when there's a chat, on its own otherwise.
   const bar = (
-    <div className="flex shrink-0 flex-col gap-1.5 border-b border-border px-3 py-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button size="xs" variant="ghost" onClick={props.onBack}>
-          ← Board
+    <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+      <Button size="xs" variant="ghost" onClick={props.onBack}>
+        ← Board
+      </Button>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+        {props.item
+          ? `${deskRef(props.item) ?? ""} ${deskTitle(props.item)}`
+          : title.replace(/^(?:test sheet|review)\s*[—–-]\s*/i, "")}
+      </span>
+      {counts ? (
+        <Badge variant={counts.fail > 0 ? "error" : "outline"} size="sm">
+          {checked} of {counts.total} checked{counts.fail ? ` · ${counts.fail} failed` : ""}
+        </Badge>
+      ) : null}
+      {counts?.retest ? (
+        <Badge variant="info" size="sm">
+          ↻ {counts.retest} to re-test
+        </Badge>
+      ) : null}
+      {chat ? (
+        <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>
+          {conversation ? "Back to the sheet" : "Conversation"}
         </Button>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">
-          Test: {props.item ? `${deskRef(props.item) ?? ""} ${deskTitle(props.item)}` : title}
-        </span>
-        {counts ? (
-          <Badge variant={counts.fail > 0 ? "error" : "outline"} size="sm">
-            {checked} of {counts.total} checked{counts.fail ? ` · ${counts.fail} failed` : ""}
-          </Badge>
-        ) : null}
-        {counts?.retest ? (
-          <Badge variant="info" size="sm">
-            ↻ {counts.retest} to re-test
-          </Badge>
-        ) : null}
-        {chat ? (
-          <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>
-            {conversation ? "Back to the sheet" : "Conversation"}
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 
@@ -218,14 +219,6 @@ export function TestPage(props: {
               );
             }}
           />
-          {counts ? (
-            <p className="pt-2 text-xs text-muted-foreground">
-              {counts.pass} of {counts.total} passed
-              {counts.fail ? ` · ${counts.fail} failed` : ""}
-              {counts.blocked ? ` · ${counts.blocked} blocked` : ""}
-              {counts.total - checked ? ` · ${counts.total - checked} to check` : ""}
-            </p>
-          ) : null}
         </div>
       ) : null}
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
@@ -333,7 +326,7 @@ export function TestPage(props: {
   if (!chat) {
     return (
       <div className="flex h-dvh min-h-0 flex-col bg-background">
-        {bar}
+        <div className="flex shrink-0 border-b border-border px-3 py-2">{bar}</div>
         {sheet}
       </div>
     );

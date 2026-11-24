@@ -53,7 +53,7 @@ export function artifactSheetHtml(): string {
 <header><div class="in-t3" id="in-t3" hidden><span>Test this in T3: the app in T3's browser beside the sheet, the chat that built it, and its terminal on that machine.</span><a id="test-page" href="#">Open the Test page →</a></div><h1 id="title"></h1>
 <section class="app" id="app" hidden><div class="app-line"><span class="label">App</span><a id="app-link" href="#"></a></div>
 <div class="app-line" id="start-line" hidden><span class="label" id="start-label">If it doesn't load, start it:</span><code id="start"></code><button type="button" id="copy">Copy</button></div></section>
-<p class="intro" id="intro"></p><p class="tally" id="tally"></p>
+<details class="intro-box" id="intro-box" open><summary>About this test</summary><p class="intro" id="intro"></p></details><p class="tally" id="tally"></p>
 <div class="retests" id="retests" hidden><span><b id="retest-count"></b> fixed by the chat and ready to re-test.</span><label><input type="checkbox" id="only-retests"> Show only these</label></div></header>
 <main id="rows"></main>
 <footer id="foot"><div class="foot-line"><div class="sum" id="sum"></div><button type="button" class="quiet" id="next">Next unchecked ↓</button></div>
@@ -66,7 +66,8 @@ const SHEET_CSS = `
 body{padding:14px 16px 18px;max-width:960px}
 h1{font-size:16px;margin:0 0 4px}
 .intro{margin:0 0 6px;color:var(--muted-foreground);white-space:pre-wrap}
-.intro:empty{display:none}
+.intro:empty{display:none}.intro-box>summary{cursor:pointer;color:var(--muted-foreground);font-size:12px;margin-bottom:4px}
+.hosted #title,.hosted #app{display:none}
 .tally{margin:0 0 12px;color:var(--muted-foreground);font-size:12px}
 .app{border:1px solid var(--border);border-radius:var(--radius,8px);background:var(--card);padding:8px 12px;margin:6px 0 8px;display:flex;flex-direction:column;gap:6px}
 .app[hidden],.app-line[hidden]{display:none}
@@ -127,9 +128,9 @@ footer .quiet{font:inherit;font-size:12px;border:1px solid var(--border);border-
 // Plain ES5-ish so it runs in any frame; talks to the hub through `window.t3artifact`. A host page
 // that says it opens links (the Board's Test page) gets each link click, to show in its browser.
 const SHEET_SCRIPT = `(function(){var a=window.t3artifact,rows=a.rows||[],V=[["pass","Pass"],["fail","Fail"],["skip","Skip"],["blocked","Blocked"]],main=document.getElementById("rows");
-var hostOpens=false;addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="t3-host:opens-links")hostOpens=true;});
+var hostOpens=false;addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="t3-host:opens-links"){hostOpens=true;document.body.classList.add("hosted");document.getElementById("intro-box").open=false;}});
 document.addEventListener("click",function(e){if(!hostOpens||window.parent===window)return;var x=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!x||!/^https?:/.test(x.getAttribute("href")||""))return;e.preventDefault();parent.postMessage({type:"t3-page:open",url:x.href},"*");},true);
-document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";
+document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";if(!a.intro)document.getElementById("intro-box").hidden=true;
 function short(u){try{var x=new URL(u);var t=x.host+(x.pathname==="/"?"":x.pathname)+x.search+x.hash;return t.length>90?t.slice(0,87)+"…":t;}catch(e){return u;}}
 if(a.app){document.getElementById("app").hidden=false;var al=document.getElementById("app-link");al.href=a.app.url;al.target="_blank";al.rel="noopener";al.textContent=short(a.app.url);
 if(a.app.start){document.getElementById("start-line").hidden=false;document.getElementById("start").textContent=a.app.start;if(a.app.machine)document.getElementById("start-label").textContent="If it doesn't load, start it on "+a.app.machine+":";

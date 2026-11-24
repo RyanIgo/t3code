@@ -12,7 +12,10 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 
+import { Schema } from "effect";
+
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { useTerminalUiStateStore } from "../../terminalUiStateStore";
 import { Badge } from "../ui/badge";
@@ -545,12 +548,6 @@ export function ReviewTab(props: {
           onAsk={ask}
         />
       ) : null}
-      <p className="text-xs text-muted-foreground">
-        {sheet.counts.pass} of {sheet.counts.total} passed
-        {sheet.counts.fail ? ` · ${sheet.counts.fail} failed` : ""}
-        {sheet.counts.blocked ? ` · ${sheet.counts.blocked} blocked` : ""}
-        {uncheckedRows(sheet.counts) ? ` · ${uncheckedRows(sheet.counts)} to check` : ""}
-      </p>
       {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
       {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
       <iframe
@@ -582,79 +579,105 @@ export function ReviewAppCard(props: {
   readonly onAsk: (text: string) => void;
 }) {
   const { app, chat } = props;
+  // Folded by default: the start command and chat tools are for when the app is down.
+  const [open, setOpen] = useLocalStorage("t3-fleet:app-card-open", false, Schema.Boolean);
+  const host = (() => {
+    try {
+      return new URL(app.url).host.split(".")[0];
+    } catch {
+      return app.url;
+    }
+  })();
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm max-sm:hidden">
-      <div className="flex flex-wrap items-center gap-2">
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-sm max-sm:hidden"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-2">
+        <span aria-hidden className="text-xs text-muted-foreground">
+          {open ? "▾" : "▸"}
+        </span>
         <span className="font-medium">App</span>
         {props.onOpenApp ? (
           <button
             type="button"
-            onClick={() => props.onOpenApp?.(app.url)}
+            onClick={(event) => {
+              event.preventDefault();
+              props.onOpenApp?.(app.url);
+            }}
             className="min-w-0 cursor-pointer truncate text-start text-info-foreground underline-offset-2 hover:underline"
           >
-            {app.url}
+            Open {host}
           </button>
         ) : (
           <a
             href={app.url}
             target="_blank"
             rel="noopener"
+            onClick={(event) => event.stopPropagation()}
             className="min-w-0 truncate text-info-foreground underline-offset-2 hover:underline"
           >
-            {app.url}
+            Open {host}
           </a>
         )}
         <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+        <span className="ml-auto shrink-0 text-2xs text-muted-foreground">
+          {open ? "" : "If it's down: start, chat, terminal"}
+        </span>
+      </summary>
+      <div className="flex flex-col gap-2 pt-2 pb-1.5">
+        <p className="min-w-0 truncate text-xs text-muted-foreground">{app.url}</p>
+        {app.machine || app.start ? (
+          <p className="text-xs text-muted-foreground">
+            {app.machine ? `On ${app.machine}. ` : ""}
+            {app.start && !props.done ? "If it's down, start it with:" : ""}
+          </p>
+        ) : null}
+        {app.start && !props.done ? (
+          <div className="flex min-w-0 items-center gap-2">
+            <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
+              {app.start}
+            </code>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                void navigator.clipboard.writeText(app.start ?? "").then(
+                  () => toastManager.add({ type: "success", title: "Start command copied" }),
+                  () => undefined,
+                );
+              }}
+            >
+              <CopyIcon />
+              Copy
+            </Button>
+          </div>
+        ) : null}
+        {chat && !props.done ? (
+          <div className="flex flex-wrap gap-2">
+            <Button size="xs" variant="outline" onClick={() => props.onOpenChat(chat)}>
+              <MessageSquareIcon />
+              Open chat
+            </Button>
+            <Button size="xs" variant="outline" onClick={() => props.onOpenTerminal(chat)}>
+              <SquareTerminalIcon />
+              Open terminal
+            </Button>
+            <Button
+              size="xs"
+              onClick={() =>
+                props.onAsk(
+                  `The app for "${props.sheetTitle}" isn't answering at ${app.url}. Start it again${app.start ? ` (${app.start})` : ""}, check it answers, then tell me.`,
+                )
+              }
+            >
+              <PlayIcon />
+              Ask the chat to start it
+            </Button>
+          </div>
+        ) : null}
       </div>
-      {app.machine || app.start ? (
-        <p className="text-xs text-muted-foreground">
-          {app.machine ? `On ${app.machine}. ` : ""}
-          {app.start && !props.done ? "If it's down, start it with:" : ""}
-        </p>
-      ) : null}
-      {app.start && !props.done ? (
-        <div className="flex min-w-0 items-center gap-2">
-          <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
-            {app.start}
-          </code>
-          <Button
-            size="xs"
-            variant="outline"
-            onClick={() => {
-              void navigator.clipboard.writeText(app.start ?? "").then(
-                () => toastManager.add({ type: "success", title: "Start command copied" }),
-                () => undefined,
-              );
-            }}
-          >
-            <CopyIcon />
-            Copy
-          </Button>
-        </div>
-      ) : null}
-      {chat && !props.done ? (
-        <div className="flex flex-wrap gap-2">
-          <Button size="xs" variant="outline" onClick={() => props.onOpenChat(chat)}>
-            <MessageSquareIcon />
-            Open chat
-          </Button>
-          <Button size="xs" variant="outline" onClick={() => props.onOpenTerminal(chat)}>
-            <SquareTerminalIcon />
-            Open terminal
-          </Button>
-          <Button
-            size="xs"
-            onClick={() =>
-              props.onAsk(
-                `The app for "${props.sheetTitle}" isn't answering at ${app.url}. Start it again${app.start ? ` (${app.start})` : ""}, check it answers, then tell me.`,
-              )
-            }
-          >
-            <PlayIcon />
-            Ask the chat to start it
-          </Button>
-        </div>
-      ) : null}
-    </section>
+    </details>
   );
 }
