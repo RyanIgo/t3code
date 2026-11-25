@@ -96,30 +96,7 @@ function update(full = false) {
   };
 }
 
-async function main() {
-  const hub = hubUrl();
-  const state = readState();
-  const response = await fetch(`${hub}/fleet/updates`, { signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new Error(`hub answered ${response.status}`);
-  const { request, install } = await response.json();
-  let outcome = { ok: state.ok ?? true, result: state.result ?? null };
-  let updatedAt = state.updatedAt ?? null;
-  const pending = request && request.id !== state.requestDone;
-  const installing =
-    install && install.id !== state.installDone && install.machines?.includes(NodeOS.hostname());
-  if (now || pending || installing) {
-    try {
-      outcome = update(Boolean(installing));
-    } catch (error) {
-      outcome = { ok: false, result: String(error.stderr || error.message).slice(0, 500) };
-    }
-    updatedAt = new Date().toISOString();
-    if (request) state.requestDone = request.id;
-    if (installing) state.installDone = install.id;
-    NodeFS.mkdirSync(configDir, { recursive: true });
-    NodeFS.writeFileSync(stateFile, JSON.stringify({ ...state, ...outcome, updatedAt }, null, 2));
-    console.log(outcome.result);
-  }
+async function report(hub, state, extra) {
   await fetch(`${hub}/fleet/updates/report`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -134,10 +111,43 @@ async function main() {
       requestDone: state.requestDone ?? null,
       installDone: state.installDone ?? null,
       clientBehind: clientBehind(),
-      updatedAt,
-      ...outcome,
+      updatedAt: state.updatedAt ?? null,
+      ...extra,
     }),
   });
+}
+
+async function main() {
+  const hub = hubUrl();
+  const state = readState();
+  const response = await fetch(`${hub}/fleet/updates`, { signal: AbortSignal.timeout(15_000) });
+  if (!response.ok) throw new Error(`hub answered ${response.status}`);
+  const { request, install } = await response.json();
+  let outcome = { ok: state.ok ?? true, result: state.result ?? null };
+  let updatedAt = state.updatedAt ?? null;
+  const pending = request && request.id !== state.requestDone;
+  const installing =
+    install && install.id !== state.installDone && install.machines?.includes(NodeOS.hostname());
+  if (now || pending || installing) {
+    // Say what it's doing before a long build, so the Board shows progress, not silence.
+    await report(hub, state, {
+      ...outcome,
+      phase: installing ? "installing" : "updating",
+      phaseAt: new Date().toISOString(),
+    }).catch(() => undefined);
+    try {
+      outcome = update(Boolean(installing));
+    } catch (error) {
+      outcome = { ok: false, result: String(error.stderr || error.message).slice(0, 500) };
+    }
+    updatedAt = new Date().toISOString();
+    if (request) state.requestDone = request.id;
+    if (installing) state.installDone = install.id;
+    NodeFS.mkdirSync(configDir, { recursive: true });
+    NodeFS.writeFileSync(stateFile, JSON.stringify({ ...state, ...outcome, updatedAt }, null, 2));
+    console.log(outcome.result);
+  }
+  await report(hub, state, { ...outcome, updatedAt, phase: null, phaseAt: null });
 }
 
 main().catch((error) => {

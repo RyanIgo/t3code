@@ -937,6 +937,9 @@ async function handleUpdates(pathname, req, res, login) {
         clientBehind: body.clientBehind === true,
         seenAt: at,
         updatedAt: text(body.updatedAt, 40),
+        // "installing" or "updating" while the machine works on a request, else null.
+        phase: body.phase === "installing" || body.phase === "updating" ? body.phase : null,
+        phaseAt: text(body.phaseAt, 40),
       };
     });
     send(res, 200, { request: state.request, install: state.install ?? null });
