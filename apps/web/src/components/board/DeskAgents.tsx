@@ -34,6 +34,7 @@ import { useSendToChat } from "./deskSend";
 import { type SheetSummary, useHubSheets } from "./deskSheets";
 import { uploadPicture } from "./deskStore";
 import ChatMarkdown from "../ChatMarkdown";
+import { Sheet, SheetPopup } from "../ui/sheet";
 import { Textarea } from "../ui/textarea";
 import { commentsText, contextSections } from "./decisionFeedback.logic";
 import { DeskNoteField } from "./DeskNoteField";
@@ -390,6 +391,64 @@ export function useDecisionActions(planner: CardChatState | null, app: string) {
         `Before I answer "${decision.question}": I need the full picture, not just the issues. Read the chats and threads involved (t3_thread_read on every chat that worked on the linked items, and their delegated tasks), the issues' comments and the PRs' descriptions. Then update that decision (desk.mjs decide --id ${decision.id}) with --context in plain words: what this is and why it's coming up now; what each chat found, did and decided, and what it left open; what the items and PRs change for the people who use the app; and what I'm agreeing to. Also --link everything it touches, an --effect for every option, and --final on any that can't be undone. Keep it on the card; reply here in one line when it's updated.`,
       ),
   };
+}
+
+/**
+ * A decision opened from Now or Start review: its card in a side panel, never the chat that
+ * asked it (Rigo, 2026-11-25: "I really don't want the Start Review to then open a New Chat").
+ */
+export function DecisionPanel(props: {
+  readonly decision: PlannerDecision | null;
+  /** The chat that asked it; answers and comments go there. */
+  readonly asker: CardChatState | null;
+  readonly items: ReadonlyArray<DeskItem>;
+  readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly notes: DeskNotes;
+  readonly nowMs: number;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onClose: () => void;
+}) {
+  const sheets = useHubSheets();
+  const actions = useDecisionActions(props.asker, props.decision?.app ?? "");
+  const { decision } = props;
+  return (
+    <Sheet open={decision !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <SheetPopup side="right" className="w-[min(94vw,40rem)] max-w-[40rem]">
+        {decision ? (
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-4">
+            <DeskHeading>Decide{decision.app ? ` · ${decision.app}` : ""}</DeskHeading>
+            <DecisionCard
+              key={decision.id}
+              decision={decision}
+              items={props.items}
+              sheets={sheets}
+              chatsFor={props.chatsFor}
+              notes={props.notes}
+              nowMs={props.nowMs}
+              onOpenChat={props.onOpenChat}
+              onAnswer={(entry, choice, note) => {
+                actions.answer(entry, choice, note);
+                props.onClose();
+              }}
+              onTellMore={() => actions.tellMore(decision)}
+              onReply={actions.reply}
+              voiceEnvironmentId={props.asker?.environmentId ?? null}
+            />
+            {props.asker ? (
+              <Button
+                size="xs"
+                variant="ghost"
+                className="self-start"
+                onClick={() => props.asker && props.onOpenChat(props.asker)}
+              >
+                Open the chat that asked
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
+      </SheetPopup>
+    </Sheet>
+  );
 }
 
 /** The time now, as "10:52 AM", for a sent message's confirmation. */

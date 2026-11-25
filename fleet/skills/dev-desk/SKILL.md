@@ -187,6 +187,12 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
 - **Questions are decisions, not prose.** Anything that needs Rigo's yes or no goes through
   `decide`, one per question, with the options, your recommendation and a one-line reason. His
   answer arrives in this chat as "Decision: … → <choice>". Don't also list them in your message.
+- **Don't ask what you can set.** Priority on a bug or note you filed (P1 vs P2), a label, an area:
+  set your pick, say it in one line ("Filed as P1; change it on the card if not"), and move on.
+  He changes priority on the Board. A decision is only for a choice that changes what agents do.
+- **Chats filing a note or feedback** file the issue, set its priority themselves, run
+  `desk.mjs next ""`, and end. They never ask Rigo questions in the
+  thread and never write paragraphs to him: bullets only (see "In plain words").
 - **A decision is a choice about the work, never test feedback.** "Did it work?", "How fast did
   it load?", "What weren't you seeing?" are checks: they belong as rows on the item's test sheet
   (t3-artifacts), where he answers them while testing. Ask a decision only for a choice whose

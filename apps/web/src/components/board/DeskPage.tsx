@@ -95,7 +95,7 @@ import { useSendToChat } from "./deskSend";
 import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
-import { AgentsView, PlanPane } from "./DeskAgents";
+import { AgentsView, DecisionPanel, PlanPane } from "./DeskAgents";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
@@ -421,7 +421,9 @@ export function DeskPage(props: {
     const chat = props.pinnable.find((entry) => entry.threadId === threadId);
     if (chat) setModal({ itemId: null, chat, sequence: [] });
   };
-  const openDecision = (decision: PlannerDecision) => openPlanner(decision.threadId);
+  // A decision opens as its card in a side panel; the chat that asked is one click from there.
+  const [decisionShown, setDecisionShown] = useState<string | null>(null);
+  const openDecision = (decision: PlannerDecision) => setDecisionShown(decision.id);
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
     setModal({ itemId: entry.itemId, chat: null, sequence });
 
@@ -991,6 +993,33 @@ export function DeskPage(props: {
           onChat={(entry) => setLauncher({ kind: "item", item: entry })}
         />
       ) : null}
+      {(() => {
+        const decision = decisionShown ? (notes.notes.decisions[decisionShown] ?? null) : null;
+        return (
+          <DecisionPanel
+            decision={decision}
+            asker={
+              decision
+                ? (props.pinnable.find((entry) => entry.threadId === decision.threadId) ?? null)
+                : null
+            }
+            items={items}
+            chatsFor={(entry) =>
+              chatsForItem(entry, props.pinnable, linksByChat, {
+                focused: focusedThreads(notes.notes, entry.url),
+                repoOf: chatRepo,
+              })
+            }
+            notes={notes.notes}
+            nowMs={nowMs}
+            onOpenChat={(chat) => {
+              setDecisionShown(null);
+              setModal({ itemId: null, chat, sequence: [] });
+            }}
+            onClose={() => setDecisionShown(null)}
+          />
+        );
+      })()}
       {launcher ? (
         <ChatLauncher
           context={launcher}
