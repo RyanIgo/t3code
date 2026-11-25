@@ -104,6 +104,8 @@ import { AppView, DeskModal, SprintView } from "./DeskViews";
 import { collectPrs, type DeskPr } from "./deskPrs.logic";
 import { CatchupSection } from "./DeskToday";
 import { type Entry, NowView } from "./DeskNow";
+import { StoriesView } from "./DeskStories";
+import { buildStoryBoard } from "./storyBoard.logic";
 import { changesSince } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
@@ -120,7 +122,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "now" | "agents" | "sprint" | "backlog" | "apps";
+export type DeskTab = "now" | "stories" | "agents" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -1200,6 +1202,33 @@ export function DeskPage(props: {
           todos={plannerTodos(notes.notes)}
           onOpenTodo={(todo) => openPlanner(todo.threadId)}
           onOpenSheet={(sheet) => openExternal(testPageUrl(sheet.id))}
+        />
+      ) : mode === "stories" ? (
+        <StoriesView
+          cards={buildStoryBoard({
+            items,
+            prs,
+            sheets: hubSheets,
+            notes: notes.notes,
+            chats: props.chats,
+            decisions: openDecisions(notes.notes),
+            sprint: sprint?.title ?? null,
+            appOfSheet: (sheet) => {
+              const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
+              return (chat ? appOf(chat) : null) ?? "Other";
+            },
+          }).map((card) =>
+            // An item with no App field belongs to the app that owns most of its repo.
+            card.app || !card.item?.repo
+              ? card
+              : { ...card, app: repoApp.get(card.item.repo.split("/").pop() ?? "") ?? null },
+          )}
+          onOpen={(card) => {
+            if (card.decision) openDecision(card.decision);
+            else if (card.stage === "test" && card.sheet) openExternal(testPageUrl(card.sheet.id));
+            else if (card.stage === "merge" && card.pr) openPr(card.pr);
+            else if (card.item) openItemIn([])(card.item);
+          }}
         />
       ) : mode === "agents" ? (
         <AgentsView

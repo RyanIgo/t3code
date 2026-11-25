@@ -34,7 +34,16 @@ import { ProjectBoard } from "./ProjectBoard";
 import { useCardChats } from "./useCardChats";
 
 /** Planning tabs over GitHub work, plus Chats for watching the agents (a list, or cards). */
-const BoardTab = Schema.Literals(["now", "agents", "today", "sprint", "backlog", "apps", "chats"]);
+const BoardTab = Schema.Literals([
+  "now",
+  "stories",
+  "agents",
+  "today",
+  "sprint",
+  "backlog",
+  "apps",
+  "chats",
+]);
 type BoardTab = typeof BoardTab.Type;
 const ChatsLayout = Schema.Literals(["list", "cards"]);
 /** The repo picker's "All repos" entry; never a real project key. */
@@ -45,6 +54,7 @@ type GroupBy = typeof GroupBy.Type;
 
 const TABS: ReadonlyArray<{ readonly id: BoardTab; readonly label: string }> = [
   { id: "now", label: "Now" },
+  { id: "stories", label: "Stories" },
   { id: "agents", label: "Agents" },
   { id: "sprint", label: "Sprint" },
   { id: "backlog", label: "Backlog" },
