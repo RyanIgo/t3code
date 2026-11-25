@@ -65,6 +65,7 @@ import {
   type Star,
   starKey,
   untitledTodayChats,
+  PUSHED_TO_BOTTOM,
 } from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
 import {
@@ -709,22 +710,21 @@ export function DeskPage(props: {
       description: planner ? `${star.app}'s planner was told.` : undefined,
     });
   };
-  // Push back: "not my priority right now". The row waits until the date; its planner is told so
-  // it stops asking and re-plans around it.
-  const pushBack = (entry: Entry, until: Date | null) => {
-    savePushBack(entry.key, until ? until.toISOString() : null, entry.title);
+  // Push back: "not my priority right now". The row moves to the bottom of his queue (no date)
+  // until he moves it up; its planner is told so it stops nudging and re-plans around it.
+  const pushBack = (entry: Entry, pushed: boolean) => {
+    savePushBack(entry.key, pushed ? PUSHED_TO_BOTTOM : null, entry.title);
     const planner = plannerOf(entry.app);
-    const when = until?.toLocaleString([], { weekday: "short", month: "short", day: "numeric" });
     if (planner)
       void sendToChat(
         planner,
-        until
-          ? `Pushed back until ${when}: "${entry.title}" (${entry.badge}). Not my priority right now: don't ask me about it before then, re-plan around it, and say in one line if that moves anything.`
-          : `Brought back: "${entry.title}" (${entry.badge}) is on my queue again.`,
+        pushed
+          ? `Pushed to the bottom of my queue: "${entry.title}" (${entry.badge}). Not my priority right now: keep it, don't nudge me about it, re-plan around it, and say in one line if that moves anything.`
+          : `Moved back up: "${entry.title}" (${entry.badge}) is in my queue's order again.`,
       );
     toastManager.add({
       type: "success",
-      title: until ? `Pushed back until ${when}` : "Back on your queue",
+      title: pushed ? "Moved to the bottom of your queue" : "Moved back up",
       description: planner ? `${entry.app}'s planner was told.` : entry.title,
     });
   };

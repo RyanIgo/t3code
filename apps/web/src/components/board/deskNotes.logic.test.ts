@@ -22,7 +22,6 @@ import {
   withFocus,
   withNote,
   withPin,
-  nextMonday,
   pushedUntil,
   withPushBack,
   starOn,
@@ -485,12 +484,6 @@ describe("desk notes", () => {
 });
 
 describe("push back", () => {
-  it("defaults to next Monday at 8, even on a Monday", () => {
-    const monday = nextMonday(Date.parse("2026-11-23T15:00:00")); // a Monday
-    expect(monday.getDay()).toBe(1);
-    expect(monday.getDate()).toBe(30);
-    expect(nextMonday(Date.parse("2026-11-24T15:00:00")).getDate()).toBe(30);
-  });
   it("keeps a row pushed until its date, survives a round trip, and brings it back", () => {
     const at = "2026-11-24T15:00:00.000Z";
     const pushed = withPushBack(EMPTY_DESK_NOTES, "pr:x", "2026-11-30T13:00:00.000Z", "PR", at);

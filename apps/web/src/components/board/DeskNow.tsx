@@ -2,10 +2,10 @@ import { Fragment, type ReactNode, useState } from "react";
 import { Schema } from "effect";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { cn } from "../../lib/utils";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
@@ -22,7 +22,6 @@ import {
   chatFocus,
   chatRoleOf,
   type DeskNotes,
-  nextMonday,
   type PlannerDecision,
   type PlannerTodo,
   pushedUntil,
@@ -149,7 +148,8 @@ export interface NowInput {
   readonly todos?: ReadonlyArray<PlannerTodo>;
   readonly onOpenTodo?: (todo: PlannerTodo) => void;
   /** Pushes a row back until a date (null brings it back); its planner is told. */
-  readonly onPushBack?: (entry: Entry, until: Date | null) => void;
+  /** Moves a row to the bottom of the queue (true) or back into its order (false). */
+  readonly onPushBack?: (entry: Entry, pushed: boolean) => void;
   /** Every Desk item: gives chats, sheets and to-dos their item's priority. */
   readonly items?: ReadonlyArray<DeskItem>;
 }
@@ -187,11 +187,16 @@ export function NowView(
   const starOf = (entry: Entry) =>
     props.notes ? starOn(props.notes, entry.app, entry.feature ?? null, props.nowMs) : null;
   // Starred areas go first whatever the order; within them, the chosen order holds.
-  const queue = orderQueue(
-    entries.filter((entry) => entry.mine && !pushedOf(entry)),
+  const ordered = orderQueue(
+    entries.filter((entry) => entry.mine),
     order,
     firstApp,
   ).toSorted((a, b) => Number(starOf(b) !== null) - Number(starOf(a) !== null));
+  // Pushed-back rows stay on the queue, at the bottom, in the same order among themselves.
+  const queue = [
+    ...ordered.filter((entry) => !pushedOf(entry)),
+    ...ordered.filter((entry) => pushedOf(entry)),
+  ];
   const agents = entries.filter((entry) => entry.fold === "agents");
   const older = entries.filter((entry) => entry.fold === "sheets");
   const mineAll = all.filter((entry) => entry.mine);
@@ -214,7 +219,9 @@ export function NowView(
     .toSorted((a, b) => (appCounts.get(b) ?? 0) - (appCounts.get(a) ?? 0) || a.localeCompare(b));
   if (appFilter !== ANY && !appChoices.includes(appFilter)) appChoices.push(appFilter);
   if (appCounts.has(OTHER)) appChoices.push(OTHER);
-  const minutes = queue.reduce((sum, entry) => sum + (entry.minutes ?? 0), 0);
+  const minutes = queue
+    .filter((entry) => !pushedOf(entry))
+    .reduce((sum, entry) => sum + (entry.minutes ?? 0), 0);
   const working = agents.filter((entry) => entry.lane === "working").length;
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pt-3 pb-6 scrollbar-gutter-both">
@@ -224,7 +231,7 @@ export function NowView(
           <h2 className="text-lg font-semibold">
             {queue.length === 0
               ? "Nothing waits on you"
-              : `Your queue · ${queue.length}${minutes > 0 ? ` · about ${minutes} min` : ""}`}
+              : `Your queue · ${queue.length - pushed.length}${minutes > 0 ? ` · about ${minutes} min` : ""}${pushed.length > 0 ? ` · ${pushed.length} pushed back` : ""}`}
           </h2>
           <span className="text-xs text-muted-foreground">
             {queue.length > 0 ? "Work it top to bottom. " : ""}
@@ -252,8 +259,16 @@ export function NowView(
         {queue.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
             {queue.map((entry, index) => {
-              const group = groupOf(entry, order);
-              const startsGroup = group !== null && group !== groupOf(queue[index - 1], order);
+              const previous = queue[index - 1];
+              const isPushed = pushedOf(entry) !== null;
+              const group = isPushed
+                ? "Pushed back · not your priority right now"
+                : groupOf(entry, order);
+              const startsGroup =
+                group !== null &&
+                (isPushed
+                  ? previous === undefined || pushedOf(previous) === null
+                  : group !== groupOf(previous, order));
               return (
                 <Fragment key={entry.key}>
                   {startsGroup ? (
@@ -265,6 +280,7 @@ export function NowView(
                     entry={entry}
                     chats={props.chats}
                     onPushBack={props.onPushBack}
+                    pushed={isPushed}
                     star={starOf(entry)}
                   />
                 </Fragment>
@@ -272,11 +288,6 @@ export function NowView(
             })}
           </ul>
         ) : null}
-        <PushedFold
-          entries={pushed}
-          until={(entry) => pushedOf(entry) ?? ""}
-          onBringBack={(entry) => props.onPushBack?.(entry, null)}
-        />
         <Fold
           label={`Agents on it · ${agents.length}`}
           hint="Working, waiting on a build, tests or a merge, or finished with nothing asked of you."
@@ -346,78 +357,6 @@ function OrderChoice(props: { readonly order: string; readonly onOrder: (order: 
         </Chip>
       ))}
     </div>
-  );
-}
-
-const until = (iso: string) =>
-  new Date(iso).toLocaleString([], { weekday: "short", month: "short", day: "numeric" });
-
-/** Rows Rigo said aren't his priority right now, each back on his queue on its date. */
-function PushedFold(props: {
-  readonly entries: ReadonlyArray<Entry>;
-  readonly until: (entry: Entry) => string;
-  readonly onBringBack: (entry: Entry) => void;
-}) {
-  if (props.entries.length === 0) return null;
-  return (
-    <details className="rounded-lg border border-border bg-muted/40 px-3 py-2">
-      <summary className="flex cursor-pointer list-none flex-wrap items-baseline gap-x-2">
-        <span aria-hidden className="text-xs text-muted-foreground">
-          ▸
-        </span>
-        <DeskHeading>Pushed back · {props.entries.length}</DeskHeading>
-        <span className="text-2xs text-muted-foreground">
-          Not your priority right now. Each comes back on its date; its planner knows.
-        </span>
-      </summary>
-      <ul className="mt-2 flex flex-col gap-1">
-        {props.entries.map((entry) => (
-          <li key={entry.key} className="flex min-w-0 items-baseline gap-2 text-sm">
-            <Badge variant="outline" size="sm" className="shrink-0">
-              {entry.badge}
-            </Badge>
-            <button
-              type="button"
-              onClick={entry.onClick}
-              className="min-w-0 flex-1 cursor-pointer truncate text-left hover:underline"
-            >
-              {entry.title}
-            </button>
-            <span className="shrink-0 text-2xs text-muted-foreground">
-              back {until(props.until(entry))}
-            </span>
-            <Button size="xs" variant="ghost" onClick={() => props.onBringBack(entry)}>
-              Bring back
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </details>
-  );
-}
-
-/** "Not my priority right now": back on Monday, tomorrow, or in two weeks. */
-function PushBackMenu(props: { readonly onPick: (until: Date) => void }) {
-  const at8 = (date: Date) => {
-    date.setHours(8, 0, 0, 0);
-    return date;
-  };
-  const choices: ReadonlyArray<[string, () => Date]> = [
-    ["Until Monday", () => nextMonday(Date.now())],
-    ["Until tomorrow", () => at8(new Date(Date.now() + DAY_MS))],
-    ["For two weeks", () => at8(new Date(Date.now() + 14 * DAY_MS))],
-  ];
-  return (
-    <Menu>
-      <MenuTrigger render={<Button size="xs" variant="ghost" />}>Push back</MenuTrigger>
-      <MenuPopup align="end">
-        {choices.map(([label, date]) => (
-          <MenuItem key={label} onClick={() => props.onPick(date())}>
-            {label}
-          </MenuItem>
-        ))}
-      </MenuPopup>
-    </Menu>
   );
 }
 
@@ -517,7 +456,9 @@ function QueueFilters(props: {
 function QueueRow(props: {
   readonly entry: Entry;
   readonly chats: ReadonlyArray<CardChatState>;
-  readonly onPushBack?: ((entry: Entry, until: Date | null) => void) | undefined;
+  readonly onPushBack?: ((entry: Entry, pushed: boolean) => void) | undefined;
+  /** It's pushed back: shown at the bottom, dimmed, with Move up. */
+  readonly pushed?: boolean;
   readonly star?: Star | null;
 }) {
   const { entry } = props;
@@ -563,7 +504,10 @@ function QueueRow(props: {
     .join(" · ");
   return (
     <li
-      className="flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md border border-s-4 border-border bg-card px-3 py-2"
+      className={cn(
+        "flex flex-wrap items-start gap-x-3 gap-y-1.5 rounded-md border border-s-4 border-border bg-card px-3 py-2",
+        props.pushed && "opacity-60",
+      )}
       style={{ borderInlineStartColor: appColor(entry.app === OTHER ? null : entry.app) }}
     >
       <button
@@ -629,7 +573,13 @@ function QueueRow(props: {
           )
         ) : null}
         {props.onPushBack ? (
-          <PushBackMenu onPick={(date) => props.onPushBack?.(entry, date)} />
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => props.onPushBack?.(entry, !props.pushed)}
+          >
+            {props.pushed ? "Move up" : "Push back"}
+          </Button>
         ) : null}
         <Button
           size="xs"

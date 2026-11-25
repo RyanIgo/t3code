@@ -540,13 +540,8 @@ export function pushedUntil(notes: DeskNotes, key: string, nowMs: number): strin
   return entry && Date.parse(entry.until) > nowMs ? entry.until : null;
 }
 
-/** Next Monday at 8 am local time: Push back's default. */
-export function nextMonday(nowMs: number): Date {
-  const date = new Date(nowMs);
-  date.setDate(date.getDate() + ((8 - date.getDay()) % 7 || 7));
-  date.setHours(8, 0, 0, 0);
-  return date;
-}
+/** Push back's date: none. The row goes to the bottom of the queue until he moves it up. */
+export const PUSHED_TO_BOTTOM = "9999-12-31T00:00:00.000Z";
 
 export function parseDeskNotes(raw: string | null): DeskNotes {
   if (!raw) return EMPTY_DESK_NOTES;
