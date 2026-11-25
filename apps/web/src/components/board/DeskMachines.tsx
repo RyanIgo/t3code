@@ -5,7 +5,7 @@
  * machines the Board sees idle, and only when Rigo presses Install.
  */
 import { useAtomValue } from "@effect/atom-react";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { environmentSummaries } from "../../state/presentation";
 
@@ -27,6 +27,8 @@ interface Machine {
   readonly result: string | null;
   readonly ok: boolean;
   readonly clientBehind: boolean;
+  /** Commits on the shared branch this machine hasn't pulled (null from older updaters). */
+  readonly behind?: number | null;
   readonly seenAt: string;
   /** Set while it works on a request: "installing" can take many minutes without a report. */
   readonly phase?: "installing" | "updating" | null;
@@ -115,6 +117,46 @@ function useUpdates(): [Updates | null, (next: Updates) => void] {
 }
 
 const squash = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+type Tone = "ok" | "warn" | "bad" | "info";
+
+/** The updater's failure, in words that say what to do. */
+function plainError(result: string | null): string {
+  if (!result) return "no reason given.";
+  if (result.includes("local changes"))
+    return "this machine has code edits that aren't saved to git. Commit or discard them there, then update again.";
+  if (result.includes("doesn't track"))
+    return "its code isn't on a shared branch. Switch it to the fleet branch there.";
+  return result;
+}
+
+function Line(props: {
+  readonly label: string;
+  readonly tone: Tone;
+  readonly children: ReactNode;
+}) {
+  return (
+    <span className="flex min-w-0 items-start gap-2 text-xs">
+      <span className="w-24 shrink-0 text-muted-foreground">{props.label}</span>
+      <span
+        aria-hidden
+        className={cn(
+          "mt-1 size-2 shrink-0 rounded-full",
+          props.tone === "ok"
+            ? "bg-success"
+            : props.tone === "warn"
+              ? "bg-warning"
+              : props.tone === "bad"
+                ? "bg-destructive"
+                : "bg-info",
+        )}
+      />
+      <span className={cn("min-w-0", props.tone === "bad" && "text-destructive-foreground")}>
+        {props.children}
+      </span>
+    </span>
+  );
+}
 
 type StepState = "done" | "now" | "todo" | "failed";
 
@@ -230,26 +272,29 @@ export function MachinesCard(props: {
     install.machines.includes(machine.machine) &&
     machine.installDone === install.id &&
     props.nowMs - Date.parse(install.at) < DONE_SHOWN_MS;
-  const status = (machine: Machine) => {
-    if (building(machine))
+  const rulesLine = (machine: Machine): { text: string; tone: Tone } => {
+    if (machine.phase === "updating" || (request && machine.requestDone !== request.id))
+      return { text: "Updating now…", tone: "info" };
+    if (!machine.ok) return { text: `Couldn't update: ${plainError(machine.result)}`, tone: "bad" };
+    if (machine.behind != null && machine.behind > 0)
       return {
-        label: `Building the new T3 app · ${minutes(props.nowMs - Date.parse(machine.phaseAt ?? ""))}`,
-        tone: "info" as const,
+        text: `${machine.behind} new ${machine.behind === 1 ? "change" : "changes"} waiting. Press Update all machines.`,
+        tone: "warn",
       };
-    if (props.nowMs - Date.parse(machine.seenAt) > OFFLINE_MS)
-      return { label: `Off since ${time(machine.seenAt)}`, tone: "outline" as const };
-    if (request && machine.requestDone !== request.id)
-      return { label: "Updating…", tone: "info" as const };
-    if (installing(machine))
-      return { label: "Install asked · waiting for it to pick up", tone: "info" as const };
-    if (!machine.ok) return { label: "Didn't update", tone: "error" as const };
-    if (justInstalled(machine))
-      return {
-        label: `Installed ✓ ${machine.commit ?? ""} · T3 restarted`,
-        tone: "success" as const,
-      };
-    return { label: "Up to date", tone: "success" as const };
+    if (machine.behind === 0) return { text: "Current", tone: "ok" };
+    return { text: "Did the last update", tone: "ok" };
   };
+  const awake = machines.filter(
+    (machine) => props.nowMs - Date.parse(machine.seenAt) <= OFFLINE_MS,
+  );
+  const doneCount = request
+    ? awake.filter((machine) => machine.requestDone === request.id).length
+    : 0;
+  const updateProgress = !request
+    ? null
+    : doneCount < awake.length
+      ? `Update asked ${clock(request.at)}: ${doneCount} of ${awake.length} machines done so far.`
+      : `Last update asked ${time(request.at)}.`;
   const workingOn = (machine: Machine) => {
     const environment = environmentOf(machine);
     return environment
@@ -271,33 +316,30 @@ export function MachinesCard(props: {
       aria-label="Machines"
       className="flex flex-col gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2"
     >
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <DeskHeading>Machines · {machines.length}</DeskHeading>
-        <span className="text-2xs text-muted-foreground">
-          {request
-            ? (() => {
-                const awake = machines.filter(
-                  (machine) => props.nowMs - Date.parse(machine.seenAt) <= OFFLINE_MS,
-                );
-                const done = awake.filter((machine) => machine.requestDone === request.id);
-                return done.length < awake.length
-                  ? `Update asked ${clock(request.at)}: ${done.length} of ${awake.length} machines done so far.`
-                  : `Last update ${time(request.at)}: all ${awake.length} awake machines done.`;
-              })()
-            : "No update asked for yet."}{" "}
-          Update pulls code and agents' skills within 2 minutes without restarting T3; Install puts
-          in the new T3 app and restarts T3.
-        </span>
+      <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <DeskHeading>Machines · {machines.length}</DeskHeading>
+          <ul className="flex flex-col text-2xs text-muted-foreground">
+            <li>
+              <b className="font-medium text-foreground">Update all machines</b>: agents get the
+              newest rules and code within 2 minutes. Nothing restarts.
+            </li>
+            <li>
+              <b className="font-medium text-foreground">Install</b>: puts the newest T3 app on one
+              machine. T3 restarts there, so only idle machines offer it.
+            </li>
+            {updateProgress ? <li>{updateProgress}</li> : null}
+          </ul>
+        </div>
         <span className="ml-auto flex gap-1.5">
-          {readyToInstall.length > 0 ? (
+          {readyToInstall.length > 1 ? (
             <Button
               size="xs"
               variant="outline"
               disabled={asking}
               onClick={() => void askInstall(readyToInstall.map((machine) => machine.machine))}
             >
-              Install the new T3 app on {readyToInstall.length} idle{" "}
-              {readyToInstall.length === 1 ? "machine" : "machines"}
+              Install on all {readyToInstall.length} idle machines
             </Button>
           ) : null}
           <Button size="xs" disabled={asking} onClick={() => void ask()}>
@@ -323,65 +365,79 @@ export function MachinesCard(props: {
           machine to turn its updater on.
         </p>
       ) : (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col divide-y divide-border">
           {machines.map((machine) => {
-            const shown = status(machine);
             const environment = environmentOf(machine);
             const working = workingOn(machine);
+            const asleep =
+              props.nowMs - Date.parse(machine.seenAt) > OFFLINE_MS && !building(machine);
+            const rules = rulesLine(machine);
             return (
-              <li key={machine.machine} className="flex flex-col gap-0.5 text-sm">
+              <li key={machine.machine} className="flex flex-col gap-1 py-1.5 text-sm">
                 <span className="flex flex-wrap items-center gap-2">
                   <b className="font-medium">{environment?.environmentLabel ?? machine.machine}</b>
-                  <Badge variant={shown.tone} size="sm">
-                    {shown.label}
-                  </Badge>
-                  {working === null ? (
+                  {asleep ? (
                     <Badge variant="outline" size="sm">
-                      Chats unknown
+                      Asleep or off since {time(machine.seenAt)}
+                    </Badge>
+                  ) : working === null ? (
+                    <Badge variant="outline" size="sm">
+                      Can't see its chats
                     </Badge>
                   ) : working.length > 0 ? (
                     <Badge variant="info" size="sm">
-                      {working.length} working
+                      {working.length} {working.length === 1 ? "chat" : "chats"} working
                     </Badge>
                   ) : (
                     <Badge variant="outline" size="sm">
                       Idle
                     </Badge>
                   )}
-                  <span className="min-w-0 truncate text-2xs text-muted-foreground">
-                    {machine.commit} {machine.subject}
-                  </span>
                 </span>
-                {install && (installing(machine) || justInstalled(machine)) ? (
-                  <InstallSteps machine={machine} install={install} nowMs={props.nowMs} />
-                ) : null}
-                {!machine.ok && machine.result ? (
-                  <span className="text-xs text-destructive-foreground">{machine.result}</span>
-                ) : null}
-                {working && working.length > 0 ? (
-                  <span className="truncate text-xs text-muted-foreground">
-                    Working: {working.map((chat) => chatTitle(chat.title)).join(" · ")}
-                  </span>
-                ) : null}
-                {machine.clientBehind && !installing(machine) ? (
-                  <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                    {working === null
-                      ? "New T3 app ready. The Board can't see this machine's chats: install it from a terminal there (fleet/install-client.sh) when nothing runs."
-                      : working.length > 0
-                        ? `New T3 app ready. Install once the ${working.length} working ${working.length === 1 ? "chat finishes" : "chats finish"} (it restarts T3).`
-                        : "New T3 app ready. Nothing is running there."}
-                    {working?.length === 0 ? (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={asking}
-                        onClick={() => void askInstall([machine.machine])}
-                      >
-                        Install (restarts T3)
-                      </Button>
+                {asleep ? null : (
+                  <>
+                    <Line label="Agents' rules" tone={rules.tone}>
+                      {rules.text}
+                    </Line>
+                    <Line
+                      label="T3 app"
+                      tone={
+                        install && (installing(machine) || justInstalled(machine))
+                          ? "info"
+                          : machine.clientBehind
+                            ? "warn"
+                            : "ok"
+                      }
+                    >
+                      {install && (installing(machine) || justInstalled(machine)) ? (
+                        <InstallSteps machine={machine} install={install} nowMs={props.nowMs} />
+                      ) : !machine.clientBehind ? (
+                        "Current"
+                      ) : working === null ? (
+                        "New version ready. Install it from a terminal on that machine (fleet/install-client.sh) when nothing is running."
+                      ) : working.length > 0 ? (
+                        `New version ready. Install once its ${working.length} working ${working.length === 1 ? "chat finishes" : "chats finish"}.`
+                      ) : (
+                        <span className="flex flex-wrap items-center gap-2">
+                          New version ready.
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            disabled={asking}
+                            onClick={() => void askInstall([machine.machine])}
+                          >
+                            Install now (restarts T3 there)
+                          </Button>
+                        </span>
+                      )}
+                    </Line>
+                    {working && working.length > 0 ? (
+                      <span className="truncate ps-28 text-xs text-muted-foreground">
+                        Working: {working.map((chat) => chatTitle(chat.title)).join(" · ")}
+                      </span>
                     ) : null}
-                  </span>
-                ) : null}
+                  </>
+                )}
               </li>
             );
           })}

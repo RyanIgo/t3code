@@ -935,6 +935,7 @@ async function handleUpdates(pathname, req, res, login) {
         result: text(body.result, 600),
         ok: body.ok === true,
         clientBehind: body.clientBehind === true,
+        behind: Number.isInteger(body.behind) && body.behind >= 0 ? body.behind : null,
         seenAt: at,
         updatedAt: text(body.updatedAt, 40),
         // "installing" or "updating" while the machine works on a request, else null.

@@ -53,6 +53,16 @@ function environmentId() {
   }
 }
 
+/** How many commits the shared branch has that this checkout hasn't pulled, or null if unknown. */
+function commitsBehind() {
+  try {
+    git("fetch", "--quiet");
+    return Number(git("rev-list", "--count", "HEAD..@{upstream}"));
+  } catch {
+    return null;
+  }
+}
+
 function clientBehind() {
   let installed = "";
   try {
@@ -111,6 +121,7 @@ async function report(hub, state, extra) {
       requestDone: state.requestDone ?? null,
       installDone: state.installDone ?? null,
       clientBehind: clientBehind(),
+      behind: commitsBehind(),
       updatedAt: state.updatedAt ?? null,
       ...extra,
     }),
