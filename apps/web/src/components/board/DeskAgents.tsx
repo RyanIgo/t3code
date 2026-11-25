@@ -43,6 +43,7 @@ import { cn } from "../../lib/utils";
 import { useState } from "react";
 import { MachinesCard } from "./DeskMachines";
 import { DeskHeading, TypeTag } from "./DeskParts";
+import { VerbChip } from "./deskLevels";
 import { moveFocus } from "./DeskWork";
 import { type DeskPr, isDependencyUpdate } from "./deskPrs.logic";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
@@ -511,11 +512,14 @@ export function PlanPane(props: {
       item.workType !== "Tracking",
   );
   const status = (item: DeskItem) => sprintStatus(item, props.signalsFor(item));
-  // What only Rigo can move: a question or result from the item's chat, a wrap-up, or urgent
-  // work nobody has started.
+  // What only Rigo can move: a question or result from the item's chat, a sheet to test, or urgent
+  // work nobody has started. Wrapping up a finished story is its lead's job, not his.
   const ask = (item: DeskItem): { label: string; action: "open" | "start" } | null => {
     const chat = props.chatsFor(item)[0];
-    if (needsWrapUp(item, props.signalsFor(item))) return { label: "Wrap up", action: "open" };
+    const signals = props.signalsFor(item);
+    if ((signals.sheet?.unchecked ?? 0) > 0 && isOpenWork(item))
+      return { label: "Test", action: "open" };
+    if (needsWrapUp(item, signals)) return null;
     if (chat?.needsYou) return { label: "Answer", action: "open" };
     if (chat?.column === "done") return { label: "Read result", action: "open" };
     if (!chat && isOpenWork(item) && (item.priority === "P0" || item.priority === "P1")) {
@@ -524,6 +528,7 @@ export function PlanPane(props: {
     return null;
   };
   const waiting = inSprint.filter((item) => ask(item) !== null);
+  const wrappingUp = inSprint.filter((item) => needsWrapUp(item, props.signalsFor(item)));
   // A PR to send back that the plan already has an agent on isn't Rigo's: it shows in the plan.
   const agentsOn = new Set(
     checklist.flatMap((line) =>
@@ -656,8 +661,12 @@ export function PlanPane(props: {
       />
       <section className="flex flex-col">
         <DeskHeading>
-          Waiting on you · {waiting.length + prsWaiting.length + ownTodos.length}
+          Your moves in {props.app} · {waiting.length + prsWaiting.length + ownTodos.length}
         </DeskHeading>
+        <p className="pb-1 text-2xs text-muted-foreground">
+          The same moves are on Now. Each opens beside this window; nothing here is answered in the
+          chat.
+        </p>
         {waiting.length === 0 && prsWaiting.length === 0 && ownTodos.length === 0 ? (
           <p className="py-1 text-xs text-muted-foreground">Nothing in this sprint waits on you.</p>
         ) : (
@@ -670,6 +679,7 @@ export function PlanPane(props: {
                     onClick={() => props.onOpenPr(pr)}
                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
                   >
+                    <VerbChip verb={pr.stage === "ready" ? "Merge" : "Send back"} />
                     <span className="shrink-0 text-xs text-muted-foreground">PR #{pr.number}</span>
                     <span className="truncate">{pr.title}</span>
                   </button>
@@ -690,6 +700,9 @@ export function PlanPane(props: {
                       onClick={() => props.onOpenItem(item)}
                       className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left text-sm hover:underline"
                     >
+                      <VerbChip
+                        verb={needed?.action === "start" ? "Do" : (needed?.label ?? "Do")}
+                      />
                       <TypeTag kind={workKind(item)} />
                       <span className="truncate">{deskTitle(item)}</span>
                     </button>
@@ -711,12 +724,15 @@ export function PlanPane(props: {
             })}
             {ownTodos.map((line) => (
               <li key={line.text} className="flex min-w-0 items-start gap-2 py-1.5">
-                <span aria-hidden className="w-4 shrink-0 text-muted-foreground">
-                  ☐
-                </span>
+                <VerbChip
+                  verb={/^decide\b/i.test(line.text) ? "Decide" : "Do"}
+                  className="mt-0.5"
+                />
                 <span className="min-w-0 flex-1 text-sm">
                   {line.text}
-                  <span className="block text-2xs text-muted-foreground">From the planner</span>
+                  <span className="block text-2xs text-muted-foreground">
+                    The planner can&apos;t do this one. Done when you have; Not mine sends it back.
+                  </span>
                 </span>
                 {/^decide\b/i.test(line.text) ? (
                   <>
@@ -743,6 +759,28 @@ export function PlanPane(props: {
           </ul>
         )}
       </section>
+      {wrappingUp.length > 0 ? (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">
+            Leads wrapping up · {wrappingUp.length} finished{" "}
+            {wrappingUp.length === 1 ? "story" : "stories"} (closing PRs, ticking criteria): nothing
+            for you
+          </summary>
+          <ul className="flex flex-col gap-0.5 pt-1 ps-4">
+            {wrappingUp.map((item) => (
+              <li key={item.itemId}>
+                <button
+                  type="button"
+                  onClick={() => props.onOpenItem(item)}
+                  className="cursor-pointer text-left hover:underline"
+                >
+                  {deskTitle(item)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
       <section className="flex flex-col">
         <DeskHeading>The planner's plan · {agentLines.length} under way</DeskHeading>
         <div className="flex items-center gap-2 pb-1 text-xs text-muted-foreground">
