@@ -10,7 +10,7 @@ import {
   PlayIcon,
   SquareTerminalIcon,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { cn } from "../../lib/utils";
 
@@ -44,7 +44,6 @@ import {
   testPageUrl,
   uncheckedRows,
   useSheetDetail,
-  useSheetRelay,
 } from "./deskSheets";
 import { formatFleetBoardAge, minuteTickToMs } from "./fleetBoard.logic";
 
@@ -408,8 +407,10 @@ function YourTestMove(props: {
   readonly host: string | null;
   readonly testUrl: string;
   readonly done: boolean;
+  /** Goes straight to the Test page in this window. */
+  readonly onStart?: (() => void) | undefined;
 }) {
-  const { total, pass, fail, blocked } = props.sheet.counts;
+  const { total, fail, blocked } = props.sheet.counts;
   const left = uncheckedRows(props.sheet.counts);
   const turn = sheetTurn(props.sheet);
   const yours = !props.done && turn === "rigo";
@@ -431,30 +432,132 @@ function YourTestMove(props: {
       <div className="flex flex-wrap items-center gap-3">
         <b className="text-base">{headline}</b>
         {yours ? (
-          <Button
-            size="sm"
-            className="ms-auto"
-            render={<a href={props.testUrl} target="_blank" rel="noopener" />}
-          >
-            Start testing: sheet and app side by side
-          </Button>
+          props.onStart ? (
+            <Button size="sm" className="ms-auto" onClick={props.onStart}>
+              Start testing →
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              className="ms-auto"
+              render={<a href={props.testUrl} target="_blank" rel="noopener" />}
+            >
+              Start testing →
+            </Button>
+          )
         ) : null}
       </div>
-      {yours ? (
-        <ol className="flex list-decimal flex-col gap-0.5 ps-5 text-sm">
-          <li>
-            Open each check&apos;s link: the app is running
-            {props.host ? ` on ${props.host}` : ""}.
-          </li>
-          <li>Mark it Pass or Fail. On a Fail, say what you saw (a screenshot helps).</li>
-          <li>
-            Press Submit at the bottom of the sheet. The lead fixes what failed, or asks you to
-            merge.
-          </li>
-          {pass > 0 ? <li className="text-muted-foreground">{pass} already passed.</li> : null}
-        </ol>
-      ) : null}
     </section>
+  );
+}
+
+const BRIEF_STEPS = ["Planned", "Build", "Test", "Merge", "Wrap up"] as const;
+
+/**
+ * Why Rigo is testing and what it proves, before he starts: the story, where it is, the
+ * acceptance criteria and PRs under test, the checks, and what his Submit leads to. Bullets.
+ */
+function TestBrief(props: {
+  readonly item: DeskItem;
+  readonly sheet: SheetSummary;
+  readonly detail: ReturnType<typeof useSheetDetail>;
+  readonly host: string | null;
+}) {
+  const { item, sheet, detail } = props;
+  const criteria = item.story?.criteria ?? [];
+  const prs = item.pullRequests.filter((pr) => pr.state === "open" || pr.state === "draft");
+  const prNames = prs.map((pr) => `#${pr.number}`).join(", ");
+  const rows = detail?.rows ?? [];
+  const what = item.plain?.what ?? item.story?.text ?? null;
+  return (
+    <div className="grid gap-3 lg:grid-cols-2">
+      <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+        <DeskHeading>Why you&apos;re testing</DeskHeading>
+        <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
+          {what ? <li>{what}</li> : null}
+          {item.plain?.why ? <li>Why it matters: {item.plain.why}</li> : null}
+          {item.story?.text && item.story.text !== what ? (
+            <li className="text-muted-foreground">{item.story.text}</li>
+          ) : null}
+          <li>
+            {prs.length > 0
+              ? `The lead built it in ${prs.length === 1 ? "PR" : "PRs"} ${prNames}. Your test is the gate before it merges.`
+              : "Your test is the gate before this work is merged."}
+          </li>
+        </ul>
+        <ol aria-label="Where the story is" className="mt-1 flex text-2xs">
+          {BRIEF_STEPS.map((step) => {
+            const at = BRIEF_STEPS.indexOf(step) - BRIEF_STEPS.indexOf("Test");
+            return (
+              <li
+                key={step}
+                className={cn(
+                  "-me-px flex-1 border border-border px-1.5 py-1 text-center",
+                  at < 0 && "bg-success/10 text-muted-foreground",
+                  at === 0 && "border-warning bg-warning/12 font-semibold",
+                )}
+              >
+                {at < 0 ? "✓ " : ""}
+                {step}
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+      <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+        <DeskHeading>What it proves</DeskHeading>
+        {criteria.length > 0 ? (
+          <ul className="flex flex-col gap-0.5 text-sm">
+            {criteria.map((criterion) => (
+              <li key={criterion.text} className="flex gap-2">
+                <span aria-hidden className="w-4 shrink-0 text-muted-foreground">
+                  {criterion.done ? "✓" : "○"}
+                </span>
+                <span className="min-w-0">{criterion.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            No acceptance criteria on the story; the checks below are the bar.
+          </p>
+        )}
+      </section>
+      <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+        <DeskHeading>
+          The checks · {sheet.counts.total}
+          {props.host ? ` · app on ${props.host}` : ""}
+        </DeskHeading>
+        {rows.length > 0 ? (
+          <ol className="flex list-decimal flex-col gap-0.5 ps-5 text-sm">
+            {rows.map((row, index) => {
+              const result = row.id ? detail?.results[row.id] : undefined;
+              return (
+                <li key={row.id ?? `${index}:${row.title ?? ""}`}>
+                  <span className="min-w-0">{row.title}</span>
+                  {result ? (
+                    <span className="ms-2 text-xs text-muted-foreground">({result})</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ol>
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading the checks…</p>
+        )}
+      </section>
+      <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+        <DeskHeading>After you submit</DeskHeading>
+        <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
+          <li>Each check: open its link, mark Pass or Fail, and on a Fail say what you saw.</li>
+          <li>
+            All pass: Merge {prs.length > 0 ? prNames : "it"} shows up on Now; after the merge the
+            lead wraps the story up.
+          </li>
+          <li>Any fail: the lead fixes them and sends the sheet back; you retest only those.</li>
+        </ul>
+      </section>
+    </div>
   );
 }
 
@@ -465,18 +568,17 @@ export function ReviewTab(props: {
   /** The chat to ask for a sheet when there isn't one. */
   readonly onChat: CardChatState | null;
   readonly onOpenChat: (chat: CardChatState) => void;
+  /** Opens the Test page (sheet and app side by side) in place of this window. */
+  readonly onStartTest?: ((sheetId: string) => void) | undefined;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   const sheet = props.sheets.find((entry) => entry.id === chosen) ?? props.sheets[0] ?? null;
-  const frame = useRef<HTMLIFrameElement>(null);
   const detail = useSheetDetail(sheet?.id ?? null);
   const done = props.item.status === "Done" || props.item.state !== "open";
   const sheetChat = sheet?.thread
     ? (props.allChats.find((chat) => chat.threadId === sheet.thread?.threadId) ?? null)
     : null;
   const chat = sheetChat ?? props.onChat;
-  // Submit on the sheet here goes to the work chat too, as on the Test page.
-  useSheetRelay(frame, chat, sheet?.title ?? "Test sheet");
   const ask = (text: string) => {
     if (!chat) return;
     draftToChat(chat, text);
@@ -510,7 +612,14 @@ export function ReviewTab(props: {
   const testUrl = testPageUrl(sheet.id);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-      <YourTestMove sheet={sheet} host={app?.machine ?? null} testUrl={testUrl} done={done} />
+      <YourTestMove
+        sheet={sheet}
+        host={app?.machine ?? null}
+        testUrl={testUrl}
+        done={done}
+        onStart={props.onStartTest ? () => props.onStartTest?.(sheet.id) : undefined}
+      />
+      <TestBrief item={props.item} sheet={sheet} detail={detail} host={app?.machine ?? null} />
       <div className="flex flex-wrap items-center gap-1 max-sm:hidden">
         {props.sheets.length > 1
           ? props.sheets.map((entry) => (
@@ -564,33 +673,6 @@ export function ReviewTab(props: {
           </div>
         </section>
       ) : null}
-      {detail && detail.rows.length > 0 ? (
-        <ul className="flex flex-col divide-y divide-border sm:hidden">
-          {detail.rows.map((row, index) => {
-            const link = row.url ?? row.links?.find((entry) => entry.url)?.url ?? null;
-            const result = row.id ? detail.results[row.id] : undefined;
-            return (
-              <li key={row.id ?? index} className="flex items-start gap-2 py-2 text-sm">
-                <span className="w-14 shrink-0 text-xs text-muted-foreground">
-                  {result ?? "to do"}
-                </span>
-                {link ? (
-                  <a
-                    href={link}
-                    target="_blank"
-                    rel="noopener"
-                    className="min-w-0 flex-1 text-info-foreground underline-offset-2 hover:underline"
-                  >
-                    {row.title ?? link}
-                  </a>
-                ) : (
-                  <span className="min-w-0 flex-1">{row.title}</span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
       <p className="text-sm sm:hidden">
         Testing happens on a computer. This sheet is{" "}
         {sheet.counts.pass + sheet.counts.fail + sheet.counts.skip + sheet.counts.blocked} of{" "}
@@ -611,15 +693,6 @@ export function ReviewTab(props: {
           onAsk={ask}
         />
       ) : null}
-      {/* The hub serves artifact pages under its own CSP sandbox; they save through its API. */}
-      {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
-      <iframe
-        ref={frame}
-        key={sheet.id}
-        title={sheet.title}
-        src={`/a/${sheet.id}`}
-        className="min-h-[32rem] w-full flex-1 rounded-lg border border-border bg-background max-sm:hidden"
-      />
     </div>
   );
 }

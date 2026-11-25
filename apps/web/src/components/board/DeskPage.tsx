@@ -991,6 +991,10 @@ export function DeskPage(props: {
           }
           onClose={() => setModal(null)}
           onChat={(entry) => setLauncher({ kind: "item", item: entry })}
+          onStartTest={(sheetId) => {
+            setModal(null);
+            setTestSheet(sheetId);
+          }}
         />
       ) : null}
       {(() => {

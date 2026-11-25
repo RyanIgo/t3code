@@ -448,6 +448,8 @@ export function DeskModal(props: {
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onClose: () => void;
   readonly onChat: (item: DeskItem) => void;
+  /** Opens the Test page for a sheet in place of this window. */
+  readonly onStartTest?: (sheetId: string) => void;
 }) {
   const { item } = props;
   const notes = useDeskNotes().notes;
@@ -827,6 +829,7 @@ export function DeskModal(props: {
                 allChats={props.allChats}
                 onChat={focused ?? shown}
                 onOpenChat={openChatHere}
+                onStartTest={props.onStartTest}
               />
             ) : null}
             {chatsSeen || !tabbed ? (
