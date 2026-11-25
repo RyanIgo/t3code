@@ -108,7 +108,7 @@ import { collectPrs, type DeskPr } from "./deskPrs.logic";
 import { CatchupSection } from "./DeskToday";
 import { type Entry, NowView } from "./DeskNow";
 import { StoriesView } from "./DeskStories";
-import { buildStoryBoard } from "./storyBoard.logic";
+import { buildStoryBoard, recentActivity } from "./storyBoard.logic";
 import { changesSince } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
@@ -1242,6 +1242,7 @@ export function DeskPage(props: {
             notes: notes.notes,
             chats: props.chats,
             decisions: openDecisions(notes.notes),
+            answered: Object.values(notes.notes.decisions).filter((entry) => entry.answer !== null),
             sprint: sprint?.title ?? null,
             nowMs,
             appOfSheet: (sheet) => {
@@ -1254,6 +1255,8 @@ export function DeskPage(props: {
               ? card
               : { ...card, app: repoApp.get(card.item.repo.split("/").pop() ?? "") ?? null },
           )}
+          activity={recentActivity(notes.notes, props.chats, nowMs)}
+          nowMs={nowMs}
           stars={Object.values(notes.notes.stars)
             .filter((star) => Date.parse(star.until) > nowMs)
             .toSorted((a, b) => a.until.localeCompare(b.until))}

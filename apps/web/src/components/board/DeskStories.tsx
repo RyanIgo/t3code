@@ -19,6 +19,10 @@ import { DeskHeading } from "./DeskParts";
 import { reviewQueue, STAGES, type StoryCard } from "./storyBoard.logic";
 
 const ALL = "All";
+const minutesAgo = (nowMs: number, iso: string) => {
+  const minutes = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 60_000));
+  return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`;
+};
 /** Days left on a star, at least one, so editing its reason keeps its end date. */
 const daysLeft = (star: Star) =>
   Math.max(1, Math.round((Date.parse(star.until) - Date.parse(star.updatedAt)) / 86_400_000));
@@ -149,6 +153,18 @@ function Card(props: {
           {card.title}
         </span>
         {card.ref ? <span className="text-2xs text-muted-foreground">{card.ref}</span> : null}
+        {card.activity && !card.move.mine ? (
+          <span className="flex items-center gap-1.5 text-2xs text-muted-foreground">
+            <span
+              aria-hidden
+              className={cn(
+                "size-1.5 shrink-0 rounded-full",
+                card.activity === "Working now" ? "bg-success" : "bg-muted-foreground/40",
+              )}
+            />
+            <span className="line-clamp-2">{card.activity}</span>
+          </span>
+        ) : null}
         {card.move.mine ? (
           <span className="flex items-start gap-1.5 rounded-md border border-warning/50 bg-warning/8 p-1.5 text-xs">
             <VerbChip verb={card.move.verb} className="w-auto" />
@@ -219,6 +235,17 @@ export function StoriesView(props: {
   readonly cards: ReadonlyArray<StoryCard>;
   readonly onOpen: (card: StoryCard) => void;
   readonly stars: ReadonlyArray<Star>;
+  /** What the agents are doing right now, for the Moving now strip. */
+  readonly activity: {
+    readonly working: number;
+    readonly lastAt: string | null;
+    readonly recent: ReadonlyArray<{
+      readonly at: string;
+      readonly who: string;
+      readonly line: string;
+    }>;
+  };
+  readonly nowMs: number;
   readonly onPriority: (card: StoryCard, priority: string) => void;
   /** Stars a card's area (or its app) for some days; null takes it off. */
   readonly onStar: (star: Omit<Star, "until" | "updatedAt">, days: number | null) => void;
@@ -301,6 +328,36 @@ export function StoriesView(props: {
           </Button>
         ))}
       </div>
+      <details className="rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-sm">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2">
+          <span
+            aria-hidden
+            className={cn(
+              "size-2 rounded-full",
+              props.activity.working > 0 ? "bg-success" : "bg-muted-foreground/40",
+            )}
+          />
+          <b className="font-semibold">Moving now</b>
+          <span className="text-xs text-muted-foreground">
+            {props.activity.working} {props.activity.working === 1 ? "chat" : "chats"} working
+            {props.activity.lastAt
+              ? ` · last update ${minutesAgo(props.nowMs, props.activity.lastAt)} ago`
+              : ""}
+            {props.activity.recent.length > 0 ? " · show the latest updates ▸" : ""}
+          </span>
+        </summary>
+        <ul className="mt-1.5 flex flex-col gap-1 pb-1">
+          {props.activity.recent.map((entry) => (
+            <li key={entry.at + entry.who} className="flex gap-2 text-xs">
+              <span className="w-10 shrink-0 text-muted-foreground tabular-nums">
+                {minutesAgo(props.nowMs, entry.at)}
+              </span>
+              <span className="w-56 shrink-0 truncate font-medium">{entry.who}</span>
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{entry.line}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
       <StarStrip
         stars={props.stars}
         onReason={(star, reason) => props.onStar({ ...star, reason }, daysLeft(star))}

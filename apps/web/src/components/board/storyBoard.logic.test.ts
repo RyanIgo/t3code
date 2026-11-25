@@ -11,7 +11,7 @@ import {
 } from "./deskNotes.logic";
 import type { DeskPr } from "./deskPrs.logic";
 import type { SheetSummary } from "./deskSheets";
-import { buildStoryBoard, reviewQueue } from "./storyBoard.logic";
+import { buildStoryBoard, reportGist, reviewQueue } from "./storyBoard.logic";
 
 const AT = "2026-11-24T10:00:00Z";
 const item = (number: number, overrides: Partial<DeskItem> = {}): DeskItem => ({
@@ -154,5 +154,13 @@ describe("story board", () => {
       .map((card) => card.key);
     // Both Leveling stories (starred) come first, P2 before P3; then the unstarred P0.
     expect(keys).toEqual(["item:i12", "item:i10", "item:i11"]);
+  });
+
+  it("sums up a lead's report in one plain line", () => {
+    expect(
+      reportGist(
+        "Goal: [Issue #312 Bid intake](https://x) · prep\n**Done:**\n- [PR #350 Bid Ingest](https://y) is merged and live",
+      ),
+    ).toBe("PR #350 Bid Ingest is merged and live");
   });
 });

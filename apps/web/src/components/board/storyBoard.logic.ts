@@ -48,6 +48,82 @@ export interface StoryCard {
   readonly feature: string | null;
   /** Rigo's star on its area or app, while it's on: it goes first. */
   readonly star: Star | null;
+  /** What the agents last did: "Working now", or "Updated 25m ago: <its report's first line>". */
+  readonly activity: string | null;
+}
+
+const ago = (nowMs: number, iso: string) => {
+  const minutes = Math.max(0, Math.round((nowMs - Date.parse(iso)) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.round(minutes / 60);
+  return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+};
+
+/** A report's gist: its first real line, without markdown or the "Goal:" header. */
+export function reportGist(text: string): string {
+  const line =
+    text
+      .split("\n")
+      .map((entry) =>
+        entry
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+          .replace(/^\s*#+\s*/, "")
+          .replace(/[*_`>]/g, "")
+          .replace(/^\s*[-•]\s*/, "")
+          .trim(),
+      )
+      .find((entry) => entry && !/^goal:/i.test(entry) && !/^(done|needs you):?$/i.test(entry)) ??
+    "";
+  return line.length > 110 ? `${line.slice(0, 107)}…` : line;
+}
+
+/** What a chat is doing, in a few words: working now, or its last update and when. */
+function chatActivity(
+  chat: CardChatState | null | undefined,
+  notes: DeskNotes,
+  nowMs: number,
+): string | null {
+  if (!chat) return null;
+  if (chat.working) return "Working now";
+  const report = notes.work[chat.threadId]?.report;
+  if (report) {
+    const gist = reportGist(report.text);
+    return `Updated ${ago(nowMs, report.at)} ago${gist ? `: ${gist}` : ""}`;
+  }
+  return chat.since ? `Idle ${ago(nowMs, chat.since)}` : null;
+}
+
+/** What's moving across the agents: how many work now, and the latest updates, newest first. */
+export function recentActivity(
+  notes: DeskNotes,
+  chats: ReadonlyArray<CardChatState>,
+  nowMs: number,
+): {
+  readonly working: number;
+  readonly lastAt: string | null;
+  readonly recent: ReadonlyArray<{
+    readonly at: string;
+    readonly who: string;
+    readonly line: string;
+  }>;
+} {
+  const byThread = new Map(chats.map((chat) => [chat.threadId, chat]));
+  const recent = Object.entries(notes.work)
+    .flatMap(([threadId, work]) => {
+      const report = work.report;
+      if (!report || nowMs - Date.parse(report.at) > 6 * 3_600_000) return [];
+      const chat = byThread.get(threadId);
+      const role = work.role === "planner" ? "Planner" : work.role === "helper" ? "Helper" : "Lead";
+      const who = chat?.title ?? [role, work.app].filter(Boolean).join(" · ");
+      return [{ at: report.at, who, line: reportGist(report.text) }];
+    })
+    .toSorted((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 8);
+  return {
+    working: chats.filter((chat) => chat.working).length,
+    lastAt: recent[0]?.at ?? null,
+    recent,
+  };
 }
 
 const QUICK_FIX_TYPES = new Set(["Bug", "Maintenance"]);
@@ -61,6 +137,8 @@ export function buildStoryBoard(input: {
   readonly notes: DeskNotes;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly decisions: ReadonlyArray<PlannerDecision>;
+  /** Decisions Rigo answered recently: an approved grouping stays in view while it's set up. */
+  readonly answered?: ReadonlyArray<PlannerDecision>;
   /** The current sprint's title: its items are in play even before a chat is on them. */
   readonly sprint: string | null;
   readonly appOfSheet: (sheet: SheetSummary) => string;
@@ -90,6 +168,35 @@ export function buildStoryBoard(input: {
       priority: null,
       feature: null,
       star: starOn(input.notes, decision.app, null, input.nowMs),
+      activity: chatActivity(planner, input.notes, input.nowMs),
+    });
+  }
+  // An answered grouping stays a few hours, so the hand-off to the planner is visible.
+  for (const decision of input.answered ?? []) {
+    if (!decision.answer || !/^\s*group\b|\bmap\b|\bstories\b/i.test(decision.question)) continue;
+    if (input.nowMs - Date.parse(decision.answer.at) > 4 * 3_600_000) continue;
+    const planner = input.chats.find((chat) => chat.threadId === decision.threadId);
+    cards.push({
+      key: `decision:${decision.id}`,
+      stage: "proposed",
+      app: decision.app,
+      title: decision.question,
+      ref: null,
+      kind: "proposal",
+      move: {
+        mine: false,
+        verb: "Agents",
+        text: `✓ You answered "${decision.answer.choice}" ${ago(input.nowMs, decision.answer.at)} ago · ${planner?.working ? "planner is setting up the stories" : "planner has set them up; they're in their columns"}`,
+      },
+      item: null,
+      decision,
+      sheet: null,
+      pr: null,
+      lead: null,
+      priority: null,
+      feature: null,
+      star: null,
+      activity: chatActivity(planner, input.notes, input.nowMs),
     });
   }
   for (const item of input.items) {
@@ -142,6 +249,7 @@ export function buildStoryBoard(input: {
       priority: item.priority,
       feature: item.feature,
       star: starOn(input.notes, item.app, item.feature, input.nowMs),
+      activity: chatActivity(lead, input.notes, input.nowMs),
     };
     const agents = (text: string) => ({ mine: false, verb: "Agents", text });
     const leadState = lead ? (lead.working ? "lead working" : "lead idle") : "no lead yet";
