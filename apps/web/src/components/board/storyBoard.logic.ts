@@ -186,7 +186,7 @@ export function buildStoryBoard(input: {
       move: {
         mine: false,
         verb: "Agents",
-        text: `✓ You answered "${decision.answer.choice}" ${ago(input.nowMs, decision.answer.at)} ago · ${planner?.working ? "planner is setting up the stories" : "planner has set them up; they're in their columns"}`,
+        text: `✓ You answered "${decision.answer.choice}" ${ago(input.nowMs, decision.answer.at)} ago · ${planner?.working ? "planner is setting up the stories" : "planner has set them up; see them by area and sprint on Map"}`,
       },
       item: null,
       decision,

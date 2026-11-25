@@ -8,8 +8,6 @@ import { useState } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { cn } from "../../lib/utils";
-import { StarIcon } from "lucide-react";
-
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
@@ -17,6 +15,9 @@ import type { Star } from "./deskNotes.logic";
 import { AppDot, appColor, LEVELS, LevelMark, VerbChip } from "./deskLevels";
 import { DeskHeading } from "./DeskParts";
 import { reviewQueue, STAGES, type StoryCard } from "./storyBoard.logic";
+import type { DeskItem } from "./desk.logic";
+import { StarMenu, StoryMapView } from "./DeskStoryMap";
+import type { MapArea, MapInsight } from "./storyMap.logic";
 
 const ALL = "All";
 const minutesAgo = (nowMs: number, iso: string) => {
@@ -34,51 +35,8 @@ const PRIORITY_STYLE: Record<string, string> = {
   P2: "bg-muted text-foreground",
   P3: "bg-muted text-muted-foreground",
 };
-const STAR_FOR: ReadonlyArray<readonly [string, number]> = [
-  ["Until tomorrow", 1],
-  ["For 3 days", 3],
-  ["For a week", 7],
-];
 /** The area's name without its app ("Precon · Bid intake" → "Bid intake"). */
 const areaName = (feature: string) => feature.split(" · ").slice(1).join(" · ") || feature;
-
-/** Star an area or app for a while, or take the star off. */
-function StarMenu(props: {
-  readonly starred: boolean;
-  readonly label: string;
-  readonly onStar: (days: number | null) => void;
-}) {
-  return (
-    <Menu>
-      <MenuTrigger
-        render={
-          <button
-            type="button"
-            aria-label={props.starred ? `${props.label} is starred` : `Star ${props.label}`}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1 rounded-sm px-1 hover:bg-accent",
-              props.starred ? "font-semibold text-warning-foreground" : "text-muted-foreground",
-            )}
-          />
-        }
-      >
-        <StarIcon className={cn("size-3", props.starred && "fill-current")} aria-hidden />
-        {props.label}
-      </MenuTrigger>
-      <MenuPopup align="start">
-        {props.starred ? (
-          <MenuItem onClick={() => props.onStar(null)}>Take the star off</MenuItem>
-        ) : (
-          STAR_FOR.map(([label, days]) => (
-            <MenuItem key={label} onClick={() => props.onStar(days)}>
-              ★ Star {props.label} {label.toLowerCase()}
-            </MenuItem>
-          ))
-        )}
-      </MenuPopup>
-    </Menu>
-  );
-}
 
 function Card(props: {
   readonly card: StoryCard;
@@ -247,10 +205,22 @@ export function StoriesView(props: {
   };
   readonly nowMs: number;
   readonly onPriority: (card: StoryCard, priority: string) => void;
+  /** The Map view's areas and "What to work on", for one app or all. */
+  readonly mapFor: (
+    app: string | null,
+    moves: number,
+  ) => {
+    readonly areas: ReadonlyArray<MapArea>;
+    readonly insights: ReadonlyArray<MapInsight>;
+  };
+  readonly sprintNames: { readonly now: string | null; readonly next: string | null };
+  readonly onOpenItem: (item: DeskItem) => void;
   /** Stars a card's area (or its app) for some days; null takes it off. */
   readonly onStar: (star: Omit<Star, "until" | "updatedAt">, days: number | null) => void;
 }) {
   const [app, setApp] = useLocalStorage("t3-fleet:stories-app", ALL, Schema.String);
+  // Board: every story at its stage. Map: each area this sprint, next sprint and later.
+  const [view, setView] = useLocalStorage("t3-fleet:stories-view", "board", Schema.String);
   const [priority, setPriority] = useLocalStorage("t3-fleet:stories-priority", ALL, Schema.String);
   const [review, setReview] = useState<{
     readonly keys: ReadonlyArray<string>;
@@ -310,6 +280,18 @@ export function StoriesView(props: {
               {choice}
             </Button>
           ))}
+          <span className="inline-flex rounded-md border border-border p-0.5">
+            {(["board", "map"] as const).map((choice) => (
+              <Button
+                key={choice}
+                size="xs"
+                variant={view === choice ? "secondary" : "ghost"}
+                onClick={() => setView(choice)}
+              >
+                {choice === "board" ? "Board" : "Map"}
+              </Button>
+            ))}
+          </span>
           <Button size="sm" disabled={moves.length === 0} onClick={start}>
             Start review · {moves.length}
           </Button>
@@ -390,47 +372,70 @@ export function StoriesView(props: {
           </Button>
         </div>
       ) : null}
-      <div className="shrink-0 overflow-x-auto pb-1">
-        <div className="grid min-w-[72rem] grid-cols-7 gap-2.5">
-          {STAGES.map((stage) => {
-            const column = stories.filter((card) => card.stage === stage.id);
-            return (
-              <section
-                key={stage.id}
-                aria-label={stage.label}
-                className="flex min-w-0 flex-col gap-2"
-              >
-                <div className="flex items-baseline justify-between px-0.5">
-                  <DeskHeading>{stage.label}</DeskHeading>
-                  <span className="text-2xs text-muted-foreground">{column.length}</span>
-                </div>
-                {column.map((card) => (
+      {view === "map" ? (
+        (() => {
+          const map = props.mapFor(app === ALL ? null : app, moves.length);
+          return (
+            <StoryMapView
+              areas={map.areas}
+              insights={map.insights}
+              sprintNames={props.sprintNames}
+              showApp={app === ALL}
+              onOpenItem={props.onOpenItem}
+              onStarArea={(area, days) =>
+                props.onStar(
+                  { app: area.app, feature: area.feature, reason: area.star?.reason ?? "" },
+                  days,
+                )
+              }
+            />
+          );
+        })()
+      ) : (
+        <>
+          <div className="shrink-0 overflow-x-auto pb-1">
+            <div className="grid min-w-[72rem] grid-cols-7 gap-2.5">
+              {STAGES.map((stage) => {
+                const column = stories.filter((card) => card.stage === stage.id);
+                return (
+                  <section
+                    key={stage.id}
+                    aria-label={stage.label}
+                    className="flex min-w-0 flex-col gap-2"
+                  >
+                    <div className="flex items-baseline justify-between px-0.5">
+                      <DeskHeading>{stage.label}</DeskHeading>
+                      <span className="text-2xs text-muted-foreground">{column.length}</span>
+                    </div>
+                    {column.map((card) => (
+                      <Card key={card.key} {...cardProps(card)} />
+                    ))}
+                  </section>
+                );
+              })}
+            </div>
+          </div>
+          {fixes.length > 0 ? (
+            <section
+              aria-label="Quick fixes"
+              className="flex flex-col gap-2 border-t border-border pt-3"
+            >
+              <DeskHeading>Quick fixes · {fixes.length}</DeskHeading>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5">
+                {fixes.map((card) => (
                   <Card key={card.key} {...cardProps(card)} />
                 ))}
-              </section>
-            );
-          })}
-        </div>
-      </div>
-      {fixes.length > 0 ? (
-        <section
-          aria-label="Quick fixes"
-          className="flex flex-col gap-2 border-t border-border pt-3"
-        >
-          <DeskHeading>Quick fixes · {fixes.length}</DeskHeading>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-2.5">
-            {fixes.map((card) => (
-              <Card key={card.key} {...cardProps(card)} />
-            ))}
-          </div>
-        </section>
-      ) : null}
-      {shown.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No stories in play yet. Approve your planners' grouping cards on Now, and their stories
-          show up here.
-        </p>
-      ) : null}
+              </div>
+            </section>
+          ) : null}
+          {shown.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No stories in play yet. Approve your planners' grouping cards on Now, and their
+              stories show up here.
+            </p>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

@@ -109,6 +109,7 @@ import { CatchupSection } from "./DeskToday";
 import { type Entry, NowView } from "./DeskNow";
 import { StoriesView } from "./DeskStories";
 import { buildStoryBoard, recentActivity } from "./storyBoard.logic";
+import { buildStoryMap, nextSprint } from "./storyMap.logic";
 import { changesSince } from "./deskFocus.logic";
 import { ChatLauncher, type DeskProjectChoice } from "./DeskChat";
 import {
@@ -1256,6 +1257,25 @@ export function DeskPage(props: {
               : { ...card, app: repoApp.get(card.item.repo.split("/").pop() ?? "") ?? null },
           )}
           activity={recentActivity(notes.notes, props.chats, nowMs)}
+          sprintNames={{
+            now: sprint?.title ?? null,
+            next: nextSprint(view.sprints ?? [], sprint)?.title ?? null,
+          }}
+          onOpenItem={openItemIn([])}
+          mapFor={(forApp, moves) =>
+            buildStoryMap({
+              items,
+              notes: notes.notes,
+              chats: props.chats,
+              app: forApp,
+              current: sprint,
+              next: nextSprint(view.sprints ?? [], sprint),
+              nowMs,
+              moves,
+              appOfItem: (entry) =>
+                entry.repo ? (repoApp.get(entry.repo.split("/").pop() ?? "") ?? null) : null,
+            })
+          }
           nowMs={nowMs}
           stars={Object.values(notes.notes.stars)
             .filter((star) => Date.parse(star.until) > nowMs)
