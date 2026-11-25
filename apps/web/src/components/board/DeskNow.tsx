@@ -26,6 +26,8 @@ import {
   type PlannerDecision,
   type PlannerTodo,
   pushedUntil,
+  type Star,
+  starOn,
 } from "./deskNotes.logic";
 import { savePlanLineDone } from "./deskNotesStore";
 import {
@@ -101,6 +103,8 @@ export interface Entry {
   readonly fold?: "agents" | "sheets";
   /** The priority (P0–P3) of the item behind the row, when there is one. */
   readonly priority?: string | null;
+  /** The area ("<App> · <feature>") of the item behind the row, for stars. */
+  readonly feature?: string | null;
   /** The kind of chat or work behind the row: planner, story, helper or quick fix. */
   readonly level?: DeskLevel | null;
   readonly onClick: () => void;
@@ -180,11 +184,14 @@ export function NowView(
   const pushedOf = (entry: Entry) =>
     props.notes ? pushedUntil(props.notes, entry.key, props.nowMs) : null;
   const pushed = entries.filter((entry) => entry.mine && pushedOf(entry));
+  const starOf = (entry: Entry) =>
+    props.notes ? starOn(props.notes, entry.app, entry.feature ?? null, props.nowMs) : null;
+  // Starred areas go first whatever the order; within them, the chosen order holds.
   const queue = orderQueue(
     entries.filter((entry) => entry.mine && !pushedOf(entry)),
     order,
     firstApp,
-  );
+  ).toSorted((a, b) => Number(starOf(b) !== null) - Number(starOf(a) !== null));
   const agents = entries.filter((entry) => entry.fold === "agents");
   const older = entries.filter((entry) => entry.fold === "sheets");
   const mineAll = all.filter((entry) => entry.mine);
@@ -254,7 +261,12 @@ export function NowView(
                       <DeskHeading>{group}</DeskHeading>
                     </li>
                   ) : null}
-                  <QueueRow entry={entry} chats={props.chats} onPushBack={props.onPushBack} />
+                  <QueueRow
+                    entry={entry}
+                    chats={props.chats}
+                    onPushBack={props.onPushBack}
+                    star={starOf(entry)}
+                  />
                 </Fragment>
               );
             })}
@@ -506,6 +518,7 @@ function QueueRow(props: {
   readonly entry: Entry;
   readonly chats: ReadonlyArray<CardChatState>;
   readonly onPushBack?: ((entry: Entry, until: Date | null) => void) | undefined;
+  readonly star?: Star | null;
 }) {
   const { entry } = props;
   const sendToChat = useSendToChat();
@@ -565,6 +578,11 @@ function QueueRow(props: {
             <span className="line-clamp-2 text-xs text-muted-foreground">{entry.ask}</span>
           ) : null}
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-muted-foreground">
+            {props.star ? (
+              <span className="font-semibold text-warning-foreground">
+                ★ {props.star.reason || "starred"}
+              </span>
+            ) : null}
             {entry.level ? <LevelMark level={entry.level} short /> : null}
             {entry.app === OTHER ? null : (
               <span className="inline-flex items-center gap-1">
@@ -825,6 +843,7 @@ export function useNowEntries(props: NowInput): {
         title: deskTitle(item),
         meta: deskRef(item) ?? "",
         priority: item.priority,
+        feature: item.feature,
         level: itemLevel(item),
         onClick: () => props.onOpenItem(item),
       };
@@ -966,6 +985,7 @@ export function useNowEntries(props: NowInput): {
           ? {
               key: `pr:${pr.url}`,
               level: itemLevel(pr.item),
+              feature: pr.item?.feature ?? null,
               lane: "merge",
               app: pr.app ?? OTHER,
               badge: "Agents on it",
@@ -981,6 +1001,7 @@ export function useNowEntries(props: NowInput): {
           : {
               key: `pr:${pr.url}`,
               level: itemLevel(pr.item),
+              feature: pr.item?.feature ?? null,
               lane: "merge",
               app: pr.app ?? OTHER,
               badge: stage.label,

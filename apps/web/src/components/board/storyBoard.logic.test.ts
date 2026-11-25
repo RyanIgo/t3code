@@ -7,6 +7,7 @@ import {
   EMPTY_DESK_NOTES,
   type PlannerDecision,
   withFocus,
+  withStar,
 } from "./deskNotes.logic";
 import type { DeskPr } from "./deskPrs.logic";
 import type { SheetSummary } from "./deskSheets";
@@ -87,6 +88,7 @@ const board = (input: {
     decisions: input.decisions ?? [],
     sprint: "Sprint 1",
     appOfSheet: () => "Precon",
+    nowMs: Date.parse(AT),
   });
 
 describe("story board", () => {
@@ -135,5 +137,22 @@ describe("story board", () => {
     expect(cards.find((card) => card.key === "item:i6")?.stage).toBe("mockup");
     expect(cards.find((card) => card.key === "item:i7")?.stage).toBe("wrapup");
     expect(cards.some((card) => card.key === "item:i8")).toBe(false);
+  });
+
+  it("puts a starred area first, then higher priority", () => {
+    const low = item(10, { priority: "P3", feature: "Precon · Leveling" });
+    const high = item(11, { priority: "P0", feature: "Precon · Bids" });
+    const starred = item(12, { priority: "P2", feature: "Precon · Leveling" });
+    const notes = withStar(
+      EMPTY_DESK_NOTES,
+      { app: "Precon", feature: "Precon · Leveling", reason: "Austin levels Thursday" },
+      "2026-11-27T00:00:00Z",
+      AT,
+    );
+    const keys = board({ items: [low, high, starred], notes })
+      .filter((card) => card.stage === "planned")
+      .map((card) => card.key);
+    // Both Leveling stories (starred) come first, P2 before P3; then the unstarred P0.
+    expect(keys).toEqual(["item:i12", "item:i10", "item:i11"]);
   });
 });

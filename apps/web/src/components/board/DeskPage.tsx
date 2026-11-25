@@ -62,6 +62,8 @@ import {
   noteAt,
   type PinPlace,
   PORTFOLIO_DIRECTION,
+  type Star,
+  starKey,
   untitledTodayChats,
 } from "./deskNotes.logic";
 import { DirectionPanel } from "./DeskDirection";
@@ -73,6 +75,7 @@ import {
   useDeskNotes,
   saveNextStep,
   savePushBack,
+  saveStar,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
 import { SprintCockpit } from "./DeskSprintCockpit";
@@ -676,6 +679,33 @@ export function DeskPage(props: {
       props.pinnable.find((entry) => `${entry.environmentId}:${entry.threadId}` === pinned) ?? null
     );
   };
+  // A star: "a user is about to be in this area", so its stories go first for a few days. Its
+  // planner is told so the work is ready in time.
+  const starArea = (star: Omit<Star, "until" | "updatedAt">, days: number | null) => {
+    const wasOn = notes.notes.stars[starKey(star.app, star.feature)];
+    const until = days === null ? null : new Date(Date.now() + days * 86_400_000).toISOString();
+    saveStar(star, until);
+    const area = star.feature ? `the ${star.feature} area` : `all of ${star.app}`;
+    const when = until
+      ? new Date(until).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })
+      : null;
+    const planner = plannerOf(star.app);
+    // A new star or a new end date tells the planner; editing only the reason sends that.
+    if (planner)
+      void sendToChat(
+        planner,
+        until
+          ? wasOn && Date.parse(wasOn.until) > Date.now()
+            ? `★ Focus on ${area} (until ${when}): ${star.reason || "no reason given"}.`
+            : `★ Focus: I starred ${area} until ${when}${star.reason ? `: ${star.reason}` : ""}. Do this area's stories first: get their sheets ready and tell me in a line if anything there can't be ready in time.`
+          : `★ Focus off: ${area} is no longer starred. Back to your usual order.`,
+      );
+    toastManager.add({
+      type: "success",
+      title: until ? `★ ${star.feature ?? star.app} starred until ${when}` : "Star taken off",
+      description: planner ? `${star.app}'s planner was told.` : undefined,
+    });
+  };
   // Push back: "not my priority right now". The row waits until the date; its planner is told so
   // it stops asking and re-plans around it.
   const pushBack = (entry: Entry, until: Date | null) => {
@@ -1213,6 +1243,7 @@ export function DeskPage(props: {
             chats: props.chats,
             decisions: openDecisions(notes.notes),
             sprint: sprint?.title ?? null,
+            nowMs,
             appOfSheet: (sheet) => {
               const chat = props.chats.find((entry) => entry.threadId === sheet.thread?.threadId);
               return (chat ? appOf(chat) : null) ?? "Other";
@@ -1223,6 +1254,13 @@ export function DeskPage(props: {
               ? card
               : { ...card, app: repoApp.get(card.item.repo.split("/").pop() ?? "") ?? null },
           )}
+          stars={Object.values(notes.notes.stars)
+            .filter((star) => Date.parse(star.until) > nowMs)
+            .toSorted((a, b) => a.until.localeCompare(b.until))}
+          onPriority={(card, value) => {
+            if (card.item) void setDeskField(card.item.itemId, "Priority", value);
+          }}
+          onStar={starArea}
           onOpen={(card) => {
             if (card.decision) openDecision(card.decision);
             else if (card.stage === "test" && card.sheet) openExternal(testPageUrl(card.sheet.id));

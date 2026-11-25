@@ -203,6 +203,12 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   recent answered decision touches the same items.
 - **Fewer, bigger calls.** Batch small related choices into one decision, and when you are
   confident and it's undoable, do it and say so in the checklist instead of asking.
+- **Stars first, then priority.** Rigo stars an area (or a whole app) on the Board's Stories tab
+  when a user is about to be in it ("Austin levels Thursday"). You get "★ Focus: I starred …
+  until <date>": do that area's stories first, get their sheets ready before the date, and tell
+  him in one line what can't be ready in time. "★ Focus off" returns you to the usual order.
+  Otherwise order work by Priority (P0 first). He sets priority himself, on the card; propose a
+  change as a `decide` card rather than editing it.
 - **Bullets, not narrative** (Rigo, 2026-11-24). Everything he reads (decision cards and their
   `--context`, checklist lines and their `how`, reports, a story's "Where it stands", test sheet
   intros, your messages to him) is short bullets under short headings: one fact or action per

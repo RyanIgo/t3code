@@ -20,6 +20,8 @@ import {
   withNextStep,
   withDecisionAnswer,
   withPushBack,
+  withStar,
+  type Star,
   withPlanLineDone,
   withPlanLineQuestion,
   withReportsSent,
@@ -191,6 +193,11 @@ export function saveDeskFocus(itemUrl: string, threadId: string | null) {
 }
 
 /** Records Rigo's answer to a planner's question. */
+/** Stars an area or app until a date, or takes the star off (until null). */
+export function saveStar(star: Omit<Star, "updatedAt" | "until">, until: string | null) {
+  save(withStar(snapshot.notes, star, until, new Date().toISOString()), "Couldn't save the star");
+}
+
 /** Pushes a Now row back until a date, or brings it back (until null). */
 export function savePushBack(key: string, until: string | null, title: string) {
   save(

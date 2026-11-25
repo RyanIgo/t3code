@@ -54,6 +54,19 @@ export interface DeskNotes {
   readonly decisions: Readonly<Record<string, PlannerDecision>>;
   /** Now-queue row key → "not my priority right now": the row waits in Pushed back until then. */
   readonly pushed: Readonly<Record<string, PushBack>>;
+  /** Starred areas ("<App> · <feature>") or whole apps: their stories go first until the date. */
+  readonly stars: Readonly<Record<string, Star>>;
+}
+
+/** A temporary focus Rigo put on an area or app ("Austin is leveling Thursday"). */
+export interface Star {
+  readonly app: string;
+  /** The area ("<App> · <feature>"), or null for the whole app. */
+  readonly feature: string | null;
+  readonly reason: string;
+  /** When it ends; one in the past means it's off. */
+  readonly until: string;
+  readonly updatedAt: string;
 }
 
 /** A row Rigo pushed back. An `until` in the past means it's back on his queue. */
@@ -347,6 +360,7 @@ export const EMPTY_DESK_NOTES: DeskNotes = {
   framing: {},
   decisions: {},
   pushed: {},
+  stars: {},
 };
 
 const MAX_NOTE = 20_000;
@@ -450,6 +464,62 @@ function readPushed(value: unknown): Record<string, PushBack> {
   return out;
 }
 
+function readStars(value: unknown): Record<string, Star> {
+  if (typeof value !== "object" || value === null) return {};
+  const out: Record<string, Star> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const record = entry as Partial<Star> | null;
+    if (
+      typeof record?.app === "string" &&
+      typeof record.until === "string" &&
+      typeof record.updatedAt === "string" &&
+      Number.isFinite(Date.parse(record.until))
+    ) {
+      out[key] = {
+        app: record.app,
+        feature: typeof record.feature === "string" ? record.feature : null,
+        reason: typeof record.reason === "string" ? record.reason.slice(0, 300) : "",
+        until: record.until,
+        updatedAt: record.updatedAt,
+      };
+    }
+  }
+  return out;
+}
+
+/** The key a star is stored under: the area, or the app for a whole-app star. */
+export const starKey = (app: string, feature: string | null) => feature ?? app;
+
+/** Stars an area or app until a date, or takes the star off (until null). */
+export function withStar(
+  notes: DeskNotes,
+  star: Omit<Star, "updatedAt" | "until">,
+  until: string | null,
+  at: string,
+): DeskNotes {
+  return {
+    ...notes,
+    stars: {
+      ...notes.stars,
+      [starKey(star.app, star.feature)]: { ...star, until: until ?? at, updatedAt: at },
+    },
+  };
+}
+
+/** The star on an item's area, or on its whole app, while it's on. */
+export function starOn(
+  notes: DeskNotes,
+  app: string | null | undefined,
+  feature: string | null | undefined,
+  nowMs: number,
+): Star | null {
+  const live = (key: string | null | undefined) => {
+    const star = key ? notes.stars[key] : undefined;
+    return star && Date.parse(star.until) > nowMs ? star : null;
+  };
+  return live(feature) ?? live(app);
+}
+
 /** Pushes a Now row back until `until`, or brings it back now (until null). */
 export function withPushBack(
   notes: DeskNotes,
@@ -518,6 +588,7 @@ export function parseDeskNotes(raw: string | null): DeskNotes {
     ),
     decisions: readDecisions(record.decisions),
     pushed: readPushed(record.pushed),
+    stars: readStars(record.stars),
   };
 }
 
@@ -1000,6 +1071,7 @@ export function mergeDeskNotes(local: DeskNotes, remote: DeskNotes): DeskNotes {
     ),
     decisions: mergeNotes(remote.decisions, local.decisions),
     pushed: mergeNotes(remote.pushed, local.pushed),
+    stars: mergeNotes(remote.stars, local.stars),
   };
 }
 

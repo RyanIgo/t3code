@@ -5,7 +5,13 @@
  */
 import type { CardChatState } from "./boardCards.logic";
 import { type DeskItem, deskRef, deskTitle } from "./desk.logic";
-import { focusedThreads, type DeskNotes, type PlannerDecision } from "./deskNotes.logic";
+import {
+  type DeskNotes,
+  focusedThreads,
+  type PlannerDecision,
+  type Star,
+  starOn,
+} from "./deskNotes.logic";
 import type { DeskPr } from "./deskPrs.logic";
 import { type SheetSummary, sheetsTestingPr, sheetTurn, uncheckedRows } from "./deskSheets";
 import { isShipped } from "./wrapUp.logic";
@@ -36,6 +42,12 @@ export interface StoryCard {
   readonly sheet: SheetSummary | null;
   readonly pr: DeskPr | null;
   readonly lead: CardChatState | null;
+  /** P0–P3 from the item, when set. */
+  readonly priority: string | null;
+  /** The area ("<App> · <feature>") the story belongs to. */
+  readonly feature: string | null;
+  /** Rigo's star on its area or app, while it's on: it goes first. */
+  readonly star: Star | null;
 }
 
 const QUICK_FIX_TYPES = new Set(["Bug", "Maintenance"]);
@@ -52,6 +64,7 @@ export function buildStoryBoard(input: {
   /** The current sprint's title: its items are in play even before a chat is on them. */
   readonly sprint: string | null;
   readonly appOfSheet: (sheet: SheetSummary) => string;
+  readonly nowMs: number;
 }): StoryCard[] {
   const cards: StoryCard[] = [];
   for (const decision of input.decisions) {
@@ -74,6 +87,9 @@ export function buildStoryBoard(input: {
       sheet: null,
       pr: null,
       lead: null,
+      priority: null,
+      feature: null,
+      star: starOn(input.notes, decision.app, null, input.nowMs),
     });
   }
   for (const item of input.items) {
@@ -123,6 +139,9 @@ export function buildStoryBoard(input: {
       sheet: openSheet,
       pr: ready ?? fixing ?? prs[0] ?? null,
       lead,
+      priority: item.priority,
+      feature: item.feature,
+      star: starOn(input.notes, item.app, item.feature, input.nowMs),
     };
     const agents = (text: string) => ({ mine: false, verb: "Agents", text });
     const leadState = lead ? (lead.working ? "lead working" : "lead idle") : "no lead yet";
@@ -176,13 +195,35 @@ export function buildStoryBoard(input: {
       });
     }
   }
-  return cards;
+  const stage = new Map(STAGES.map((entry, index) => [entry.id, index]));
+  return cards.toSorted(
+    (a, b) => (stage.get(a.stage) ?? 0) - (stage.get(b.stage) ?? 0) || byFocus(a, b),
+  );
+}
+
+const PRIORITY_RANK: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
+
+/** Starred first, then by priority (P0 first, none last); otherwise as found. */
+function byFocus(
+  a: { readonly star: Star | null; readonly priority: string | null },
+  b: { readonly star: Star | null; readonly priority: string | null },
+): number {
+  return (
+    Number(b.star !== null) - Number(a.star !== null) ||
+    (PRIORITY_RANK[a.priority ?? ""] ?? 4) - (PRIORITY_RANK[b.priority ?? ""] ?? 4)
+  );
 }
 
 /** Rigo's moves on the board, in stage order: what Start review walks through. */
 export function reviewQueue(cards: ReadonlyArray<StoryCard>): StoryCard[] {
   const order = new Map(STAGES.map((stage, index) => [stage.id, index]));
+  // Starred areas first across the whole session, then stage order, then priority.
   return cards
     .filter((card) => card.move.mine)
-    .toSorted((a, b) => (order.get(a.stage) ?? 0) - (order.get(b.stage) ?? 0));
+    .toSorted(
+      (a, b) =>
+        Number(b.star !== null) - Number(a.star !== null) ||
+        (order.get(a.stage) ?? 0) - (order.get(b.stage) ?? 0) ||
+        byFocus(a, b),
+    );
 }

@@ -25,6 +25,8 @@ import {
   nextMonday,
   pushedUntil,
   withPushBack,
+  starOn,
+  withStar,
 } from "./deskNotes.logic";
 
 describe("desk notes", () => {
@@ -497,5 +499,34 @@ describe("push back", () => {
     expect(pushedUntil(read, "pr:x", Date.parse("2026-12-01T00:00:00Z"))).toBeNull();
     const back = withPushBack(read, "pr:x", null, "PR", "2026-11-25T09:00:00.000Z");
     expect(pushedUntil(back, "pr:x", Date.parse("2026-11-25T10:00:00Z"))).toBeNull();
+  });
+});
+
+describe("stars", () => {
+  it("finds a star on the item's area or its whole app, until it ends", () => {
+    const at = "2026-11-24T15:00:00.000Z";
+    const notes = withStar(
+      EMPTY_DESK_NOTES,
+      { app: "Precon", feature: "Precon · Leveling", reason: "Austin levels Thursday" },
+      "2026-11-27T00:00:00.000Z",
+      at,
+    );
+    const now = Date.parse(at);
+    expect(starOn(notes, "Precon", "Precon · Leveling", now)?.reason).toBe(
+      "Austin levels Thursday",
+    );
+    expect(starOn(notes, "Precon", "Precon · Bids", now)).toBeNull();
+    expect(
+      starOn(notes, "Precon", "Precon · Leveling", Date.parse("2026-11-28T00:00:00Z")),
+    ).toBeNull();
+    const whole = withStar(
+      notes,
+      { app: "Precon", feature: null, reason: "" },
+      "2026-11-27T00:00:00.000Z",
+      at,
+    );
+    expect(starOn(whole, "Precon", "Precon · Bids", now)?.feature).toBeNull();
+    const off = withStar(whole, { app: "Precon", feature: null, reason: "" }, null, at);
+    expect(starOn(parseDeskNotes(JSON.stringify(off)), "Precon", "Precon · Bids", now)).toBeNull();
   });
 });
