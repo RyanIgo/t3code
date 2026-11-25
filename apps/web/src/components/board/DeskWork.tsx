@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { useRef, useState } from "react";
 
+import { cn } from "../../lib/utils";
+
 import { Schema } from "effect";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -38,6 +40,7 @@ import { DeskHeading, openExternal, useMachineName } from "./DeskParts";
 import {
   sheetIsIncomplete,
   type SheetSummary,
+  sheetTurn,
   testPageUrl,
   uncheckedRows,
   useSheetDetail,
@@ -396,6 +399,65 @@ export function WorkPanel(props: {
  * Fleet fork: an item's review. The newest sheet that reviews it, with the running app's address,
  * its start command and the way back to the machine (the chat, its terminal), then the checks.
  */
+/**
+ * The top of the Test tab: what's needed from Rigo on this sheet, in bullets, and the one button
+ * that starts it (Rigo, 2026-11-25: testing should show "what is needed from me, not a chat").
+ */
+function YourTestMove(props: {
+  readonly sheet: SheetSummary;
+  readonly host: string | null;
+  readonly testUrl: string;
+  readonly done: boolean;
+}) {
+  const { total, pass, fail, blocked } = props.sheet.counts;
+  const left = uncheckedRows(props.sheet.counts);
+  const turn = sheetTurn(props.sheet);
+  const yours = !props.done && turn === "rigo";
+  const headline = props.done
+    ? "Finished: nothing needed from you."
+    : turn === "agent"
+      ? `Sent back: the lead is fixing ${fail + blocked} ${fail + blocked === 1 ? "check" : "checks"}. Nothing needed from you now.`
+      : turn === "clean"
+        ? `All ${total} checks passed. Next: merge it from Now.`
+        : `Your move: test ${left} of ${total} ${total === 1 ? "check" : "checks"}`;
+  return (
+    <section
+      aria-label="What's needed from you"
+      className={cn(
+        "flex flex-col gap-2 rounded-lg border px-4 py-3",
+        yours ? "border-warning bg-warning/8" : "border-border bg-muted/40",
+      )}
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <b className="text-base">{headline}</b>
+        {yours ? (
+          <Button
+            size="sm"
+            className="ms-auto"
+            render={<a href={props.testUrl} target="_blank" rel="noopener" />}
+          >
+            Start testing: sheet and app side by side
+          </Button>
+        ) : null}
+      </div>
+      {yours ? (
+        <ol className="flex list-decimal flex-col gap-0.5 ps-5 text-sm">
+          <li>
+            Open each check&apos;s link: the app is running
+            {props.host ? ` on ${props.host}` : ""}.
+          </li>
+          <li>Mark it Pass or Fail. On a Fail, say what you saw (a screenshot helps).</li>
+          <li>
+            Press Submit at the bottom of the sheet. The lead fixes what failed, or asks you to
+            merge.
+          </li>
+          {pass > 0 ? <li className="text-muted-foreground">{pass} already passed.</li> : null}
+        </ol>
+      ) : null}
+    </section>
+  );
+}
+
 export function ReviewTab(props: {
   readonly item: DeskItem;
   readonly sheets: ReadonlyArray<SheetSummary>;
@@ -448,6 +510,7 @@ export function ReviewTab(props: {
   const testUrl = testPageUrl(sheet.id);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+      <YourTestMove sheet={sheet} host={app?.machine ?? null} testUrl={testUrl} done={done} />
       <div className="flex flex-wrap items-center gap-1 max-sm:hidden">
         {props.sheets.length > 1
           ? props.sheets.map((entry) => (

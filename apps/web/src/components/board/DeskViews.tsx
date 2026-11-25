@@ -69,6 +69,7 @@ import {
   type SheetSummary,
   sheetsForItem,
   testPageUrl,
+  sheetTurn,
   uncheckedRows,
   useHubSheets,
 } from "./deskSheets";
@@ -403,7 +404,9 @@ function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoi
 type ItemTab = "details" | "chats" | "review";
 
 /** The tab an item opens on: what its column is about. A chat opened directly opens Chats. */
-function firstTab(item: DeskItem | null, fromChat: boolean): ItemTab {
+function firstTab(item: DeskItem | null, fromChat: boolean, yourTest: boolean): ItemTab {
+  // A sheet waiting on Rigo wins, even opened from its chat: testing isn't done in a chat.
+  if (item && yourTest) return "review";
   if (!item || fromChat) return "chats";
   if (item.state === "open" && item.status === "In Review") return "review";
   if (item.state === "open" && item.status === "In Progress") return "chats";
@@ -451,11 +454,16 @@ export function DeskModal(props: {
   const hubSheets = useHubSheets();
   // The window only looks at a chat; Mark reviewed is what clears its "Result ready".
   const acknowledge = useAcknowledgeThreadWoke();
-  const [tab, setTab] = useState<ItemTab>(
-    props.tab ?? firstTab(item, props.chat !== null || props.draft !== null),
-  );
+  const itemSheets = item ? sheetsForItem(hubSheets, item, notes) : [];
+  const yourTest =
+    item?.state === "open" && itemSheets.some((entry) => sheetTurn(entry) === "rigo");
+  // The tab follows the item (sheets load after the window opens) until Rigo picks one.
+  const [picked, setPicked] = useState<ItemTab | null>(null);
+  const tab =
+    picked ?? props.tab ?? firstTab(item, props.chat !== null || props.draft !== null, yourTest);
   // Chats stays mounted once seen, so switching tabs doesn't reload the conversation.
-  const [chatsSeen, setChatsSeen] = useState(tab === "chats");
+  const [chatsOpened, setChatsOpened] = useState(false);
+  const chatsSeen = chatsOpened || tab === "chats";
   const [chosen, setChosen] = useState<CardChatState | null>(props.chat);
   const [showDraft, setShowDraft] = useState(props.draft !== null);
   // On a phone the Chats tab is the conversation; who's on it and the other chats open from ⋯.
@@ -476,7 +484,7 @@ export function DeskModal(props: {
   const next = index !== -1 ? props.sequence[index + 1] : undefined;
   const draft = showDraft ? props.draft : null;
   const title = item ? deskTitle(item) : draft ? "New chat" : chatTitle(shown?.title ?? "Chat");
-  const sheets = item ? sheetsForItem(hubSheets, item, notes) : [];
+  const sheets = itemSheets;
   // The story's lead: the chat on the item now, else its newest own chat.
   const trackerLead =
     (item?.url
@@ -491,8 +499,8 @@ export function DeskModal(props: {
       }
     : null;
   const show = (nextTab: ItemTab) => {
-    setTab(nextTab);
-    if (nextTab === "chats") setChatsSeen(true);
+    setPicked(nextTab);
+    if (nextTab === "chats") setChatsOpened(true);
   };
   const openChatHere = (chat: CardChatState) => {
     setShowDraft(false);
@@ -751,7 +759,7 @@ export function DeskModal(props: {
                   [
                     ["details", "Details", null],
                     ["chats", "Chats", related.length || null],
-                    ["review", "Review", sheets.length || null],
+                    ["review", yourTest ? "Test · your move" : "Test", sheets.length || null],
                   ] as const
                 ).map(([id, label, count]) => (
                   <button
@@ -763,6 +771,7 @@ export function DeskModal(props: {
                       tab === id
                         ? "border-foreground font-medium text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground",
+                      id === "review" && yourTest && "font-semibold text-warning-foreground",
                     )}
                     onClick={() => show(id)}
                   >
