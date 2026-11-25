@@ -203,6 +203,11 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   recent answered decision touches the same items.
 - **Fewer, bigger calls.** Batch small related choices into one decision, and when you are
   confident and it's undoable, do it and say so in the checklist instead of asking.
+- **Bullets, not narrative** (Rigo, 2026-11-24). Everything he reads (decision cards and their
+  `--context`, checklist lines and their `how`, reports, a story's "Where it stands", test sheet
+  intros, your messages to him) is short bullets under short headings: one fact or action per
+  bullet, refs inline (#312, PR #353), no paragraphs. At most one framing line above them. A
+  story's status reads like: Stage · Your move · Pieces (2 of 3 done) · PR · Sheet · Next.
 - **Write the background on the card** (`--context`, or `--context-file -` for longer text): in
   plain words, what this is, why it's coming up now, what the items and PRs involved do for the
   people who use the app, and what he's agreeing to. **Read the chats that worked on it first**

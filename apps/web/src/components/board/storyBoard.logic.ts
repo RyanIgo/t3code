@@ -55,7 +55,9 @@ export function buildStoryBoard(input: {
 }): StoryCard[] {
   const cards: StoryCard[] = [];
   for (const decision of input.decisions) {
-    if (!/^\s*group\b/i.test(decision.question)) continue;
+    // A planner's grouping or story map ("Group …", "… as 6 areas …: approve this map?").
+    if (!/^\s*group\b|\bmap\b|\bstories\b/i.test(decision.question)) continue;
+    const planner = input.chats.find((chat) => chat.threadId === decision.threadId);
     cards.push({
       key: `decision:${decision.id}`,
       stage: "proposed",
@@ -63,7 +65,10 @@ export function buildStoryBoard(input: {
       title: decision.question,
       ref: null,
       kind: "proposal",
-      move: { mine: true, verb: "Decide", text: "Approve, comment or change the grouping" },
+      // While its planner works (often on Rigo's comments), the card isn't his yet.
+      move: planner?.working
+        ? { mine: false, verb: "Agents", text: "Planner is revising this with your comments" }
+        : { mine: true, verb: "Decide", text: "Approve, comment or change the grouping" },
       item: null,
       decision,
       sheet: null,

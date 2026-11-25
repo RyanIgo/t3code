@@ -38,9 +38,11 @@ import {
   chatRoleOf,
   type DeskNotes,
   focusedChat,
+  focusedThreads,
   noteAt,
 } from "./deskNotes.logic";
 import { ChatLevelBand, deskLevel } from "./deskLevels";
+import { StoryTracker } from "./DeskStoryTracker";
 import { saveDeskNote, useDeskNotes } from "./deskNotesStore";
 import {
   DeskHeading,
@@ -63,7 +65,13 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { useAcknowledgeThreadWoke } from "../../hooks/useThreadActions";
 import { useRightPanelStore } from "../../rightPanelStore";
 import { cn } from "../../lib/utils";
-import { sheetsForItem, testPageUrl, uncheckedRows, useHubSheets } from "./deskSheets";
+import {
+  type SheetSummary,
+  sheetsForItem,
+  testPageUrl,
+  uncheckedRows,
+  useHubSheets,
+} from "./deskSheets";
 import { WrapUpPanel } from "./DeskWrapUp";
 import { OnItRow, ReviewTab, WorkPanel } from "./DeskWork";
 
@@ -134,6 +142,13 @@ function ItemDetails(props: {
   readonly item: DeskItem;
   readonly view: DeskView;
   readonly onOpenItem: (item: DeskItem) => void;
+  /** For the bullet tracker at the top: the item's sheets, its lead and helpers, and the lead's next step. */
+  readonly tracker?: {
+    readonly sheets: ReadonlyArray<SheetSummary>;
+    readonly lead: CardChatState | null;
+    readonly helpers: ReadonlyArray<CardChatState>;
+    readonly next: string | null;
+  };
 }) {
   const { item, view } = props;
   const [detail, setDetail] = useState<DeskDetail | null>(null);
@@ -161,6 +176,17 @@ function ItemDetails(props: {
     <div className="flex flex-col gap-4 p-4">
       {item.plain?.what && item.plain.what !== item.title ? (
         <span className="text-xs text-muted-foreground">On GitHub: {item.title}</span>
+      ) : null}
+
+      {props.tracker && item.workType !== "Tracking" ? (
+        <StoryTracker
+          item={item}
+          detail={detail}
+          sheets={props.tracker.sheets}
+          lead={props.tracker.lead}
+          helpers={props.tracker.helpers}
+          next={props.tracker.next}
+        />
       ) : null}
 
       <StorySection item={item} />
@@ -451,6 +477,13 @@ export function DeskModal(props: {
   const draft = showDraft ? props.draft : null;
   const title = item ? deskTitle(item) : draft ? "New chat" : chatTitle(shown?.title ?? "Chat");
   const sheets = item ? sheetsForItem(hubSheets, item, notes) : [];
+  // The story's lead: the chat on the item now, else its newest own chat.
+  const trackerLead =
+    (item?.url
+      ? props.allChats.find((entry) => focusedThreads(notes, item.url).has(entry.threadId))
+      : undefined) ??
+    props.ownChats[0] ??
+    null;
   const sheetSignal = sheets[0]
     ? {
         unchecked: uncheckedRows(sheets[0].counts),
@@ -763,6 +796,16 @@ export function DeskModal(props: {
                       item={item}
                       view={props.view}
                       onOpenItem={props.onOpenItem}
+                      tracker={{
+                        sheets,
+                        lead: trackerLead,
+                        helpers: props.allChats.filter(
+                          (entry) =>
+                            trackerLead !== null &&
+                            notes.work[entry.threadId]?.parent === trackerLead.threadId,
+                        ),
+                        next: trackerLead ? (notes.work[trackerLead.threadId]?.next ?? null) : null,
+                      }}
                     />
                   ) : null}
                 </div>
