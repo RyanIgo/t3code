@@ -12,6 +12,8 @@ import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "rea
 import { openUrlInPreview } from "~/browser/openFileInPreview";
 import { readThreadPreviewState } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { selectThreadTerminalUiState, useTerminalUiStateStore } from "~/terminalUiStateStore";
+import { DEFAULT_THREAD_TERMINAL_HEIGHT } from "~/types";
 import ChatView from "../ChatView";
 import { ChatPeekContext, ChatWorkbenchContext } from "../chat/ChatEmbedContext";
 import { Badge } from "../ui/badge";
@@ -116,6 +118,23 @@ export function TestPage(props: {
     ? scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId)
     : null;
   const openInBrowser = useThreadBrowser(threadRef);
+  const terminal = useTerminalUiStateStore((state) =>
+    selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
+  );
+  const terminalBig = terminal.terminalHeight > DEFAULT_THREAD_TERMINAL_HEIGHT * 1.5;
+  const showTerminal = (open: boolean) => {
+    if (threadRef) useTerminalUiStateStore.getState().setTerminalOpen(threadRef, open);
+  };
+  // Expanded takes most of the page (the drawer caps it at three quarters); shrunk is T3's default.
+  const sizeTerminal = () => {
+    if (!threadRef) return;
+    useTerminalUiStateStore
+      .getState()
+      .setTerminalHeight(
+        threadRef,
+        terminalBig ? DEFAULT_THREAD_TERMINAL_HEIGHT : Math.floor(window.innerHeight * 0.75),
+      );
+  };
   const title = props.sheet?.title ?? "Test sheet";
   const counts = props.sheet?.counts;
   const checked = counts ? counts.pass + counts.fail + counts.skip + counts.blocked : 0;
@@ -222,6 +241,20 @@ export function TestPage(props: {
         <Badge variant="info" size="sm">
           ↻ {counts.retest} to re-test
         </Badge>
+      ) : null}
+      {threadRef && terminal.terminalOpen ? (
+        <>
+          <Button size="xs" variant="outline" onClick={sizeTerminal}>
+            {terminalBig ? "Shrink terminal" : "Expand terminal"}
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => showTerminal(false)}>
+            Hide terminal
+          </Button>
+        </>
+      ) : threadRef ? (
+        <Button size="xs" variant="ghost" onClick={() => showTerminal(true)}>
+          Terminal
+        </Button>
       ) : null}
       {chat ? (
         <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>
