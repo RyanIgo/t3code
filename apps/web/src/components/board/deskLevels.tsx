@@ -181,6 +181,14 @@ export function VerbChip(props: { readonly verb: string; readonly className?: st
  * The band under a chat window's header: its level, what it's for, the story it belongs to (or
  * the lead a helper works for), and Rigo's move here when there is one.
  */
+/** "do X. Agents on it: Y" → his part and the agents' part, shown apart. */
+function splitMove(move: string): { yours: string; agents: string | null } {
+  const match = /^(.*?)[.;]?\s*Agents? (?:on it|are on|working on)[:\s]\s*(.+)$/is.exec(move);
+  return match?.[1] && match[2]
+    ? { yours: match[1].trim(), agents: match[2].trim() }
+    : { yours: move, agents: null };
+}
+
 export function ChatLevelBand(props: {
   readonly level: DeskLevel;
   readonly app: string | null;
@@ -192,6 +200,7 @@ export function ChatLevelBand(props: {
   readonly lead?: { readonly title: string; readonly onOpen: () => void } | null;
 }) {
   const style = LEVELS[props.level];
+  const parts = props.move ? splitMove(props.move) : null;
   return (
     <div
       className={cn(
@@ -209,8 +218,11 @@ export function ChatLevelBand(props: {
       ) : null}
       {props.about ? <span className="min-w-0 truncate font-medium">{props.about}</span> : null}
       <span className="min-w-0 flex-1 basis-64 text-muted-foreground">
-        {props.move ? (
-          <b className="font-semibold text-foreground">Your move: {props.move}</b>
+        {parts ? (
+          <>
+            <b className="font-semibold text-foreground">Your move: {parts.yours}</b>
+            {parts.agents ? <span className="ms-2">· Agents: {parts.agents}</span> : null}
+          </>
         ) : (
           style.purpose
         )}

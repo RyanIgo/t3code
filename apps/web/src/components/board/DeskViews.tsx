@@ -581,7 +581,11 @@ export function DeskModal(props: {
     <ChatLevelBand
       level={bandLevel}
       app={bandItem?.app ?? bandWork?.app ?? null}
-      about={bandLevel === "planner" ? null : bandItem ? deskTitle(bandItem) : null}
+      about={
+        bandLevel === "planner" || !bandItem || bandItem.itemId === item?.itemId
+          ? null
+          : deskTitle(bandItem)
+      }
       move={bandMove}
       lead={
         bandLead ? { title: chatTitle(bandLead.title), onOpen: () => openChatHere(bandLead) } : null
@@ -916,9 +920,26 @@ export function DeskModal(props: {
                       related={related}
                       shown={shown}
                       onShow={openChatHere}
+                      actions={
+                        <>
+                          {shown && !draft ? (
+                            <span className="max-sm:hidden">
+                              <PinMenu
+                                chatKey={chatKeyOf(shown)}
+                                notes={notes}
+                                choices={pinChoices(item, props.view.apps ?? [])}
+                              />
+                            </span>
+                          ) : null}
+                          <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
+                            <PlusIcon />
+                            <span className="max-sm:sr-only">New or linked chat</span>
+                          </Button>
+                        </>
+                      }
                     />
                   ) : null}
-                  {related.length > 1 || props.draft || item ? (
+                  {related.length > 1 || props.draft ? (
                     <div className="flex items-center gap-1 overflow-x-auto">
                       {props.draft ? (
                         <Button
@@ -943,27 +964,11 @@ export function DeskModal(props: {
                           <span className="max-w-56 truncate">{chatTitle(chat.title)}</span>
                         </Button>
                       ))}
-                      <span className="ms-auto flex shrink-0 items-center gap-1">
-                        {shown && !draft ? (
-                          <span className="max-sm:hidden">
-                            <PinMenu
-                              chatKey={chatKeyOf(shown)}
-                              notes={notes}
-                              choices={pinChoices(item, props.view.apps ?? [])}
-                            />
-                          </span>
-                        ) : null}
-                        {item ? (
-                          <Button variant="ghost" size="xs" onClick={() => props.onChat(item)}>
-                            <PlusIcon />
-                            New or linked chat
-                          </Button>
-                        ) : null}
-                      </span>
                     </div>
                   ) : null}
                   {shown && !draft ? (
                     <WorkPanel
+                      hideNext={bandMove !== null}
                       chat={shown}
                       notes={notes}
                       items={props.view.items}

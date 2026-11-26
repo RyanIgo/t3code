@@ -10,7 +10,7 @@ import {
   PlayIcon,
   SquareTerminalIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import { cn } from "../../lib/utils";
 
@@ -97,6 +97,8 @@ export function OnItRow(props: {
   readonly related: ReadonlyArray<CardChatState>;
   readonly shown: CardChatState | null;
   readonly onShow: (chat: CardChatState) => void;
+  /** More buttons for the row's right end (pin, new chat), so the window keeps one row. */
+  readonly actions?: ReactNode;
 }) {
   const nowMs = minuteTickToMs(useNowMinute());
   const focusId = props.item.url ? focusedChat(props.notes, props.item.url) : null;
@@ -182,6 +184,7 @@ export function OnItRow(props: {
             </MenuPopup>
           </Menu>
         ) : null}
+        {props.actions}
       </span>
     </div>
   );
@@ -210,6 +213,8 @@ export function WorkPanel(props: {
   readonly notes: DeskNotes;
   readonly items: ReadonlyArray<DeskItem>;
   readonly sheets: ReadonlyArray<SheetSummary>;
+  /** The band above already shows the chat's next step. */
+  readonly hideNext?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
@@ -232,7 +237,7 @@ export function WorkPanel(props: {
           .join(", ")
       : null,
     sheets[0] ? `sheet ${sheets[0].counts.pass} of ${sheets[0].counts.total} passed` : null,
-    work?.next ? `next: ${work.next}` : null,
+    work?.next && !props.hideNext ? `next: ${work.next}` : null,
   ].filter(Boolean);
   const still: string[] = [
     ...(props.chat.asking ? [`Waits on you: a ${props.chat.asking}.`] : []),
