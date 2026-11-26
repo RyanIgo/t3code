@@ -587,6 +587,15 @@ async function plan(action, rest) {
         .slice(0, 8)
         .map((link) => linkUrl(link, deskItems, '"links"')),
     }));
+  // His lines open their links beside the to-do; claude.ai pages refuse to show inside another page.
+  const claudePages = clean.filter(
+    (line) => line.who === "you" && line.links.some((link) => /claude\.ai\/.*artifact/.test(link)),
+  );
+  if (claudePages.length > 0) {
+    fail(
+      `Rigo's lines link claude.ai pages: ${claudePages.map((line) => `"${line.text}"`).join(", ")}. They can't open beside his to-do. Publish the page on the hub instead (t3-artifacts; a test sheet hands over as next "Rigo: test …"), then link the hub page.`,
+    );
+  }
   const thin = clean.filter((line) => line.who === "you" && !line.done && (!line.why || !line.how));
   if (thin.length > 0) {
     console.log(

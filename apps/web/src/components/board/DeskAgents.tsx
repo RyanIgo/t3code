@@ -980,7 +980,7 @@ export function BigPicture(props: {
  * PR's title and state; a test sheet's name and checks done.
  */
 /** A plain name for a link the Desk doesn't know: "Claude page", "Hub page", or its site. */
-function linkName(url: string): string {
+export function linkName(url: string): string {
   try {
     const parsed = new URL(url);
     if (parsed.hostname === "claude.ai") return "Claude page";

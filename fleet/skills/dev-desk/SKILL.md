@@ -264,7 +264,11 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   - `why`: one sentence on why it matters now and what it unblocks.
   - `how`: numbered steps with the exact screen, menu, command and values. Commands in backticks.
   - `links`: every page, issue, PR or sheet he needs (URLs or repo#n). The Board shows each
-    with where it stands.
+    with where it stands, and the first one is his **Start here** button, so put the page he
+    starts on first. Pages go on the hub (t3-artifacts), never claude.ai: hub pages open beside
+    the to-do, and `plan set` refuses claude.ai links on his lines.
+  - **A test is not a to-do.** Testing a change is a hub test sheet handed over with
+    `next "Rigo: test …"`, which opens on his Test page with the app beside it.
     `plan set` warns about a line of his without `why` or `how`. When he asks for the steps,
     rewrite the line with them and `plan set` again. A question is never a "you" line:
     it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that

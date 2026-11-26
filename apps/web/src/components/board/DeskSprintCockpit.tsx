@@ -35,7 +35,7 @@ import {
   workKind,
   wrapUpLeft,
 } from "./desk.logic";
-import { BigPicture, DecisionCard, LinkedThing, useDecisionActions } from "./DeskAgents";
+import { BigPicture, DecisionCard, LinkedThing, linkName, useDecisionActions } from "./DeskAgents";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   noteAt,
@@ -167,9 +167,26 @@ function TodoDetails(props: {
     props.onQuestion(text.trim());
     setQuestion("");
   };
+  // On the Do page the first link is where he starts: one button, before the reading.
+  const start = props.onOpenLink ? links[0] : undefined;
+  const linkedItem = props.context.item?.url ? links.includes(props.context.item.url) : false;
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-base font-medium">{line.text}</p>
+      {start ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+          <span className="text-xs font-semibold">Start here</span>
+          <Button size="sm" onClick={() => props.onOpenLink?.(start)}>
+            {/\/(pull|issues)\/\d+/.test(start)
+              ? "Open it on GitHub"
+              : `Open the ${linkName(start).replace(/ page$/, "")} page`}{" "}
+            →
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {props.opensLabel?.(start)} · then follow the steps below and press Done.
+          </span>
+        </div>
+      ) : null}
       <section className="flex flex-col gap-1">
         <DeskHeading>Why</DeskHeading>
         {line.why ? (
@@ -207,7 +224,7 @@ function TodoDetails(props: {
           ))}
         </section>
       ) : null}
-      {props.context.item || props.context.pr || props.context.chat ? (
+      {(props.context.item || props.context.pr || props.context.chat) && !linkedItem ? (
         <NeedInfo
           inline
           context={props.context}
