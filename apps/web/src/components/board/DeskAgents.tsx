@@ -519,9 +519,18 @@ export function PlanPane(props: {
     const signals = props.signalsFor(item);
     if ((signals.sheet?.unchecked ?? 0) > 0 && isOpenWork(item))
       return { label: "Test", action: "open" };
+    // Its sheet passed and a PR is still open: merging is the move (on the window's Merge tab).
+    if (
+      signals.sheet &&
+      signals.sheet.unchecked === 0 &&
+      signals.sheet.failed === 0 &&
+      isOpenWork(item) &&
+      item.pullRequests.some((pr) => pr.state === "open" || pr.state === "draft")
+    )
+      return { label: "Merge", action: "open" };
     if (needsWrapUp(item, signals)) return null;
     if (chat?.needsYou) return { label: "Answer", action: "open" };
-    if (chat?.column === "done") return { label: "Read result", action: "open" };
+    if (chat?.column === "done") return { label: "Review", action: "open" };
     if (!chat && isOpenWork(item) && (item.priority === "P0" || item.priority === "P1")) {
       return { label: "Start a chat", action: "start" };
     }
