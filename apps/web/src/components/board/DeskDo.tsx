@@ -13,12 +13,23 @@ import ChatView from "../ChatView";
 import { ChatPeekContext, ChatWorkbenchContext } from "../chat/ChatEmbedContext";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { cn } from "../../lib/utils";
 import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem } from "./desk.logic";
 import type { DeskPr } from "./deskPrs.logic";
 import type { DeskNotes, PlannerTodo } from "./deskNotes.logic";
 import { TodoBody } from "./DeskSprintCockpit";
 import { isDevAddress, useThreadBrowser } from "./DeskTest";
+
+/** A page the hub serves (/a/<id>), shown inside the Do page rather than in a browser. */
+function isHubPage(url: string): boolean {
+  try {
+    const parsed = new URL(url, window.location.href);
+    return parsed.origin === window.location.origin && parsed.pathname.startsWith("/a/");
+  } catch {
+    return false;
+  }
+}
 
 export function DoPage(props: {
   readonly todo: PlannerTodo;
@@ -38,7 +49,21 @@ export function DoPage(props: {
   const threadRef = planner
     ? scopeThreadRef(planner.environmentId as EnvironmentId, planner.threadId as ThreadId)
     : null;
-  const openBeside = useThreadBrowser(threadRef);
+  const openInBrowser = useThreadBrowser(threadRef);
+  // Hub pages (draft text, maps, sheets) show inside this page, in his own browser, so their
+  // Copy buttons reach his clipboard; the chat's browser runs on another machine.
+  const [page, setPage] = useState<string | null>(
+    () => (props.todo.line.links ?? []).find(isHubPage) ?? null,
+  );
+  // Too narrow for a page beside the to-do (the lg breakpoint hides it): a new tab instead.
+  const showPage = (url: string) => {
+    if (window.innerWidth < 1024) window.open(url, "_blank", "noopener,noreferrer");
+    else setPage(url);
+  };
+  const open = (url: string) => {
+    if (isHubPage(url)) showPage(url);
+    else void openInBrowser(url);
+  };
   const terminal = useTerminalUiStateStore((state) =>
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
@@ -73,8 +98,13 @@ export function DoPage(props: {
     </div>
   );
 
-  const body: ReactNode = (
-    <div className="min-h-0 flex-1 overflow-y-auto scrollbar-gutter-both">
+  const brief: ReactNode = (
+    <div
+      className={cn(
+        "min-h-0 overflow-y-auto scrollbar-gutter-both",
+        page ? "w-[min(36rem,45%)] shrink-0 max-lg:w-full" : "flex-1",
+      )}
+    >
       <div className="mx-auto flex max-w-2xl flex-col gap-3 p-4">
         <TodoBody
           todo={props.todo}
@@ -89,12 +119,57 @@ export function DoPage(props: {
           onOpenItem={props.onOpenItem}
           onClose={props.onBack}
           threadRef={threadRef ?? undefined}
-          onOpenLink={(url) => void openBeside(url)}
+          onOpenLink={open}
           opensLabel={(url) =>
-            threadRef && isDevAddress(url) ? "Opens beside" : "Opens in your browser ↗"
+            isHubPage(url)
+              ? url === page
+                ? "Showing beside"
+                : "Opens beside"
+              : threadRef && isDevAddress(url)
+                ? "Opens in the browser panel"
+                : "Opens in your browser ↗"
           }
         />
       </div>
+    </div>
+  );
+  const body: ReactNode = (
+    <div
+      className="flex min-h-0 flex-1"
+      // Links in the steps and answers: hub pages show beside, not in the chat's browser.
+      onClickCapture={(event) => {
+        const anchor = (event.target as HTMLElement).closest("a");
+        if (!anchor?.href || !isHubPage(anchor.href)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showPage(anchor.href);
+      }}
+    >
+      {brief}
+      {page ? (
+        <section
+          aria-label="Page beside the to-do"
+          className="flex min-h-0 min-w-0 flex-1 flex-col border-s border-border max-lg:hidden"
+        >
+          <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1 text-xs">
+            <span className="min-w-0 flex-1 truncate text-muted-foreground">{page}</span>
+            <a href={page} target="_blank" rel="noopener" className="hover:underline">
+              New tab ↗
+            </a>
+            <Button size="xs" variant="ghost" onClick={() => setPage(null)}>
+              Close
+            </Button>
+          </div>
+          {/* oxlint-disable-next-line react/iframe-missing-sandbox -- the hub sandboxes /a/ pages itself */}
+          <iframe
+            key={page}
+            title="Page beside the to-do"
+            src={page}
+            allow="clipboard-write"
+            className="min-h-0 w-full flex-1 border-0 bg-background"
+          />
+        </section>
+      ) : null}
     </div>
   );
 
