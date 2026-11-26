@@ -41,7 +41,6 @@ import { DeskNoteField } from "./DeskNoteField";
 import { toastManager } from "../ui/toast";
 import { cn } from "../../lib/utils";
 import { useState } from "react";
-import { MachinesCard } from "./DeskMachines";
 import { DeskHeading, TypeTag } from "./DeskParts";
 import { VerbChip } from "./deskLevels";
 import { moveFocus } from "./DeskWork";
@@ -238,7 +237,6 @@ export function AgentsView(props: {
             : ""}
         </span>
       </header>
-      <MachinesCard nowMs={nowMs} chats={props.chats} />
       {apps.length === 0 ? (
         <p className="text-sm text-muted-foreground">No open chats or sprint work here.</p>
       ) : null}

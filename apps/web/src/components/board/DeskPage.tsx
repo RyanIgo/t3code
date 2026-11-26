@@ -98,6 +98,7 @@ import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
 import { SidebarWork } from "./SidebarWork";
 import { AgentsView, DecisionPanel, PlanPane } from "./DeskAgents";
+import { MachinesCard } from "./DeskMachines";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
@@ -128,7 +129,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "now" | "stories" | "agents" | "sprint" | "backlog" | "apps";
+export type DeskTab = "now" | "stories" | "agents" | "machines" | "sprint" | "backlog" | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -448,7 +449,9 @@ export function DeskPage(props: {
           context={() =>
             [
               `the Board's ${mode.charAt(0).toUpperCase()}${mode.slice(1)} tab`,
-              app && mode !== "now" && mode !== "agents" ? `app ${app}` : null,
+              app && mode !== "now" && mode !== "agents" && mode !== "machines"
+                ? `app ${app}`
+                : null,
               typeof window === "undefined" ? null : window.location.hash || null,
             ]
               .filter(Boolean)
@@ -1182,6 +1185,7 @@ export function DeskPage(props: {
                 {(
                   [
                     ["agents", "Agents"],
+                    ["machines", "Machines"],
                     ["backlog", "Backlog"],
                     ["apps", "Apps"],
                   ] as const
@@ -1219,7 +1223,7 @@ export function DeskPage(props: {
   return frame(
     <>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 pt-3">
-        <div className={mode === "now" ? "hidden" : "w-64 max-w-full"}>
+        <div className={mode === "now" || mode === "machines" ? "hidden" : "w-64 max-w-full"}>
           <Select
             value={app ?? ALL}
             onValueChange={(value) => {
@@ -1366,6 +1370,10 @@ export function DeskPage(props: {
             else if (card.item) openItemIn([])(card.item);
           }}
         />
+      ) : mode === "machines" ? (
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-3 pb-6">
+          <MachinesCard nowMs={nowMs} chats={props.chats} />
+        </div>
       ) : mode === "agents" ? (
         <AgentsView
           chats={props.chats}

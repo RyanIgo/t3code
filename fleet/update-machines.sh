@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ask every fleet machine to pull the latest and refresh its agent skills (no T3 restart), then
-# show where each one stands. The same as "Update all machines" on the Board's Agents tab.
+# show where each one stands. The same as "Update all machines" on the Board's Machines tab.
 #
 #   fleet/update-machines.sh          ask, then list the machines
 #   fleet/update-machines.sh status   only list them
