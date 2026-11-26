@@ -799,6 +799,8 @@ export function ReviewAppCard(props: {
   readonly onAsk: (text: string) => void;
 }) {
   const { app, chat } = props;
+  // A live site, not a dev copy: the sheet says so in place of a start command.
+  const production = /^production\b/i.test(app.start?.trim() ?? "");
   // Folded by default: the start command and chat tools are for when the app is down.
   const [open, setOpen] = useLocalStorage("t3-fleet:app-card-open", false, Schema.Boolean);
   const host = (() => {
@@ -848,13 +850,19 @@ export function ReviewAppCard(props: {
       </summary>
       <div className="flex flex-col gap-2 pt-2 pb-1.5">
         <p className="min-w-0 truncate text-xs text-muted-foreground">{app.url}</p>
-        {app.machine || app.start ? (
+        {production ? (
+          <p className="text-xs">
+            Production: its links open in your own browser, where your passkey sign-in works.
+            Nothing to start.
+          </p>
+        ) : null}
+        {!production && (app.machine || app.start) ? (
           <p className="text-xs text-muted-foreground">
             {app.machine ? `On ${app.machine}. ` : ""}
             {app.start && !props.done ? "If it's down, start it with:" : ""}
           </p>
         ) : null}
-        {app.start && !props.done ? (
+        {app.start && !props.done && !production ? (
           <div className="flex min-w-0 items-center gap-2">
             <code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-border bg-background px-2 py-1 text-xs whitespace-nowrap">
               {app.start}
@@ -874,7 +882,7 @@ export function ReviewAppCard(props: {
             </Button>
           </div>
         ) : null}
-        {chat && !props.done ? (
+        {chat && !props.done && !production ? (
           <div className="flex flex-wrap gap-2">
             <Button size="xs" variant="outline" onClick={() => props.onOpenChat(chat)}>
               <MessageSquareIcon />
