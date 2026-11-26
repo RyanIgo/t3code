@@ -39,6 +39,7 @@ import {
   type DeskNotes,
   type InboxNote,
   type PlanLine,
+  type PlannerTodo,
   waitingReports,
 } from "./deskNotes.logic";
 import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
@@ -1825,5 +1826,88 @@ function PlannerPane(props: {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * A planner's to-do for Rigo in a side panel: why, the steps, the links, Done, and questions the
+ * planner answers on the line. The Now tab's Do rows open here, not in the planner's chat.
+ */
+export function TodoPanel(props: {
+  readonly todo: PlannerTodo | null;
+  readonly planner: CardChatState | null;
+  readonly items: ReadonlyArray<DeskItem>;
+  readonly prs: ReadonlyArray<DeskPr>;
+  readonly notes: DeskNotes;
+  readonly nowMs: number;
+  readonly chatsFor: (item: DeskItem) => ReadonlyArray<CardChatState>;
+  readonly onOpenChat: (chat: CardChatState) => void;
+  readonly onOpenPr: (pr: DeskPr) => void;
+  readonly onOpenItem: (item: DeskItem) => void;
+  readonly onClose: () => void;
+}) {
+  const sheets = useHubSheets();
+  const sendToChat = useSendToChat();
+  const { todo, planner } = props;
+  const line = todo?.line ?? null;
+  const item = line?.itemUrl
+    ? (props.items.find((entry) => entry.url === line.itemUrl) ?? null)
+    : null;
+  const pr =
+    props.prs.find((entry) => entry.url === line?.itemUrl) ??
+    (item
+      ? (props.prs.find(
+          (entry) =>
+            entry.item?.itemId === item.itemId ||
+            item.pullRequests.some((link) => link.url === entry.url),
+        ) ?? null)
+      : null);
+  const done = () => {
+    if (!todo) return;
+    savePlanLineDone(todo.threadId, todo.line.text);
+    if (planner) void sendToChat(planner, `Done: ${todo.line.text}`);
+    toastManager.add({ type: "success", title: "Ticked, planner told" });
+    props.onClose();
+  };
+  const question = (text: string) => {
+    if (!todo || !planner) return;
+    savePlanLineQuestion(todo.threadId, todo.line.text, text);
+    void sendToChat(
+      planner,
+      `Rigo asks about your line "${todo.line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${todo.line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.${text.includes("](http") ? " His question has screenshots: download each link (curl -o) and look at it before answering." : ""}`,
+    );
+    toastManager.add({
+      type: "info",
+      title: "Asked the planner",
+      description: "Its answer shows in this to-do when it's in.",
+    });
+  };
+  return (
+    <Sheet open={line !== null} onOpenChange={(open) => !open && props.onClose()}>
+      <SheetPopup side="right" className="w-[min(94vw,40rem)] max-w-[40rem]">
+        {line ? (
+          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-4">
+            <DeskHeading>Your to-do{todo?.app ? ` · ${todo.app}` : ""}</DeskHeading>
+            <TodoDetails
+              key={line.text}
+              line={line}
+              context={{ why: "", item, pr, chat: item ? (props.chatsFor(item)[0] ?? null) : null }}
+              items={props.items}
+              notes={props.notes}
+              sheets={sheets}
+              nowMs={props.nowMs}
+              relatedChatsFor={props.chatsFor}
+              onOpenChat={props.onOpenChat}
+              onOpenPr={props.onOpenPr}
+              onOpenItem={props.onOpenItem}
+              onDone={done}
+              onQuestion={question}
+              plannerState={planner ? chatStatus(planner).label : null}
+              focusQuestion={false}
+            />
+          </div>
+        ) : null}
+      </SheetPopup>
+    </Sheet>
   );
 }

@@ -58,6 +58,7 @@ import {
   openDecisions,
   plannerTodos,
   type PlannerDecision,
+  type PlannerTodo,
   type DeskNotes,
   noteAt,
   type PinPlace,
@@ -79,7 +80,7 @@ import {
   saveStar,
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
-import { SprintCockpit } from "./DeskSprintCockpit";
+import { SprintCockpit, TodoPanel } from "./DeskSprintCockpit";
 import { TestPage } from "./DeskTest";
 import { useDeliverReports } from "./deskReports";
 import {
@@ -418,13 +419,13 @@ export function DeskPage(props: {
     setModal({ itemId: owner?.itemId ?? null, chat, sequence: [] });
   };
   // A planner's question opens its planning session, where it can be answered in context.
-  const openPlanner = (threadId: string) => {
-    const chat = props.pinnable.find((entry) => entry.threadId === threadId);
-    if (chat) setModal({ itemId: null, chat, sequence: [] });
-  };
   // A decision opens as its card in a side panel; the chat that asked is one click from there.
   const [decisionShown, setDecisionShown] = useState<string | null>(null);
   const openDecision = (decision: PlannerDecision) => setDecisionShown(decision.id);
+  // A planner's to-do opens as its steps in a side panel, found again by its planner and text.
+  const [todoShown, setTodoShown] = useState<{ threadId: string; text: string } | null>(null);
+  const openTodo = (todo: PlannerTodo) =>
+    setTodoShown({ threadId: todo.threadId, text: todo.line.text });
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
     setModal({ itemId: entry.itemId, chat: null, sequence });
 
@@ -1024,6 +1025,47 @@ export function DeskPage(props: {
           />
         );
       })()}
+      {(() => {
+        const todo = todoShown
+          ? (plannerTodos(notes.notes).find(
+              (entry) =>
+                entry.threadId === todoShown.threadId && entry.line.text === todoShown.text,
+            ) ?? null)
+          : null;
+        return (
+          <TodoPanel
+            todo={todo}
+            planner={
+              todo
+                ? (props.pinnable.find((entry) => entry.threadId === todo.threadId) ?? null)
+                : null
+            }
+            items={items}
+            prs={prs}
+            notes={notes.notes}
+            nowMs={nowMs}
+            chatsFor={(entry) =>
+              chatsForItem(entry, props.pinnable, linksByChat, {
+                focused: focusedThreads(notes.notes, entry.url),
+                repoOf: chatRepo,
+              })
+            }
+            onOpenChat={(chat) => {
+              setTodoShown(null);
+              setModal({ itemId: null, chat, sequence: [] });
+            }}
+            onOpenPr={(pr) => {
+              setTodoShown(null);
+              openPr(pr);
+            }}
+            onOpenItem={(entry) => {
+              setTodoShown(null);
+              openItemIn([])(entry);
+            }}
+            onClose={() => setTodoShown(null)}
+          />
+        );
+      })()}
       {launcher ? (
         <ChatLauncher
           context={launcher}
@@ -1121,7 +1163,7 @@ export function DeskPage(props: {
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
           todos={plannerTodos(notes.notes)}
-          onOpenTodo={(todo) => openPlanner(todo.threadId)}
+          onOpenTodo={openTodo}
           // Always the sheet that was pressed: an item's Review tab shows its newest sheet, so
           // several sheets on one story all opened the same screen.
           onOpenSheet={(sheet) => setTestSheet(sheet.id)}
@@ -1264,7 +1306,7 @@ export function DeskPage(props: {
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
           todos={plannerTodos(notes.notes)}
-          onOpenTodo={(todo) => openPlanner(todo.threadId)}
+          onOpenTodo={openTodo}
           onOpenSheet={(sheet) => openExternal(testPageUrl(sheet.id))}
         />
       ) : mode === "stories" ? (

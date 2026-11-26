@@ -643,7 +643,11 @@ function QueueRow(props: {
           variant={decide && entry.todo ? "ghost" : "default"}
           onClick={entry.onClick}
         >
-          {entry.badge === "Sheet done" || (decide && entry.todo) ? "Open" : entry.badge}
+          {entry.badge === "Sheet done" || (decide && entry.todo)
+            ? "Open"
+            : entry.todo
+              ? "Steps →"
+              : entry.badge}
         </Button>
       </span>
     </li>
