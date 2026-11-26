@@ -651,7 +651,7 @@ function QueueRow(props: {
           {entry.badge === "Sheet done" || (decide && entry.todo)
             ? "Open"
             : entry.todo
-              ? "Steps →"
+              ? "Do it →"
               : entry.badge}
         </Button>
       </span>

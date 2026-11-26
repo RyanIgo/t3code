@@ -979,6 +979,18 @@ export function BigPicture(props: {
  * What a decision's link is, in plain words: an item's type, plain title and where it stands; a
  * PR's title and state; a test sheet's name and checks done.
  */
+/** A plain name for a link the Desk doesn't know: "Claude page", "Hub page", or its site. */
+function linkName(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "claude.ai") return "Claude page";
+    if (parsed.pathname.startsWith("/a/")) return "Hub page";
+    return parsed.hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
 export function LinkedThing(props: {
   readonly url: string;
   readonly items: ReadonlyArray<DeskItem>;
@@ -988,6 +1000,10 @@ export function LinkedThing(props: {
   readonly notes: DeskNotes;
   readonly nowMs: number;
   readonly onOpenChat: (chat: CardChatState) => void;
+  /** Opens the link in the page's own way (beside it, on the Do page) instead of a new tab. */
+  readonly onOpen?: ((url: string) => void) | undefined;
+  /** What a click does, shown on the card ("Opens beside", "Opens in your browser ↗"). */
+  readonly opens?: string | undefined;
 }) {
   const item = props.items.find((entry) => entry.url === props.url);
   const sheetId = props.url.match(/\/a\/([a-z0-9]{12})/)?.[1];
@@ -1019,8 +1035,8 @@ export function LinkedThing(props: {
     detail = `${pass + fail + skip + blocked} of ${total} checked${fail ? `, ${fail} failed` : ""}`;
   } else {
     const pull = props.url.match(/github\.com\/[^/]+\/([^/]+)\/(pull|issues)\/(\d+)/);
-    title = pull ? `${pull[1]} ${pull[2] === "pull" ? "PR " : ""}#${pull[3]}` : props.url;
-    detail = "Not on the Desk; open it to see more.";
+    title = pull ? `${pull[1]} ${pull[2] === "pull" ? "PR " : ""}#${pull[3]}` : linkName(props.url);
+    detail = pull ? null : props.url.replace(/^https?:\/\//, "").slice(0, 80);
   }
   const ref = item ? deskRef(item) : null;
   const chats = item ? props.chatsFor(item) : [];
@@ -1030,11 +1046,19 @@ export function LinkedThing(props: {
         href={props.url}
         target="_blank"
         rel="noopener"
+        onClick={(event) => {
+          if (!props.onOpen) return;
+          event.preventDefault();
+          props.onOpen(props.url);
+        }}
         className="flex min-w-0 flex-col gap-0.5 rounded-md px-2 py-1.5 hover:bg-accent"
       >
         <span className="flex min-w-0 items-center gap-1.5">
           {kind}
           <span className="min-w-0 flex-1 font-medium text-foreground">{title}</span>
+          {props.opens ? (
+            <span className="shrink-0 text-2xs text-muted-foreground">{props.opens}</span>
+          ) : null}
           {state ? (
             <span
               className={cn(

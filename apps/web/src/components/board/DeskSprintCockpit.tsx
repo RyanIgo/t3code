@@ -2,7 +2,7 @@
  * Fleet fork: the Sprint page for one app, its home. The planner chat beside what needs Rigo and
  * the work's progress by feature, under the goal and a schedule that folds to one line.
  */
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
 import { ImagePlusIcon } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -128,6 +128,11 @@ function TodoDetails(props: {
   readonly onOpenHelper?: (() => void) | undefined;
   /** Opened from the row's Ask: start in the question box. */
   readonly focusQuestion: boolean;
+  /** On the Do page: the chat whose browser panel the steps' links open in. */
+  readonly threadRef?: ScopedThreadRef | undefined;
+  /** On the Do page: opens a link beside the to-do, or in his browser for sign-in sites. */
+  readonly onOpenLink?: ((url: string) => void) | undefined;
+  readonly opensLabel?: ((url: string) => string) | undefined;
 }) {
   const { line } = props;
   const [question, setQuestion] = useState("");
@@ -177,7 +182,7 @@ function TodoDetails(props: {
         <DeskHeading>How</DeskHeading>
         {line.how ? (
           <div className="rounded-md bg-muted/50 px-3 py-2">
-            <ChatMarkdown text={line.how} cwd={undefined} />
+            <ChatMarkdown text={line.how} cwd={undefined} threadRef={props.threadRef} />
           </div>
         ) : (
           <p className="text-muted-foreground">No steps yet.</p>
@@ -196,6 +201,8 @@ function TodoDetails(props: {
               notes={props.notes}
               nowMs={props.nowMs}
               onOpenChat={props.onOpenChat}
+              onOpen={props.onOpenLink}
+              opens={props.opensLabel?.(url)}
             />
           ))}
         </section>
@@ -224,7 +231,7 @@ function TodoDetails(props: {
                 {entry.a ? (
                   <div className="rounded-xl border border-border px-3 py-1.5">
                     <span className="text-2xs font-semibold text-muted-foreground">Agent</span>
-                    <ChatMarkdown text={entry.a} cwd={undefined} />
+                    <ChatMarkdown text={entry.a} cwd={undefined} threadRef={props.threadRef} />
                   </div>
                 ) : (
                   <span className="text-xs text-muted-foreground">
@@ -1856,11 +1863,7 @@ function askHelper(
   );
 }
 
-/**
- * A planner's to-do for Rigo in a side panel: why, the steps, the links, Done, and questions the
- * planner answers on the line. The Now tab's Do rows open here, not in the planner's chat.
- */
-export function TodoPanel(props: {
+interface TodoViewProps {
   readonly todo: PlannerTodo | null;
   readonly planner: CardChatState | null;
   readonly items: ReadonlyArray<DeskItem>;
@@ -1872,7 +1875,19 @@ export function TodoPanel(props: {
   readonly onOpenPr: (pr: DeskPr) => void;
   readonly onOpenItem: (item: DeskItem) => void;
   readonly onClose: () => void;
-}) {
+}
+
+/**
+ * A planner's to-do: why, the steps, the links, Done, and questions its agent answers on the
+ * line. The Do page shows it beside the browser; on a phone it's a side panel.
+ */
+export function TodoBody(
+  props: TodoViewProps & {
+    readonly threadRef?: ScopedThreadRef | undefined;
+    readonly onOpenLink?: ((url: string) => void) | undefined;
+    readonly opensLabel?: ((url: string) => string) | undefined;
+  },
+) {
   const sheets = useHubSheets();
   const sendToChat = useSendToChat();
   const helper = useTodoHelper();
@@ -1896,8 +1911,8 @@ export function TodoPanel(props: {
             item.pullRequests.some((link) => link.url === entry.url),
         ) ?? null)
       : null);
+  if (!todo || !line) return null;
   const done = () => {
-    if (!todo) return;
     savePlanLineDone(todo.threadId, todo.line.text);
     if (planner) {
       void sendToChat(planner, `Done: ${todo.line.text}`);
@@ -1907,51 +1922,58 @@ export function TodoPanel(props: {
     props.onClose();
   };
   const question = (text: string) => {
-    if (todo && planner) askHelper(helper, planner, todo.line, text);
+    if (planner) askHelper(helper, planner, todo.line, text);
   };
+  return (
+    <TodoDetails
+      key={line.text}
+      line={line}
+      context={{ why: "", item, pr, chat: item ? (props.chatsFor(item)[0] ?? null) : null }}
+      items={props.items}
+      notes={props.notes}
+      sheets={sheets}
+      nowMs={props.nowMs}
+      relatedChatsFor={props.chatsFor}
+      onOpenChat={props.onOpenChat}
+      onOpenPr={props.onOpenPr}
+      onOpenItem={props.onOpenItem}
+      onDone={done}
+      onQuestion={question}
+      plannerState={
+        helperShell ? (threadRuntimeIsActive(helperShell.runtime) ? "Working" : "Idle") : null
+      }
+      onOpenHelper={
+        helperRef
+          ? () => {
+              props.onClose();
+              void navigate({
+                to: "/$environmentId/$threadId",
+                params: {
+                  environmentId: helperRef.environmentId,
+                  threadId: helperRef.threadId,
+                },
+              });
+            }
+          : undefined
+      }
+      focusQuestion={false}
+      threadRef={props.threadRef}
+      onOpenLink={props.onOpenLink}
+      opensLabel={props.opensLabel}
+    />
+  );
+}
+
+/** On a phone: the to-do in a side panel (the Do page needs a wide screen for its browser). */
+export function TodoPanel(props: TodoViewProps) {
+  const line = props.todo?.line ?? null;
   return (
     <Sheet open={line !== null} onOpenChange={(open) => !open && props.onClose()}>
       <SheetPopup side="right" className="w-[min(94vw,40rem)] max-w-[40rem]">
         {line ? (
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto p-4">
-            <DeskHeading>Your to-do{todo?.app ? ` · ${todo.app}` : ""}</DeskHeading>
-            <TodoDetails
-              key={line.text}
-              line={line}
-              context={{ why: "", item, pr, chat: item ? (props.chatsFor(item)[0] ?? null) : null }}
-              items={props.items}
-              notes={props.notes}
-              sheets={sheets}
-              nowMs={props.nowMs}
-              relatedChatsFor={props.chatsFor}
-              onOpenChat={props.onOpenChat}
-              onOpenPr={props.onOpenPr}
-              onOpenItem={props.onOpenItem}
-              onDone={done}
-              onQuestion={question}
-              plannerState={
-                helperShell
-                  ? threadRuntimeIsActive(helperShell.runtime)
-                    ? "Working"
-                    : "Idle"
-                  : null
-              }
-              onOpenHelper={
-                helperRef
-                  ? () => {
-                      props.onClose();
-                      void navigate({
-                        to: "/$environmentId/$threadId",
-                        params: {
-                          environmentId: helperRef.environmentId,
-                          threadId: helperRef.threadId,
-                        },
-                      });
-                    }
-                  : undefined
-              }
-              focusQuestion={false}
-            />
+            <DeskHeading>Your to-do{props.todo?.app ? ` · ${props.todo.app}` : ""}</DeskHeading>
+            <TodoBody {...props} />
           </div>
         ) : null}
       </SheetPopup>

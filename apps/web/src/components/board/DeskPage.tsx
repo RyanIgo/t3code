@@ -81,6 +81,7 @@ import {
 } from "./deskNotesStore";
 import { PinnedStrip } from "./DeskPins";
 import { SprintCockpit, TodoPanel } from "./DeskSprintCockpit";
+import { DoPage } from "./DeskDo";
 import { TestPage } from "./DeskTest";
 import { useDeliverReports } from "./deskReports";
 import {
@@ -425,8 +426,10 @@ export function DeskPage(props: {
   const openDecision = (decision: PlannerDecision) => setDecisionShown(decision.id);
   // A planner's to-do opens as its steps in a side panel, found again by its planner and text.
   const [todoShown, setTodoShown] = useState<{ threadId: string; text: string } | null>(null);
+  // On a wide screen a to-do opens as the Do page (its links beside it, like testing).
+  const [doTodo, setDoTodo] = useState<{ threadId: string; text: string } | null>(null);
   const openTodo = (todo: PlannerTodo) =>
-    setTodoShown({ threadId: todo.threadId, text: todo.line.text });
+    (phone ? setTodoShown : setDoTodo)({ threadId: todo.threadId, text: todo.line.text });
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>
     setModal({ itemId: entry.itemId, chat: null, sequence });
 
@@ -1096,6 +1099,44 @@ export function DeskPage(props: {
     </>
   );
 
+  const doing = doTodo
+    ? (plannerTodos(notes.notes).find(
+        (entry) => entry.threadId === doTodo.threadId && entry.line.text === doTodo.text,
+      ) ?? null)
+    : null;
+  if (doing && !testSheet) {
+    return (
+      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none">
+        <DoPage
+          todo={doing}
+          planner={props.pinnable.find((entry) => entry.threadId === doing.threadId) ?? null}
+          items={items}
+          prs={prs}
+          notes={notes.notes}
+          nowMs={nowMs}
+          chatsFor={(entry) =>
+            chatsForItem(entry, props.pinnable, linksByChat, {
+              focused: focusedThreads(notes.notes, entry.url),
+              repoOf: chatRepo,
+            })
+          }
+          onOpenChat={(chat) => {
+            setDoTodo(null);
+            setModal({ itemId: null, chat, sequence: [] });
+          }}
+          onOpenPr={(pr) => {
+            setDoTodo(null);
+            openPr(pr);
+          }}
+          onOpenItem={(entry) => {
+            setDoTodo(null);
+            openItemIn([])(entry);
+          }}
+          onBack={() => setDoTodo(null)}
+        />
+      </SidebarInset>
+    );
+  }
   if (testSheet) {
     const shownSheet = hubSheets.find((entry) => entry.id === testSheet) ?? null;
     const sheetItem = shownSheet ? itemForSheet(shownSheet, items, notes.notes) : null;

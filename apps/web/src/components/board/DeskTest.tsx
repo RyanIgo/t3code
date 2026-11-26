@@ -45,7 +45,7 @@ function sessionUrl(snapshot: { readonly navStatus: { readonly _tag: string } })
  * chat's browser runs headless on the chat's machine, where a passkey sign-in can't reach Rigo's
  * phone or Windows Hello, so those open in his own browser instead.
  */
-function isDevAddress(url: string): boolean {
+export function isDevAddress(url: string): boolean {
   try {
     const host = new URL(url).hostname;
     return (
@@ -59,7 +59,7 @@ function isDevAddress(url: string): boolean {
 }
 
 /** Opens a URL in the chat's integrated browser (its tab for that URL if it has one). */
-function useThreadBrowser(threadRef: ScopedThreadRef | null) {
+export function useThreadBrowser(threadRef: ScopedThreadRef | null) {
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   return async (url: string) => {
     if (!threadRef || !isDevAddress(url)) {
