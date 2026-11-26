@@ -411,6 +411,7 @@ function YourTestMove(props: {
   /** Goes straight to the Test page in this window. */
   readonly onStart?: (() => void) | undefined;
   readonly item: DeskItem;
+  readonly openPrs: ReadonlyArray<{ readonly number: number; readonly url: string }>;
   /** The work chat that merges it when Rigo says so. */
   readonly lead: CardChatState | null;
   /** Other sheets on this story still waiting on Rigo. */
@@ -418,9 +419,7 @@ function YourTestMove(props: {
 }) {
   const sendToChat = useSendToChat();
   const [merging, setMerging] = useState<"sent" | "failed" | null>(null);
-  const openPrs = props.item.pullRequests.filter(
-    (pr) => pr.state === "open" || pr.state === "draft",
-  );
+  const { openPrs } = props;
   const prNames = openPrs.map((pr) => `#${pr.number}`).join(", ");
   const merge = async () => {
     if (!props.lead) return;
@@ -515,28 +514,33 @@ function TestBrief(props: {
   readonly sheet: SheetSummary;
   readonly detail: ReturnType<typeof useSheetDetail>;
   readonly host: string | null;
+  readonly openPrs: ReadonlyArray<{ readonly number: number; readonly url: string }>;
+  /** Testing is still under way; once the sheet passed, the brief is only the story and checks. */
+  readonly testing: boolean;
 }) {
   const { item, sheet, detail } = props;
   const criteria = item.story?.criteria ?? [];
-  const prs = item.pullRequests.filter((pr) => pr.state === "open" || pr.state === "draft");
+  const prs = props.openPrs;
   const prNames = prs.map((pr) => `#${pr.number}`).join(", ");
   const rows = detail?.rows ?? [];
   const what = item.plain?.what ?? item.story?.text ?? null;
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
-        <DeskHeading>Why you&apos;re testing</DeskHeading>
+        <DeskHeading>{props.testing ? "Why you're testing" : "The story"}</DeskHeading>
         <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
           {what ? <li>{what}</li> : null}
           {item.plain?.why ? <li>Why it matters: {item.plain.why}</li> : null}
           {item.story?.text && item.story.text !== what ? (
             <li className="text-muted-foreground">{item.story.text}</li>
           ) : null}
-          <li>
-            {prs.length > 0
-              ? `The lead built it in ${prs.length === 1 ? "PR" : "PRs"} ${prNames}. Your test is the gate before it merges.`
-              : "Your test is the gate before this work is merged."}
-          </li>
+          {props.testing ? (
+            <li>
+              {prs.length > 0
+                ? `The lead built it in ${prs.length === 1 ? "PR" : "PRs"} ${prNames}. Your test is the gate before it merges.`
+                : "Your test is the gate before this work is merged."}
+            </li>
+          ) : null}
         </ul>
         <ol aria-label="Where the story is" className="mt-1 flex text-2xs">
           {BRIEF_STEPS.map((step) => {
@@ -601,17 +605,19 @@ function TestBrief(props: {
           <p className="text-sm text-muted-foreground">Loading the checks…</p>
         )}
       </section>
-      <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
-        <DeskHeading>After you submit</DeskHeading>
-        <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
-          <li>Each check: open its link, mark Pass or Fail, and on a Fail say what you saw.</li>
-          <li>
-            All pass: a Merge button appears at the top of this tab; the lead merges and wraps the
-            story up.
-          </li>
-          <li>Any fail: the lead fixes them and sends the sheet back; you retest only those.</li>
-        </ul>
-      </section>
+      {props.testing ? (
+        <section className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+          <DeskHeading>After you submit</DeskHeading>
+          <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
+            <li>Each check: open its link, mark Pass or Fail, and on a Fail say what you saw.</li>
+            <li>
+              All pass: a Merge button appears at the top of this tab; the lead merges and wraps the
+              story up.
+            </li>
+            <li>Any fail: the lead fixes them and sends the sheet back; you retest only those.</li>
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
@@ -625,6 +631,8 @@ export function ReviewTab(props: {
   readonly onOpenChat: (chat: CardChatState) => void;
   /** Opens the Test page (sheet and app side by side) in place of this window. */
   readonly onStartTest?: ((sheetId: string) => void) | undefined;
+  /** The open PRs this story ships in: linked ones, and ones its lead or sheet name. */
+  readonly openPrs: ReadonlyArray<{ readonly number: number; readonly url: string }>;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
   // The sheet waiting on Rigo first, so the headline and the tab's "your move" agree.
@@ -665,7 +673,9 @@ export function ReviewTab(props: {
       </div>
     );
   }
-  const incomplete = detail ? sheetIsIncomplete(detail) : false;
+  // Only matters while there's testing to do; a passed sheet needs no way back to the app.
+  const incomplete =
+    detail && !done && sheetTurn(sheet) !== "clean" ? sheetIsIncomplete(detail) : false;
   const app = detail?.app ?? null;
   const pageUrl = new URL(`/a/${sheet.id}`, window.location.origin).toString();
   // The Test page: the sheet with its work chat, for the left half of the screen.
@@ -679,13 +689,21 @@ export function ReviewTab(props: {
         done={done}
         onStart={props.onStartTest ? () => props.onStartTest?.(sheet.id) : undefined}
         item={props.item}
+        openPrs={props.openPrs}
         lead={chat}
         otherWaiting={
           props.sheets.filter((entry) => entry.id !== sheet.id && sheetTurn(entry) === "rigo")
             .length
         }
       />
-      <TestBrief item={props.item} sheet={sheet} detail={detail} host={app?.machine ?? null} />
+      <TestBrief
+        item={props.item}
+        sheet={sheet}
+        detail={detail}
+        host={app?.machine ?? null}
+        openPrs={props.openPrs}
+        testing={!done && sheetTurn(sheet) !== "clean"}
+      />
       <div className="flex flex-wrap items-center gap-1 max-sm:hidden">
         {props.sheets.length > 1
           ? props.sheets.map((entry) => (

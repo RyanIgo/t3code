@@ -459,13 +459,47 @@ export function DeskModal(props: {
   const itemSheets = item ? sheetsForItem(hubSheets, item, notes) : [];
   const yourTest =
     item?.state === "open" && itemSheets.some((entry) => sheetTurn(entry) === "rigo");
+  // The story's open PRs: linked on GitHub, or named ("PR #95") by its lead's next step or sheets.
+  const leadNext = (() => {
+    const focus = item?.url
+      ? props.allChats.find((entry) => focusedThreads(notes, item.url).has(entry.threadId))
+      : undefined;
+    const lead = focus ?? props.ownChats[0];
+    return lead ? (notes.work[lead.threadId]?.next ?? "") : "";
+  })();
+  const named = new Set(
+    [leadNext, ...itemSheets.map((entry) => entry.title)].flatMap((text) =>
+      [...text.matchAll(/PR\s*#(\d+)/gi)].map((match) => Number(match[1])),
+    ),
+  );
+  const openPrs = item
+    ? [
+        ...new Map(
+          [
+            ...item.pullRequests.filter((pr) => pr.state === "open" || pr.state === "draft"),
+            ...props.view.items.filter(
+              (entry) =>
+                entry.kind === "pr" &&
+                entry.repo === item.repo &&
+                entry.number !== null &&
+                named.has(entry.number) &&
+                (entry.state === "open" || entry.state === "draft"),
+            ),
+          ].flatMap((pr) =>
+            pr.url && pr.number !== null
+              ? [[pr.url, { number: pr.number, url: pr.url }] as const]
+              : [],
+          ),
+        ).values(),
+      ]
+    : [];
   // Every sheet passed and a PR is still open: merging is his move, on the same tab.
   const yourMerge =
     !yourTest &&
     item?.state === "open" &&
     itemSheets.length > 0 &&
     itemSheets.every((entry) => sheetTurn(entry) === "clean") &&
-    item.pullRequests.some((pr) => pr.state === "open" || pr.state === "draft");
+    openPrs.length > 0;
   // The tab follows the item (sheets load after the window opens) until Rigo picks one.
   const [picked, setPicked] = useState<ItemTab | null>(null);
   const tab =
@@ -845,6 +879,7 @@ export function DeskModal(props: {
                 onChat={focused ?? shown}
                 onOpenChat={openChatHere}
                 onStartTest={props.onStartTest}
+                openPrs={openPrs}
               />
             ) : null}
             {chatsSeen || !tabbed ? (
