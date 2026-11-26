@@ -585,7 +585,13 @@ export function DeskPage(props: {
       saveDeskPin(place, `${chat.environmentId}:${chat.threadId}`, true);
     }
     setLauncher(null);
-    setModal({ itemId: context.kind === "item" ? context.item.itemId : null, chat, sequence: [] });
+    // A chat he just started shows itself; everything else opens on a screen.
+    setModal({
+      itemId: context.kind === "item" ? context.item.itemId : null,
+      chat,
+      sequence: [],
+      tab: "chats",
+    });
   };
 
   const prs = collectPrs(items, props.chats);

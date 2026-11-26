@@ -404,13 +404,10 @@ function pinChoices(item: DeskItem | null, apps: ReadonlyArray<string>): PinChoi
 type ItemTab = "details" | "chats" | "review";
 
 /** The tab an item opens on: what its column is about. A chat opened directly opens Chats. */
-function firstTab(item: DeskItem | null, fromChat: boolean, yourTest: boolean): ItemTab {
-  // A sheet waiting on Rigo wins, even opened from its chat: testing isn't done in a chat.
-  if (item && yourTest) return "review";
-  if (!item || fromChat) return "chats";
-  if (item.state === "open" && item.status === "In Review") return "review";
-  if (item.state === "open" && item.status === "In Progress") return "chats";
-  return "details";
+/** An item opens on a screen, never its chat (Rigo, 2026-11-26): its Test tab, else Details. */
+function firstTab(item: DeskItem | null, hasSheets: boolean): ItemTab {
+  if (!item) return "chats";
+  return hasSheets ? "review" : "details";
 }
 
 /**
@@ -503,9 +500,7 @@ export function DeskModal(props: {
   // The tab follows the item (sheets load after the window opens) until Rigo picks one.
   const [picked, setPicked] = useState<ItemTab | null>(null);
   const tab =
-    picked ??
-    props.tab ??
-    firstTab(item, props.chat !== null || props.draft !== null, yourTest || yourMerge);
+    picked ?? props.tab ?? (props.draft !== null ? "chats" : firstTab(item, itemSheets.length > 0));
   // Chats stays mounted once seen, so switching tabs doesn't reload the conversation.
   const [chatsOpened, setChatsOpened] = useState(false);
   const chatsSeen = chatsOpened || tab === "chats";
