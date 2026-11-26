@@ -125,7 +125,21 @@ export function TestPage(props: {
     .replace(/[*_`#]+/g, "");
   const appUrl = detail?.app?.url ?? null;
 
-  useSheetRelay(frame, chat, title, (url) => void openInBrowser(url));
+  // Submitted: the sheet is the chat's now, so he goes back to his queue, told where it went.
+  useSheetRelay(
+    frame,
+    chat,
+    title,
+    (url) => void openInBrowser(url),
+    () => {
+      toastManager.add({
+        type: "success",
+        title: `Results sent to ${chat ? chatTitle(chat.title) : "the chat"}`,
+        description: "It's off your queue while the chat acts on it. Fixes come back as Retest.",
+      });
+      props.onBack();
+    },
+  );
 
   const openApp = useEffectEvent((url: string) => void openInBrowser(url));
   // The app under test opens in the browser once, when the page first shows this sheet.

@@ -254,6 +254,8 @@ export function useSheetRelay(
   chat: CardChatState | null,
   title: string,
   onOpenLink?: (url: string) => void,
+  /** After the chat got his submitted results. */
+  onSubmitted?: () => void,
 ) {
   const sendToChat = useSendToChat();
   const openLink = useEffectEvent((url: string) => onOpenLink?.(url));
@@ -267,7 +269,10 @@ export function useSheetRelay(
     void sendToChat(
       chat,
       `Rigo submitted the test sheet "${title}":\n\n${submitted}\n\nRead the full results and his notes (t3-artifacts), fix what failed, tick the acceptance criteria that passed, then hand it back for a re-check or wrap up.`,
-    ).then(reply);
+    ).then((ok) => {
+      reply(ok);
+      if (ok) onSubmitted?.();
+    });
   });
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- relays the embedded sheet's link clicks and Submit
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useEffectEvent, useState } from "react";
 import { Schema } from "effect";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
@@ -38,6 +39,7 @@ import {
   LevelMark,
   VerbChip,
 } from "./deskLevels";
+import { arrivals, backAgain, handledLast, stamp } from "./deskFocus.logic";
 import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
 
@@ -45,6 +47,8 @@ const SHEET_DAYS = 14;
 /** A sheet nobody touched or asked about for this long waits in "Older sheets", not the queue. */
 const FRESH_SHEET_DAYS = 3;
 const DAY_MS = 86_400_000;
+const TIMES = Schema.Record(Schema.String, Schema.Number);
+const NO_TIMES: Record<string, number> = {};
 
 /** Test sheets not finished clean, changed in the last two weeks, newest first. */
 function sheetsToTest(all: ReadonlyArray<SheetSummary>, nowMs: number): SheetSummary[] {
@@ -186,9 +190,58 @@ export function NowView(
   const pushed = entries.filter((entry) => entry.mine && pushedOf(entry));
   const starOf = (entry: Entry) =>
     props.notes ? starOn(props.notes, entry.app, entry.feature ?? null, props.nowMs) : null;
+  // Rows he opened that came back with something new sink below the ones he hasn't seen.
+  const [opened, setOpened] = useLocalStorage("t3-fleet:now-opened", NO_TIMES, TIMES);
+  const [seen, setSeen] = useLocalStorage("t3-fleet:now-seen", NO_TIMES, TIMES);
+  const marks = all
+    .filter((entry) => entry.mine)
+    .map((entry) => ({
+      key: entry.key,
+      sinceMs: entry.since ? Date.parse(entry.since) || null : null,
+    }));
+  const back = backAgain(marks, opened);
+  const arrived = arrivals(marks, seen, back);
+  const titleOf = (key: string) => all.find((entry) => entry.key === key)?.title ?? "";
+  const announce = arrived.join("\n");
+  const tell = useEffectEvent((announce: string) => {
+    const keys = announce.split("\n");
+    const firstLook = Object.keys(seen).length === 0;
+    setSeen(
+      stamp(
+        seen,
+        marks.map((mark) => mark.key),
+        Date.now(),
+      ),
+    );
+    if (firstLook) return;
+    const backCount = keys.filter((key) => back[key] !== undefined).length;
+    toastManager.add({
+      type: "info",
+      title:
+        backCount === keys.length
+          ? `${keys.length} back on your queue`
+          : `${keys.length} new on your queue`,
+      description: keys
+        .slice(0, 3)
+        .map((key) => `${back[key] !== undefined ? "Back: " : ""}${titleOf(key)}`)
+        .concat(keys.length > 3 ? [`+${keys.length - 3} more`] : [])
+        .join(" · "),
+    });
+  });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- tells Rigo in a toast what reached his queue since he last saw it
+  useEffect(() => {
+    if (announce !== "") tell(announce);
+  }, [announce]);
+  const open = (entry: Entry) => {
+    setOpened(stamp(opened, [entry.key], props.nowMs));
+    entry.onClick();
+  };
   // Starred areas go first whatever the order; within them, the chosen order holds.
   const ordered = orderQueue(
-    entries.filter((entry) => entry.mine),
+    handledLast(
+      entries.filter((entry) => entry.mine),
+      back,
+    ),
     order,
     firstApp,
   ).toSorted((a, b) => Number(starOf(b) !== null) - Number(starOf(a) !== null));
@@ -261,14 +314,16 @@ export function NowView(
             {queue.map((entry, index) => {
               const previous = queue[index - 1];
               const isPushed = pushedOf(entry) !== null;
-              const group = isPushed
-                ? "Pushed back · not your priority right now"
-                : groupOf(entry, order);
-              const startsGroup =
-                group !== null &&
-                (isPushed
-                  ? previous === undefined || pushedOf(previous) === null
-                  : group !== groupOf(previous, order));
+              const rowGroup = (row: Entry | undefined) =>
+                !row
+                  ? null
+                  : pushedOf(row) !== null
+                    ? "Pushed back · not your priority right now"
+                    : order === "verb" && back[row.key] !== undefined
+                      ? "Back again · you answered these; each has something new"
+                      : groupOf(row, order);
+              const group = rowGroup(entry);
+              const startsGroup = group !== null && group !== rowGroup(previous);
               return (
                 <Fragment key={entry.key}>
                   {startsGroup ? (
@@ -282,6 +337,7 @@ export function NowView(
                     onPushBack={props.onPushBack}
                     pushed={isPushed}
                     star={starOf(entry)}
+                    onOpen={() => open(entry)}
                   />
                 </Fragment>
               );
@@ -460,6 +516,7 @@ function QueueRow(props: {
   /** It's pushed back: shown at the bottom, dimmed, with Move up. */
   readonly pushed?: boolean;
   readonly star?: Star | null;
+  readonly onOpen?: (() => void) | undefined;
 }) {
   const { entry } = props;
   const sendToChat = useSendToChat();
@@ -512,7 +569,7 @@ function QueueRow(props: {
     >
       <button
         type="button"
-        onClick={entry.onClick}
+        onClick={props.onOpen ?? entry.onClick}
         className="flex min-w-0 flex-[1_1_20rem] cursor-pointer items-start gap-2 text-left"
       >
         <VerbChip verb={entry.badge} className="mt-0.5" />

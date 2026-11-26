@@ -2,7 +2,14 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { DeskItem } from "./desk.logic";
 import type { CardChatState } from "./boardCards.logic";
-import { changesSince } from "./deskFocus.logic";
+import {
+  arrivals,
+  backAgain,
+  changesSince,
+  handledLast,
+  QUEUE_MEMORY_MS,
+  stamp,
+} from "./deskFocus.logic";
 
 const item = (overrides: Partial<DeskItem>): DeskItem => ({
   itemId: "i",
@@ -63,5 +70,46 @@ describe("catching up", () => {
     );
     expect(changes.chats.map((entry) => entry.threadId)).toEqual(["asking-after", "done-after"]);
     expect(changes.closed.map((entry) => entry.itemId)).toEqual(["new"]);
+  });
+});
+
+describe("handledLast", () => {
+  it("keeps unopened rows in order above opened ones, longest-ago opened first", () => {
+    const rows = ["a", "b", "c", "d"].map((key) => ({ key }));
+    expect(handledLast(rows, { a: 20, c: 10 }).map((row) => row.key)).toEqual(["b", "d", "c", "a"]);
+  });
+});
+
+describe("backAgain", () => {
+  it("sinks only rows that changed after he opened them", () => {
+    const rows = [
+      { key: "answered", sinceMs: 30 },
+      { key: "looked", sinceMs: 5 },
+      { key: "untouched", sinceMs: 30 },
+      { key: "pr", sinceMs: null },
+    ];
+    expect(backAgain(rows, { answered: 10, looked: 10, pr: 10 })).toEqual({ answered: 10 });
+  });
+});
+
+describe("arrivals", () => {
+  it("names rows never seen, and rows back again after he last saw the queue", () => {
+    const rows = [
+      { key: "old", sinceMs: 50 },
+      { key: "back", sinceMs: 50 },
+      { key: "backSeen", sinceMs: 50 },
+      { key: "new", sinceMs: null },
+    ];
+    const seen = { old: 40, back: 40, backSeen: 60 };
+    expect(arrivals(rows, seen, { back: 10, backSeen: 10 })).toEqual(["back", "new"]);
+  });
+});
+
+describe("stamp", () => {
+  it("stamps keys and forgets what's older than a week", () => {
+    expect(stamp({ old: 0, kept: QUEUE_MEMORY_MS }, ["x"], QUEUE_MEMORY_MS + 1)).toEqual({
+      kept: QUEUE_MEMORY_MS,
+      x: QUEUE_MEMORY_MS + 1,
+    });
   });
 });
