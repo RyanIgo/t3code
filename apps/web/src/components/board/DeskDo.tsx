@@ -8,7 +8,9 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { type ReactNode, useState } from "react";
 
+import { selectThreadRightPanelState, useRightPanelStore } from "~/rightPanelStore";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "~/terminalUiStateStore";
+import { DEFAULT_THREAD_TERMINAL_HEIGHT } from "~/types";
 import ChatView from "../ChatView";
 import { ChatPeekContext, ChatWorkbenchContext } from "../chat/ChatEmbedContext";
 import { Badge } from "../ui/badge";
@@ -70,6 +72,25 @@ export function DoPage(props: {
   const showTerminal = (open: boolean) => {
     if (threadRef) useTerminalUiStateStore.getState().setTerminalOpen(threadRef, open);
   };
+  const terminalBig = terminal.terminalHeight > DEFAULT_THREAD_TERMINAL_HEIGHT * 1.5;
+  const sizeTerminal = () => {
+    if (!threadRef) return;
+    useTerminalUiStateStore
+      .getState()
+      .setTerminalHeight(
+        threadRef,
+        terminalBig ? DEFAULT_THREAD_TERMINAL_HEIGHT : Math.floor(window.innerHeight * 0.75),
+      );
+  };
+  const panelOpen = useRightPanelStore(
+    (state) => selectThreadRightPanelState(state.byThreadKey, threadRef).isOpen,
+  );
+  // The planner chat's right panel: its browser tabs, files and terminals, as on the Test page.
+  const showPanel = (open: boolean) => {
+    if (!threadRef) return;
+    if (open) useRightPanelStore.getState().openBrowser(threadRef, null);
+    else useRightPanelStore.getState().close(threadRef);
+  };
 
   const bar = (
     <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
@@ -85,9 +106,23 @@ export function DoPage(props: {
           {props.todo.app}
         </span>
       ) : null}
+      {threadRef && terminal.terminalOpen ? (
+        <>
+          <Button size="xs" variant="outline" onClick={sizeTerminal}>
+            {terminalBig ? "Shrink terminal" : "Expand terminal"}
+          </Button>
+          <Button size="xs" variant="ghost" onClick={() => showTerminal(false)}>
+            Hide terminal
+          </Button>
+        </>
+      ) : threadRef ? (
+        <Button size="xs" variant="ghost" onClick={() => showTerminal(true)}>
+          Terminal
+        </Button>
+      ) : null}
       {threadRef ? (
-        <Button size="xs" variant="ghost" onClick={() => showTerminal(!terminal.terminalOpen)}>
-          {terminal.terminalOpen ? "Hide terminal" : "Terminal"}
+        <Button size="xs" variant="ghost" onClick={() => showPanel(!panelOpen)}>
+          {panelOpen ? "Hide side panel" : "Side panel"}
         </Button>
       ) : null}
       {planner ? (
