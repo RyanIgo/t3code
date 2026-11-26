@@ -425,6 +425,12 @@ Features are a field, not a parent. Stories are parents: a story's pieces are it
 When you **file an issue**, add it to the project and set App, Feature (or none for maintenance)
 and Work type. Ask Rigo when the feature isn't obvious rather than guessing.
 
+**A new Feature is yours to add**, never a job for Rigo in the project's settings:
+`desk.mjs option Feature "<App> · <feature>" --description "<one line>"`. The hub keeps every
+existing option's id, so no item loses its Feature. Then file items under it with
+`desk.mjs field <repo#n> Feature "<App> · <feature>"` (`field` sets App, Status, Priority, Stage,
+Work type or Sprint the same way), and file its `Feature: <name>` tracking issue.
+
 ```sh
 gh project item-add 1 --owner cfevans --url <issue url>   # then set fields on the Desk or with gh project item-edit
 ```

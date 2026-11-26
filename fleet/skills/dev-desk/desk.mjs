@@ -582,6 +582,48 @@ async function plan(action, rest) {
   );
 }
 
+/**
+ * `option Feature "<App> · <feature>" [--description "<one line>"]`: adds a Feature to the
+ * project. The hub keeps every existing option's id, so no item loses its Feature.
+ */
+async function option(field, rest) {
+  const [name, ...more] = rest;
+  if (field !== "Feature" || !name?.trim())
+    fail('Usage: node desk.mjs option Feature "<App> · <feature>" [--description "<one line>"]');
+  if (!name.includes(" · "))
+    fail('Name a Feature "<App> · <feature>", e.g. "Precon · Daily reporting".');
+  const { status, body } = await call(`/fleet/desk/fields/${encodeURIComponent(field)}/options`, {
+    method: "POST",
+    body: JSON.stringify({ name: name.trim(), description: flags(more).description ?? "" }),
+  });
+  if (status !== 200) fail(body?.error ?? `The hub said ${status}.`);
+  console.log(
+    body.added
+      ? `Added Feature "${body.option}". File items under it with: node desk.mjs field <repo#n> Feature "${body.option}"`
+      : `Feature "${body.option}" already exists.`,
+  );
+}
+
+/** `field <issue url | repo#n> <Field> "<value>"`: sets one of an item's project fields. */
+async function field(ref, rest) {
+  const [name, ...words] = rest;
+  const value = words.join(" ").trim();
+  if (!ref || !name || !value)
+    fail(
+      'Usage: node desk.mjs field <issue url | repo#n> <App|Status|Priority|Stage|Work type|Feature|Sprint> "<value>"',
+    );
+  const items = (await call("/fleet/desk")).body?.items ?? [];
+  const url = linkUrl(ref, items, "Item");
+  const item = items.find((entry) => entry.url === url);
+  if (!item?.itemId) fail(`${ref} isn't on the project.`);
+  const { status, body } = await call(`/fleet/desk/items/${item.itemId}/fields`, {
+    method: "POST",
+    body: JSON.stringify({ field: name, value }),
+  });
+  if (status !== 200) fail(body?.error ?? `The hub said ${status}.`);
+  console.log(`${ref}: ${name} is now "${value}".`);
+}
+
 /** Reads `--name value` flags after the positional arguments. */
 function flags(list) {
   const out = {};
@@ -1064,6 +1106,8 @@ else if (command === "decide") await decide(first, rest);
 else if (command === "decisions") await decisions(first);
 else if (command === "retire") await retire(first, rest);
 else if (command === "plan") await plan(first, rest);
+else if (command === "option") await option(first, rest);
+else if (command === "field") await field(first, rest);
 else if (command === "agents") await agents(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
 else if (command === "capture") await capture(first, rest);

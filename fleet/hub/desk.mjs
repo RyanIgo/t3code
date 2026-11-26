@@ -643,5 +643,72 @@ export function createDesk({ dataRoot, project, token, log }) {
       await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
       return item;
     },
+    /**
+     * Adds an option to a single-select field (a new Feature, say). Every existing option is sent
+     * back with its id, which keeps the items that use it; without ids GitHub recreates the list
+     * and clears every item's value.
+     */
+    async addOption(name, option, description = "") {
+      if (!snapshot) await run();
+      const field = snapshot?.fields?.[name];
+      if (!field) throw new Error(`The project has no "${name}" field.`);
+      const label = String(option ?? "")
+        .trim()
+        .slice(0, 100);
+      if (!label) throw new Error("The option needs a name.");
+      if (field.options[label]) return { added: false, option: label };
+      const live = await graphql(
+        `
+          query ($field: ID!) {
+            node(id: $field) {
+              ... on ProjectV2SingleSelectField {
+                options {
+                  id
+                  name
+                  color
+                  description
+                }
+              }
+            }
+          }
+        `,
+        { field: field.id },
+      );
+      const options = live?.node?.options;
+      if (!Array.isArray(options)) throw new Error(`"${name}" isn't a single-select field.`);
+      if (options.some((entry) => entry.name === label)) return { added: false, option: label };
+      const updated = await graphql(
+        `
+          mutation ($field: ID!, $options: [ProjectV2SingleSelectFieldOptionInput!]!) {
+            updateProjectV2Field(input: { fieldId: $field, singleSelectOptions: $options }) {
+              projectV2Field {
+                ... on ProjectV2SingleSelectField {
+                  options {
+                    id
+                    name
+                  }
+                }
+              }
+            }
+          }
+        `,
+        {
+          field: field.id,
+          options: [
+            ...options.map((entry) => ({
+              id: entry.id,
+              name: entry.name,
+              color: entry.color,
+              description: entry.description ?? "",
+            })),
+            { name: label, color: "GRAY", description: String(description).slice(0, 300) },
+          ],
+        },
+      );
+      const now = updated?.updateProjectV2Field?.projectV2Field?.options ?? [];
+      field.options = Object.fromEntries(now.map((entry) => [entry.name, entry.id]));
+      await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
+      return { added: true, option: label };
+    },
   };
 }

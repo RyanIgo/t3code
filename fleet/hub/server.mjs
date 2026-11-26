@@ -841,6 +841,19 @@ async function handleDesk(pathname, req, res) {
     }
     return true;
   }
+  // A new option on a single-select field (a Feature), keeping every item's current value.
+  const optionAdd = pathname.match(/^\/fleet\/desk\/fields\/([^/]+)\/options$/);
+  if (optionAdd && req.method === "POST") {
+    const body = JSON.parse(await readBody(req));
+    try {
+      const name = decodeURIComponent(optionAdd[1]);
+      if (!["Feature"].includes(name)) throw new Error(`Options can be added to Feature only.`);
+      send(res, 200, await desk.addOption(name, body?.name, body?.description ?? ""));
+    } catch (error) {
+      send(res, 400, { error: String(error.message ?? error) });
+    }
+    return true;
+  }
   const fieldEdit = pathname.match(/^\/fleet\/desk\/items\/([\w-]+)\/fields$/);
   if (fieldEdit && req.method === "POST") {
     const body = JSON.parse(await readBody(req));
