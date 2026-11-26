@@ -577,8 +577,23 @@ export function DeskModal(props: {
     bandWork?.next && /^\s*(?:rigo|you)\s*[:\-–—]\s*/i.test(bandWork.next)
       ? bandWork.next.replace(/^\s*(?:rigo|you)\s*[:\-–—]\s*/i, "")
       : null;
+  // A move that names a hub sheet by id ("mark the intake map (0eca1dc01cbf)") gets its button.
+  const moveSheet = bandMove
+    ? (hubSheets.find((entry) => bandMove.includes(entry.id)) ?? null)
+    : null;
   const band = bandLevel ? (
     <ChatLevelBand
+      action={
+        moveSheet
+          ? {
+              label: `Open ${moveSheet.title}`,
+              onClick: () =>
+                props.onStartTest
+                  ? props.onStartTest(moveSheet.id)
+                  : openExternal(testPageUrl(moveSheet.id)),
+            }
+          : null
+      }
       level={bandLevel}
       app={bandItem?.app ?? bandWork?.app ?? null}
       about={
@@ -586,7 +601,11 @@ export function DeskModal(props: {
           ? null
           : deskTitle(bandItem)
       }
-      move={bandMove}
+      move={
+        moveSheet && bandMove
+          ? bandMove.replace(` (${moveSheet.id})`, "").replace(moveSheet.id, "")
+          : bandMove
+      }
       lead={
         bandLead ? { title: chatTitle(bandLead.title), onOpen: () => openChatHere(bandLead) } : null
       }

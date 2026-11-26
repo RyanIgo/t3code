@@ -5,6 +5,7 @@
  */
 import { CircleDashedIcon, CompassIcon, FlagIcon, type LucideIcon, WrenchIcon } from "lucide-react";
 
+import { Button } from "../ui/button";
 import { cn } from "../../lib/utils";
 import type { DeskItem } from "./desk.logic";
 import type { ChatRole } from "./deskNotes.logic";
@@ -198,6 +199,8 @@ export function ChatLevelBand(props: {
   readonly move?: string | null;
   /** A helper's lead, to steer through. */
   readonly lead?: { readonly title: string; readonly onOpen: () => void } | null;
+  /** The button that does his move, when the Board can tell what it opens. */
+  readonly action?: { readonly label: string; readonly onClick: () => void } | null;
 }) {
   const style = LEVELS[props.level];
   const parts = props.move ? splitMove(props.move) : null;
@@ -227,6 +230,11 @@ export function ChatLevelBand(props: {
           style.purpose
         )}
       </span>
+      {props.action ? (
+        <Button size="xs" className="max-w-72" onClick={props.action.onClick}>
+          <span className="truncate">{props.action.label} →</span>
+        </Button>
+      ) : null}
       {props.lead ? (
         <button
           type="button"
