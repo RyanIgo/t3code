@@ -166,6 +166,7 @@ export function DoPage(props: {
           onClose={props.onBack}
           threadRef={threadRef ?? undefined}
           onOpenLink={open}
+          pageBeside={page}
           opensLabel={(url) =>
             isHubPage(url)
               ? url === page

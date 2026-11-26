@@ -133,6 +133,8 @@ function TodoDetails(props: {
   /** On the Do page: opens a link beside the to-do, or in his browser for sign-in sites. */
   readonly onOpenLink?: ((url: string) => void) | undefined;
   readonly opensLabel?: ((url: string) => string) | undefined;
+  /** On the Do page: a page with its own steps shows beside, so it is the one set of steps. */
+  readonly pageBeside?: string | null | undefined;
 }) {
   const { line } = props;
   const [question, setQuestion] = useState("");
@@ -173,7 +175,15 @@ function TodoDetails(props: {
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-base font-medium">{line.text}</p>
-      {start ? (
+      {props.pageBeside ? (
+        <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 px-3 py-2">
+          <span className="text-xs font-semibold">Your move</span>
+          <span>Follow the steps on the page beside →</span>
+          <span className="text-xs text-muted-foreground">
+            Then press Done here. Stuck or it looks wrong? Ask below.
+          </span>
+        </div>
+      ) : start ? (
         <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
           <span className="text-xs font-semibold">Start here</span>
           <Button size="sm" onClick={() => props.onOpenLink?.(start)}>
@@ -195,16 +205,25 @@ function TodoDetails(props: {
           <p className="text-muted-foreground">The planner didn't say why.</p>
         )}
       </section>
-      <section className="flex flex-col gap-1">
-        <DeskHeading>How</DeskHeading>
-        {line.how ? (
-          <div className="rounded-md bg-muted/50 px-3 py-2">
+      {props.pageBeside && line.how ? (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">The planner's short version of the steps</summary>
+          <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-sm text-foreground">
             <ChatMarkdown text={line.how} cwd={undefined} threadRef={props.threadRef} />
           </div>
-        ) : (
-          <p className="text-muted-foreground">No steps yet.</p>
-        )}
-      </section>
+        </details>
+      ) : (
+        <section className="flex flex-col gap-1">
+          <DeskHeading>How</DeskHeading>
+          {line.how ? (
+            <div className="rounded-md bg-muted/50 px-3 py-2">
+              <ChatMarkdown text={line.how} cwd={undefined} threadRef={props.threadRef} />
+            </div>
+          ) : (
+            <p className="text-muted-foreground">No steps yet.</p>
+          )}
+        </section>
+      )}
       {links.length > 0 ? (
         <section className="flex flex-col gap-1">
           <DeskHeading>Links</DeskHeading>
@@ -1903,6 +1922,7 @@ export function TodoBody(
     readonly threadRef?: ScopedThreadRef | undefined;
     readonly onOpenLink?: ((url: string) => void) | undefined;
     readonly opensLabel?: ((url: string) => string) | undefined;
+    readonly pageBeside?: string | null | undefined;
   },
 ) {
   const sheets = useHubSheets();
@@ -1977,6 +1997,7 @@ export function TodoBody(
       threadRef={props.threadRef}
       onOpenLink={props.onOpenLink}
       opensLabel={props.opensLabel}
+      pageBeside={props.pageBeside}
     />
   );
 }
