@@ -459,10 +459,19 @@ export function DeskModal(props: {
   const itemSheets = item ? sheetsForItem(hubSheets, item, notes) : [];
   const yourTest =
     item?.state === "open" && itemSheets.some((entry) => sheetTurn(entry) === "rigo");
+  // Every sheet passed and a PR is still open: merging is his move, on the same tab.
+  const yourMerge =
+    !yourTest &&
+    item?.state === "open" &&
+    itemSheets.length > 0 &&
+    itemSheets.every((entry) => sheetTurn(entry) === "clean") &&
+    item.pullRequests.some((pr) => pr.state === "open" || pr.state === "draft");
   // The tab follows the item (sheets load after the window opens) until Rigo picks one.
   const [picked, setPicked] = useState<ItemTab | null>(null);
   const tab =
-    picked ?? props.tab ?? firstTab(item, props.chat !== null || props.draft !== null, yourTest);
+    picked ??
+    props.tab ??
+    firstTab(item, props.chat !== null || props.draft !== null, yourTest || yourMerge);
   // Chats stays mounted once seen, so switching tabs doesn't reload the conversation.
   const [chatsOpened, setChatsOpened] = useState(false);
   const chatsSeen = chatsOpened || tab === "chats";
@@ -761,7 +770,11 @@ export function DeskModal(props: {
                   [
                     ["details", "Details", null],
                     ["chats", "Chats", related.length || null],
-                    ["review", yourTest ? "Test · your move" : "Test", sheets.length || null],
+                    [
+                      "review",
+                      yourTest ? "Test · your move" : yourMerge ? "Merge · your move" : "Test",
+                      sheets.length || null,
+                    ],
                   ] as const
                 ).map(([id, label, count]) => (
                   <button
@@ -773,7 +786,9 @@ export function DeskModal(props: {
                       tab === id
                         ? "border-foreground font-medium text-foreground"
                         : "border-transparent text-muted-foreground hover:text-foreground",
-                      id === "review" && yourTest && "font-semibold text-warning-foreground",
+                      id === "review" &&
+                        (yourTest || yourMerge) &&
+                        "font-semibold text-warning-foreground",
                     )}
                     onClick={() => show(id)}
                   >

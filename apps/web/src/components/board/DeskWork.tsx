@@ -36,6 +36,7 @@ import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { type DeskNotes, focusedChat } from "./deskNotes.logic";
 import { saveDeskFocus, saveNextStep } from "./deskNotesStore";
+import { useSendToChat } from "./deskSend";
 import { DeskHeading, openExternal, useMachineName } from "./DeskParts";
 import {
   sheetIsIncomplete,
@@ -409,7 +410,26 @@ function YourTestMove(props: {
   readonly done: boolean;
   /** Goes straight to the Test page in this window. */
   readonly onStart?: (() => void) | undefined;
+  readonly item: DeskItem;
+  /** The work chat that merges it when Rigo says so. */
+  readonly lead: CardChatState | null;
+  /** Other sheets on this story still waiting on Rigo. */
+  readonly otherWaiting: number;
 }) {
+  const sendToChat = useSendToChat();
+  const [merging, setMerging] = useState<"sent" | "failed" | null>(null);
+  const openPrs = props.item.pullRequests.filter(
+    (pr) => pr.state === "open" || pr.state === "draft",
+  );
+  const prNames = openPrs.map((pr) => `#${pr.number}`).join(", ");
+  const merge = async () => {
+    if (!props.lead) return;
+    const ok = await sendToChat(
+      props.lead,
+      `Merge approved: the test sheet "${props.sheet.title}" passed. Merge ${openPrs.map((pr) => pr.url).join(" and ")}: get its checks green and fix any conflict first (tell me in one line if something needs my call), merge it, then wrap up the story (close the issue, tick the criteria that hold, desk.mjs next ""). Reply in one line when it's merged.`,
+    );
+    setMerging(ok ? "sent" : "failed");
+  };
   const { total, fail, blocked } = props.sheet.counts;
   const left = uncheckedRows(props.sheet.counts);
   const turn = sheetTurn(props.sheet);
@@ -419,18 +439,51 @@ function YourTestMove(props: {
     : turn === "agent"
       ? `Sent back: the lead is fixing ${fail + blocked} ${fail + blocked === 1 ? "check" : "checks"}. Nothing needed from you now.`
       : turn === "clean"
-        ? `All ${total} checks passed. Next: merge it from Now.`
+        ? props.otherWaiting > 0
+          ? `All ${total} checks passed here; ${props.otherWaiting} more ${props.otherWaiting === 1 ? "sheet waits" : "sheets wait"} on you (tabs below).`
+          : openPrs.length > 0
+            ? `All ${total} checks passed. Your move: merge ${prNames}.`
+            : `All ${total} checks passed. Nothing to merge.`
         : `Your move: test ${left} of ${total} ${total === 1 ? "check" : "checks"}`;
   return (
     <section
       aria-label="What's needed from you"
       className={cn(
         "flex flex-col gap-2 rounded-lg border px-4 py-3",
-        yours ? "border-warning bg-warning/8" : "border-border bg-muted/40",
+        yours || (!props.done && turn === "clean" && openPrs.length > 0)
+          ? "border-warning bg-warning/8"
+          : "border-border bg-muted/40",
       )}
     >
       <div className="flex flex-wrap items-center gap-3">
         <b className="text-base">{headline}</b>
+        {!props.done && turn === "clean" && props.otherWaiting === 0 && openPrs.length > 0 ? (
+          <span className="ms-auto flex flex-wrap items-center gap-2">
+            {merging === "sent" ? (
+              <span className="text-sm text-success-foreground">
+                Sent: the lead is merging it and will reply in its chat.
+              </span>
+            ) : (
+              <Button size="sm" disabled={!props.lead} onClick={() => void merge()}>
+                Merge {prNames}
+              </Button>
+            )}
+            {merging === "failed" ? (
+              <span className="text-xs text-destructive-foreground">
+                Couldn&apos;t reach the lead; try again or merge on GitHub.
+              </span>
+            ) : null}
+            {openPrs[0] ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                render={<a href={openPrs[0].url} target="_blank" rel="noopener" />}
+              >
+                Merge on GitHub ↗
+              </Button>
+            ) : null}
+          </span>
+        ) : null}
         {yours ? (
           props.onStart ? (
             <Button size="sm" className="ms-auto" onClick={props.onStart}>
@@ -487,7 +540,9 @@ function TestBrief(props: {
         </ul>
         <ol aria-label="Where the story is" className="mt-1 flex text-2xs">
           {BRIEF_STEPS.map((step) => {
-            const at = BRIEF_STEPS.indexOf(step) - BRIEF_STEPS.indexOf("Test");
+            const at =
+              BRIEF_STEPS.indexOf(step) -
+              BRIEF_STEPS.indexOf(sheetTurn(sheet) === "clean" ? "Merge" : "Test");
             return (
               <li
                 key={step}
@@ -551,8 +606,8 @@ function TestBrief(props: {
         <ul className="flex list-disc flex-col gap-1 ps-5 text-sm">
           <li>Each check: open its link, mark Pass or Fail, and on a Fail say what you saw.</li>
           <li>
-            All pass: Merge {prs.length > 0 ? prNames : "it"} shows up on Now; after the merge the
-            lead wraps the story up.
+            All pass: a Merge button appears at the top of this tab; the lead merges and wraps the
+            story up.
           </li>
           <li>Any fail: the lead fixes them and sends the sheet back; you retest only those.</li>
         </ul>
@@ -572,7 +627,12 @@ export function ReviewTab(props: {
   readonly onStartTest?: ((sheetId: string) => void) | undefined;
 }) {
   const [chosen, setChosen] = useState<string | null>(null);
-  const sheet = props.sheets.find((entry) => entry.id === chosen) ?? props.sheets[0] ?? null;
+  // The sheet waiting on Rigo first, so the headline and the tab's "your move" agree.
+  const sheet =
+    props.sheets.find((entry) => entry.id === chosen) ??
+    props.sheets.find((entry) => sheetTurn(entry) === "rigo") ??
+    props.sheets[0] ??
+    null;
   const detail = useSheetDetail(sheet?.id ?? null);
   const done = props.item.status === "Done" || props.item.state !== "open";
   const sheetChat = sheet?.thread
@@ -618,6 +678,12 @@ export function ReviewTab(props: {
         testUrl={testUrl}
         done={done}
         onStart={props.onStartTest ? () => props.onStartTest?.(sheet.id) : undefined}
+        item={props.item}
+        lead={chat}
+        otherWaiting={
+          props.sheets.filter((entry) => entry.id !== sheet.id && sheetTurn(entry) === "rigo")
+            .length
+        }
       />
       <TestBrief item={props.item} sheet={sheet} detail={detail} host={app?.machine ?? null} />
       <div className="flex flex-wrap items-center gap-1 max-sm:hidden">
