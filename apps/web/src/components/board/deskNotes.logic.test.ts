@@ -18,6 +18,7 @@ import {
   waitingReports,
   withReportsSent,
   withPlanLineDone,
+  withPlanLineHelper,
   withPlanLineQuestion,
   withFocus,
   withNote,
@@ -234,6 +235,10 @@ describe("desk notes", () => {
     // Read back from the saved document, the thread survives.
     const reread = parseDeskNotes(JSON.stringify(asked));
     expect(reread.work["planner-one"]?.plan?.[0]?.qa?.[0]?.q).toBe("Which sheet?");
+    const helped = withPlanLineHelper(asked, "planner-one", "Test the sheet", "side-1", at);
+    expect(parseDeskNotes(JSON.stringify(helped)).work["planner-one"]?.plan?.[0]?.helper).toBe(
+      "side-1",
+    );
   });
 
   it("routes chats' turn reports to their planner until they're sent", () => {

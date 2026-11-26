@@ -124,6 +124,8 @@ export interface PlanLine {
   readonly qa?: ReadonlyArray<PlanQuestion>;
   /** When the line first appeared on the checklist. */
   readonly since?: string | null;
+  /** The hidden side chat (forked from the planner) that answers his questions and helps him do it. */
+  readonly helper?: string | null;
 }
 
 export interface PlanQuestion {
@@ -712,6 +714,7 @@ function readPlan(value: unknown): PlanLine[] | null {
               ];
             })
             .slice(-20),
+          helper: typeof line.helper === "string" && line.helper ? line.helper : null,
         },
       ];
     })
@@ -831,6 +834,29 @@ export function withPlanLineQuestion(
               }
             : line,
         ),
+        updatedAt: at,
+      },
+    },
+  };
+}
+
+/** Links a planner's line (matched by its text) to the side chat that helps Rigo with it. */
+export function withPlanLineHelper(
+  notes: DeskNotes,
+  threadId: string,
+  text: string,
+  helper: string,
+  at: string,
+): DeskNotes {
+  const work = notes.work[threadId];
+  if (!work?.plan?.some((line) => line.text === text)) return notes;
+  return {
+    ...notes,
+    work: {
+      ...notes.work,
+      [threadId]: {
+        ...work,
+        plan: work.plan.map((line) => (line.text === text ? { ...line, helper } : line)),
         updatedAt: at,
       },
     },

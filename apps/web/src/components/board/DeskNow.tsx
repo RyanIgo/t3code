@@ -41,6 +41,7 @@ import {
 } from "./deskLevels";
 import { arrivals, backAgain, handledLast, stamp } from "./deskFocus.logic";
 import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
+import { useTodoHelper } from "./deskHelper";
 import { useSendToChat } from "./deskSend";
 
 const SHEET_DAYS = 14;
@@ -520,6 +521,7 @@ function QueueRow(props: {
 }) {
   const { entry } = props;
   const sendToChat = useSendToChat();
+  const helper = useTodoHelper();
   const [handed, setHanded] = useState<"done" | "agent" | "yes" | "no" | null>(null);
   const decide = entry.badge === "Decide";
   const planner = entry.todo
@@ -529,7 +531,10 @@ function QueueRow(props: {
   const done = () => {
     if (!entry.todo) return;
     savePlanLineDone(entry.todo.threadId, todoText);
-    if (planner) void sendToChat(planner, `Done: ${todoText}`);
+    if (planner) {
+      void sendToChat(planner, `Done: ${todoText}`);
+      void helper.finish(planner, entry.todo.line);
+    }
     setHanded("done");
   };
   // A planner's question written as a to-do: answer it from the row, and the line is settled.

@@ -4,6 +4,9 @@
  */
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { ImagePlusIcon } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/shell";
 import { type ReactNode, useState } from "react";
 
 import ChatView from "../ChatView";
@@ -13,6 +16,7 @@ import { Dialog, DialogHeader, DialogPanel, DialogPopup, DialogTitle } from "../
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import { Sheet, SheetPopup } from "../ui/sheet";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useThreadShell } from "../../state/entities";
 import { Textarea } from "../ui/textarea";
 import { toastManager } from "../ui/toast";
 import { InboxCard, QuickNoteForm } from "./DeskInbox";
@@ -46,6 +50,7 @@ import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
 import { uploadPicture } from "./deskStore";
 import { DeskHeading, openExternal, TypeTag, useMachineName } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
+import { useTodoHelper } from "./deskHelper";
 import { useSendToChat } from "./deskSend";
 import { type SheetSummary, sheetsForItem, testPageUrl, useHubSheets } from "./deskSheets";
 import { formatFleetBoardAge } from "./fleetBoard.logic";
@@ -117,8 +122,10 @@ function TodoDetails(props: {
   readonly onDone: () => void;
   /** Puts Rigo's question on the line and sends it to the planner; the answer comes back here. */
   readonly onQuestion: (question: string) => void;
-  /** The planner chat's state, for while an answer is pending. */
+  /** The to-do agent's state, for while an answer is pending. */
   readonly plannerState: string | null;
+  /** Opens the to-do agent's hidden chat, once it has one. */
+  readonly onOpenHelper?: (() => void) | undefined;
   /** Opened from the row's Ask: start in the question box. */
   readonly focusQuestion: boolean;
 }) {
@@ -206,7 +213,7 @@ function TodoDetails(props: {
         />
       ) : null}
       <section aria-label="Questions" className="flex flex-col gap-2 border-t border-border pt-3">
-        <DeskHeading>Questions for the planner</DeskHeading>
+        <DeskHeading>Ask about it</DeskHeading>
         {(line.qa ?? []).length > 0 ? (
           <ol className="flex flex-col gap-2">
             {(line.qa ?? []).map((entry) => (
@@ -216,14 +223,16 @@ function TodoDetails(props: {
                 </div>
                 {entry.a ? (
                   <div className="rounded-xl border border-border px-3 py-1.5">
-                    <span className="text-2xs font-semibold text-muted-foreground">Planner</span>
+                    <span className="text-2xs font-semibold text-muted-foreground">Agent</span>
                     <ChatMarkdown text={entry.a} cwd={undefined} />
                   </div>
                 ) : (
                   <span className="text-xs text-muted-foreground">
-                    Waiting for the planner's answer
-                    {props.plannerState ? ` (its chat: ${props.plannerState.toLowerCase()})` : ""}.
-                    It shows here when it's in.
+                    Waiting for the answer
+                    {props.plannerState
+                      ? ` (the agent is ${props.plannerState.toLowerCase()})`
+                      : ""}
+                    . It shows here when it's in.
                   </span>
                 )}
               </li>
@@ -231,14 +240,15 @@ function TodoDetails(props: {
           </ol>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Not clear what to do, or why? Ask here. The planner answers on this to-do.
+            Not clear, or want a hand? Ask here. An agent that knows the plan answers on this to-do,
+            and does what it can of it for you.
           </p>
         )}
         <div className="flex flex-wrap gap-1.5">
           {[
             ...(thin ? ["Add the why and the exact steps, please."] : []),
             "What does done look like, and how do I check it?",
-            "Can an agent do this instead of me?",
+            "Can you do this for me?",
           ].map((preset) => (
             <Button key={preset} size="xs" variant="outline" onClick={() => ask(preset)}>
               {preset}
@@ -277,6 +287,11 @@ function TodoDetails(props: {
           }}
         />
       </section>
+      {props.onOpenHelper ? (
+        <Button size="xs" variant="ghost" className="self-start" onClick={props.onOpenHelper}>
+          Open the agent's full chat
+        </Button>
+      ) : null}
       <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border bg-popover pt-3">
         <Button size="sm" onClick={props.onDone}>
           Done
@@ -305,7 +320,7 @@ function TodoDetails(props: {
           disabled={!question.trim() || uploading > 0}
           onClick={() => ask(question)}
         >
-          Ask the planner
+          Ask
         </Button>
       </div>
     </div>
@@ -923,6 +938,7 @@ interface NeedInput {
 /** Everything that waits on Rigo in this app's sprint, each once, with its one action. */
 function useNeedRows(input: NeedInput): Need[] {
   const sendToChat = useSendToChat();
+  const helper = useTodoHelper();
   const [openDecision, setOpenDecision] = useState<string | null>(null);
   // A to-do opened from its Ask button starts in the question box.
   const [askFocus, setAskFocus] = useState<string | null>(null);
@@ -1226,6 +1242,7 @@ function useNeedRows(input: NeedInput): Need[] {
       const done = () => {
         savePlanLineDone(planner.threadId, line.text);
         void sendToChat(planner, `Done: ${line.text}`);
+        void helper.finish(planner, line);
         setOpenDecision(null);
       };
       const answer = (choice: "yes" | "no") => {
@@ -1243,18 +1260,7 @@ function useNeedRows(input: NeedInput): Need[] {
         );
         toastManager.add({ type: "info", title: "Handed back to the planner" });
       };
-      const question = (text: string) => {
-        savePlanLineQuestion(planner.threadId, line.text, text);
-        void sendToChat(
-          planner,
-          `Rigo asks about your line "${line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.${text.includes("](http") ? " His question has screenshots: download each link (curl -o) and look at it before answering." : ""}`,
-        );
-        toastManager.add({
-          type: "info",
-          title: "Asked the planner",
-          description: "Its answer shows in this to-do when it's in.",
-        });
-      };
+      const question = (text: string) => askHelper(helper, planner, line, text);
       const last = line.qa?.at(-1);
       rows.push({
         key,
@@ -1294,7 +1300,7 @@ function useNeedRows(input: NeedInput): Need[] {
             onOpenItem={input.onOpenItem}
             onDone={done}
             onQuestion={question}
-            plannerState={chatStatus(planner).label}
+            plannerState={null}
             focusQuestion={askFocus === key}
           />
         ),
@@ -1829,6 +1835,27 @@ function PlannerPane(props: {
   );
 }
 
+/** Puts his question on the line and hands it to the line's helper (started on the first one). */
+function askHelper(
+  helper: ReturnType<typeof useTodoHelper>,
+  planner: CardChatState,
+  line: PlanLine,
+  text: string,
+) {
+  savePlanLineQuestion(planner.threadId, line.text, text);
+  void helper.ask(planner, line, text).then((ok) =>
+    toastManager.add(
+      ok
+        ? {
+            type: "info",
+            title: line.helper ? "Asked the to-do's agent" : "Started an agent on this to-do",
+            description: "Its answer shows here when it's in.",
+          }
+        : { type: "error", title: "Couldn't reach an agent for this to-do" },
+    ),
+  );
+}
+
 /**
  * A planner's to-do for Rigo in a side panel: why, the steps, the links, Done, and questions the
  * planner answers on the line. The Now tab's Do rows open here, not in the planner's chat.
@@ -1848,8 +1875,15 @@ export function TodoPanel(props: {
 }) {
   const sheets = useHubSheets();
   const sendToChat = useSendToChat();
+  const helper = useTodoHelper();
   const { todo, planner } = props;
   const line = todo?.line ?? null;
+  const navigate = useNavigate();
+  const helperRef =
+    planner && line?.helper
+      ? scopeThreadRef(planner.environmentId as EnvironmentId, line.helper as ThreadId)
+      : null;
+  const helperShell = useThreadShell(helperRef);
   const item = line?.itemUrl
     ? (props.items.find((entry) => entry.url === line.itemUrl) ?? null)
     : null;
@@ -1865,22 +1899,15 @@ export function TodoPanel(props: {
   const done = () => {
     if (!todo) return;
     savePlanLineDone(todo.threadId, todo.line.text);
-    if (planner) void sendToChat(planner, `Done: ${todo.line.text}`);
+    if (planner) {
+      void sendToChat(planner, `Done: ${todo.line.text}`);
+      void helper.finish(planner, todo.line);
+    }
     toastManager.add({ type: "success", title: "Ticked, planner told" });
     props.onClose();
   };
   const question = (text: string) => {
-    if (!todo || !planner) return;
-    savePlanLineQuestion(todo.threadId, todo.line.text, text);
-    void sendToChat(
-      planner,
-      `Rigo asks about your line "${todo.line.text}": ${text}\n\nAnswer him on the line, so he reads it in the to-do: node ~/.claude/skills/dev-desk/desk.mjs plan answer "${todo.line.text}" "<your answer>" (add --how "<steps>" if the steps change). Short and concrete, with links.${text.includes("](http") ? " His question has screenshots: download each link (curl -o) and look at it before answering." : ""}`,
-    );
-    toastManager.add({
-      type: "info",
-      title: "Asked the planner",
-      description: "Its answer shows in this to-do when it's in.",
-    });
+    if (todo && planner) askHelper(helper, planner, todo.line, text);
   };
   return (
     <Sheet open={line !== null} onOpenChange={(open) => !open && props.onClose()}>
@@ -1902,7 +1929,27 @@ export function TodoPanel(props: {
               onOpenItem={props.onOpenItem}
               onDone={done}
               onQuestion={question}
-              plannerState={planner ? chatStatus(planner).label : null}
+              plannerState={
+                helperShell
+                  ? threadRuntimeIsActive(helperShell.runtime)
+                    ? "Working"
+                    : "Idle"
+                  : null
+              }
+              onOpenHelper={
+                helperRef
+                  ? () => {
+                      props.onClose();
+                      void navigate({
+                        to: "/$environmentId/$threadId",
+                        params: {
+                          environmentId: helperRef.environmentId,
+                          threadId: helperRef.threadId,
+                        },
+                      });
+                    }
+                  : undefined
+              }
               focusQuestion={false}
             />
           </div>

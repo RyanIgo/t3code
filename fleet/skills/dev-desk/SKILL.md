@@ -278,11 +278,12 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   (`gh auth refresh -h github.com -s project`, or `gh auth login` with the device flow), and
   give him only the one-time code and https://github.com/login/device to approve it in his
   browser; then check it took (`gh auth status`) and tick the line.
-- **He asks about a line on the line itself.** His question arrives as "Rigo asks about your
-  line …". Answer it there, not only in chat, so he reads it in the to-do:
-  `desk.mjs plan answer "<the line>" "<short, concrete answer with links>" [--how "<new steps>"]`.
-  If the answer changes what he has to do, update the steps with `--how`, or rewrite the line with
-  `plan set` (his questions stay with it).
+- **His questions on a line go to its helper, not to you.** His first question on a to-do forks
+  a hidden side chat from you, briefed on that line; it answers on the line
+  (`desk.mjs plan answer "<the line>" "<answer>" --planner <your thread id> [--how "<new steps>"]`)
+  and does what it can of the to-do for him. It closes when he ticks Done. Keep the line's text
+  stable while it's open: questions, answers and the helper are matched by it. If a question
+  still reaches you ("Rigo asks about your line …"), answer the same way, without `--planner`.
 - **Work from Rigo's big picture.** `context` shows it ("Rigo's big picture"). When he edits it,
   you get a message; adjust the plan and your open decisions, and say what changed in one line.
 - **Wide tables go to a hub sheet** (t3-artifacts), linked from a one-line summary, not into the

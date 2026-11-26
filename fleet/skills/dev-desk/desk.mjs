@@ -455,7 +455,8 @@ function linkUrl(ref, deskItems, what) {
  * Rigo's lines ("you") carry why, how (markdown steps) and links. `plan show` prints it.
  */
 async function plan(action, rest) {
-  const threadId = thisThread();
+  // A to-do's helper (a side chat of the planner) works on its planner's lines: --planner <id>.
+  const threadId = flags(rest).planner || thisThread();
   if (action === "show") {
     const doc = JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}");
     const lines = doc.work?.[threadId]?.plan ?? [];
@@ -472,7 +473,7 @@ async function plan(action, rest) {
     return;
   }
   if (action === "answer") {
-    // `plan answer "<the line, or a distinctive part of it>" "<answer>" [--how "<steps>"] [--why "<why>"]`
+    // `plan answer "<the line, or a distinctive part of it>" "<answer>" [--how "<steps>"] [--why "<why>"] [--planner <id>]`
     const [which, answer, ...more] = rest;
     if (!which || !answer?.trim()) {
       fail(
@@ -571,6 +572,7 @@ async function plan(action, rest) {
         ...line,
         since: old?.since ?? (old ? (mine.planAt ?? at) : at),
         ...(old?.qa?.length ? { qa: old.qa } : {}),
+        ...(old?.helper ? { helper: old.helper } : {}),
       };
     });
     doc.work[threadId] = { ...mine, plan, planAt: at, updatedAt: at };

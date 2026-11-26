@@ -23,6 +23,7 @@ import {
   withStar,
   type Star,
   withPlanLineDone,
+  withPlanLineHelper,
   withPlanLineQuestion,
   withReportsSent,
   type ChatRole,
@@ -226,6 +227,14 @@ export function savePlanLineQuestion(threadId: string, text: string, question: s
   save(
     withPlanLineQuestion(snapshot.notes, threadId, text, question, new Date().toISOString()),
     "Couldn't save the question",
+  );
+}
+
+/** Links one of a planner's lines to the side chat helping Rigo with it. */
+export function savePlanLineHelper(threadId: string, text: string, helper: string) {
+  save(
+    withPlanLineHelper(snapshot.notes, threadId, text, helper, new Date().toISOString()),
+    "Couldn't link the helper",
   );
 }
 
