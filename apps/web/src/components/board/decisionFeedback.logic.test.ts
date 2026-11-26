@@ -26,6 +26,18 @@ describe("contextSections", () => {
     ]);
     expect(sections[1]?.body).toContain("Still to build");
   });
+  it("splits the manager headings even without blank lines between them", () => {
+    const sections = contextSections(
+      "Merge now?\n**What it is**\n- Bids open from Claude.\n**Why now**\n- Leveling starts Monday.\n**Risk**\n- Low.",
+    );
+    expect(sections.map((section) => section.title)).toEqual([
+      "Merge now?",
+      "What it is",
+      "Why now",
+      "Risk",
+    ]);
+    expect(sections[1]?.body).toBe("**What it is**\n- Bids open from Claude.");
+  });
   it("makes each paragraph a part when nothing is headed", () => {
     expect(contextSections("First thing.\n\nSecond thing.")).toHaveLength(2);
   });

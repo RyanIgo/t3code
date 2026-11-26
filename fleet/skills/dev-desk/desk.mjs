@@ -293,6 +293,35 @@ function many(list, name) {
   return out;
 }
 
+/**
+ * Rigo reads a card's background as a manager: headings and short bullets. Returns what's wrong
+ * with it, or null. His own words (`> ` lines) are exempt.
+ */
+function proseProblems(text) {
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const bullet = /^([-*•]|\d+[.)])\s/;
+  const heading = (line) =>
+    /^(#+\s|\*\*[^*]+\*\*:?$)/.test(line) || (line.length <= 40 && line.endsWith(":"));
+  const prose = lines.filter(
+    (line, index) =>
+      !line.startsWith(">") &&
+      !bullet.test(line) &&
+      !heading(line) &&
+      !(index === 0 && line.length <= 140),
+  );
+  const long = lines.filter((line) => !line.startsWith(">") && line.length > 200);
+  if (!prose.length && !long.length) return null;
+  return [
+    'The background must be headings and short bullets for a manager (see SKILL: "Write the background on the card for a manager"):',
+    ...prose.slice(0, 3).map((line) => `  not a bullet: "${line.slice(0, 80)}…"`),
+    ...long.slice(0, 3).map((line) => `  over 200 characters: "${line.slice(0, 80)}…"`),
+    "Rewrite it under **What it is** / **Why now** / **If you approve** / **Risk** / **Done so far**, outcomes not mechanics.",
+  ].join("\n");
+}
+
 async function decide(question, options) {
   // A flag where the question goes (`decide --help`) would be filed as a question to Rigo.
   if (!question?.trim() || question.trim().startsWith("-")) {
@@ -344,6 +373,8 @@ async function decide(question, options) {
   const context = given["context-file"]
     ? NodeFS.readFileSync(given["context-file"] === "-" ? 0 : given["context-file"], "utf8")
     : (given.context ?? null);
+  const problems = context?.trim() ? proseProblems(context) : null;
+  if (problems) fail(problems);
   const id = given.id ?? Math.random().toString(36).slice(2, 12);
   // Never ask twice: point at a waiting or recently answered decision about the same items.
   if (!given.id) {
@@ -387,7 +418,7 @@ async function decide(question, options) {
   );
   if (!context?.trim()) {
     console.log(
-      "Add --context (or --context-file -): what this is, why now, what he's agreeing to, in plain words.",
+      "Add --context (or --context-file -): **What it is** / **Why now** / **If you approve** / **Risk** / **Done so far**, short bullets for a manager.",
     );
   }
   if (outcomes.length < choices.length) {

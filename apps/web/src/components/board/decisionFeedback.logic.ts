@@ -12,7 +12,7 @@ export interface ContextSection {
 
 /** A line that opens a part of a proposal: "Story 2 —", "**Story 1:**", "QUICK FIXES", "Planner:". */
 const HEADING =
-  /^\s*(?:#+\s*)?(?:\*\*)?\s*(story\s*\d+|quick\s*fix(?:es)?|planner|where things stand|what this is|note|lead|your part)\b/i;
+  /^\s*(?:#+\s*)?(?:\*\*)?\s*(story\s*\d+|quick\s*fix(?:es)?|planner|where things stand|what (?:this|it) is|why now|if you (?:approve|say yes)|risks?|done so far|note|lead|your part)\b/i;
 
 const plain = (line: string) =>
   line
@@ -28,6 +28,9 @@ const plain = (line: string) =>
  */
 export function contextSections(context: string): ContextSection[] {
   const blocks = context
+    .split("\n")
+    .map((line) => (HEADING.test(line) ? `\n${line}` : line))
+    .join("\n")
     .split(/\n\s*\n/)
     .map((block) => block.trim())
     .filter(Boolean);

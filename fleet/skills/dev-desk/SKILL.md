@@ -217,15 +217,34 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   change as a `decide` card rather than editing it.
 - **Bullets, not narrative** (Rigo, 2026-11-24). Everything he reads (decision cards and their
   `--context`, checklist lines and their `how`, reports, a story's "Where it stands", test sheet
-  intros, your messages to him) is short bullets under short headings: one fact or action per
+  intros, your messages to him) is short bullets under short headings, written for an executive /
+  technical manager (outcomes and decisions, not implementation): one fact or action per
   bullet, refs inline (#312, PR #353), no paragraphs. At most one framing line above them. A
   story's status reads like: Stage · Your move · Pieces (2 of 3 done) · PR · Sheet · Next.
-- **Write the background on the card** (`--context`, or `--context-file -` for longer text): in
-  plain words, what this is, why it's coming up now, what the items and PRs involved do for the
-  people who use the app, and what he's agreeing to. **Read the chats that worked on it first**
-  (`t3_thread_read` on each, and their delegated tasks; issue comments and PR descriptions too),
-  and say what each found, did, decided and left open, by chat name. Never just issue or PR numbers: he reads
-  the card, not the code. "Tell me more" means the background wasn't enough; rewrite it.
+- **Write the background on the card for a manager** (`--context`, or `--context-file -`;
+  Rigo, 2026-11-26: "heavily technical narrative and not very manager friendly"). He reads it
+  as an executive / technical manager: outcomes, not mechanics. Use these headings, each with
+  1-3 bullets of at most ~20 words, and skip a heading that has nothing to say:
+  ```
+  **What it is**
+  - <the change, in what the app's users get or stop suffering>
+  **Why now**
+  - <what's blocked or at risk without it; the date or person it matters to>
+  **If you approve**
+  - <what happens next, and when it reaches users>
+  **Risk**
+  - <what could go wrong, or "Low: undoable">
+  **Done so far**
+  - <chat name>: <what it found or finished, one line> (PR #n, sheet)
+  ```
+  - Leave out how it works: file, row and function names, test rigs, tokens, internal tool
+    names. If he needs it, he asks, and the answer goes on the card ("Tell me more" means the
+    background wasn't enough; rewrite it).
+  - **Read the chats that worked on it first** (`t3_thread_read` on each, their delegated
+    tasks, issue comments, PR descriptions) and boil what each did down to one "Done so far"
+    bullet. Never just issue or PR numbers.
+  - Quote his own words only as `> ` lines. `decide` refuses paragraphs and bullets over 200
+    characters.
 - **Give him what he needs to decide without asking:** `--link` every item, PR, sheet or chat it
   touches (repo#n works; the Board shows each with its state now), one `--effect` per option in
   plain words, and `--final` for any option that can't be undone (merging, deleting, emailing,
