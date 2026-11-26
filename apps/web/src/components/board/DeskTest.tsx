@@ -12,6 +12,7 @@ import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "rea
 import { openUrlInPreview } from "~/browser/openFileInPreview";
 import { readThreadPreviewState } from "~/previewStateStore";
 import { useRightPanelStore } from "~/rightPanelStore";
+import { useThreadRunningTerminalIds } from "~/state/terminalSessions";
 import { selectThreadTerminalUiState, useTerminalUiStateStore } from "~/terminalUiStateStore";
 import { DEFAULT_THREAD_TERMINAL_HEIGHT } from "~/types";
 import ChatView from "../ChatView";
@@ -122,6 +123,12 @@ export function TestPage(props: {
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
   const terminalBig = terminal.terminalHeight > DEFAULT_THREAD_TERMINAL_HEIGHT * 1.5;
+  // Commands still running in the chat's terminals (a dev server, a build), as T3's sidebar shows.
+  const running = useThreadRunningTerminalIds({
+    environmentId: threadRef?.environmentId ?? null,
+    threadId: threadRef?.threadId ?? null,
+  }).length;
+  const runningLabel = running > 0 ? ` · ${running} running` : "";
   const showTerminal = (open: boolean) => {
     if (threadRef) useTerminalUiStateStore.getState().setTerminalOpen(threadRef, open);
   };
@@ -248,12 +255,16 @@ export function TestPage(props: {
             {terminalBig ? "Shrink terminal" : "Expand terminal"}
           </Button>
           <Button size="xs" variant="ghost" onClick={() => showTerminal(false)}>
-            Hide terminal
+            Hide terminal{runningLabel}
           </Button>
         </>
       ) : threadRef ? (
-        <Button size="xs" variant="ghost" onClick={() => showTerminal(true)}>
-          Terminal
+        <Button
+          size="xs"
+          variant={running > 0 ? "outline" : "ghost"}
+          onClick={() => showTerminal(true)}
+        >
+          Terminal{runningLabel}
         </Button>
       ) : null}
       {chat ? (
