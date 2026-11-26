@@ -42,6 +42,8 @@ interface Updates {
     readonly id: string;
     readonly at: string;
     readonly machines: ReadonlyArray<string>;
+    /** When each machine was asked; older hubs only have the shared `at`. */
+    readonly askedAt?: Readonly<Record<string, string>>;
   } | null;
   readonly machines: Record<string, Machine>;
 }
@@ -60,6 +62,8 @@ const time = (iso: string) =>
   new Date(iso).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
 const clock = (iso: string) =>
   new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const askedAt = (install: NonNullable<Updates["install"]>, machine: string) =>
+  install.askedAt?.[machine] ?? install.at;
 const minutes = (ms: number) => `${Math.max(0, Math.round(ms / 60_000))} min`;
 
 /** A machine still working on a request that it checked in for recently (asleep ones don't count). */
@@ -72,7 +76,7 @@ const inFlight = (updates: Updates, nowMs: number) =>
           updates.install !== undefined &&
           updates.install.machines.includes(machine.machine) &&
           machine.installDone !== updates.install.id &&
-          nowMs - Date.parse(updates.install.at) < INSTALL_LIMIT_MS)),
+          nowMs - Date.parse(askedAt(updates.install, machine.machine)) < INSTALL_LIMIT_MS)),
   );
 
 function useUpdates(): [Updates | null, (next: Updates) => void] {
@@ -171,7 +175,7 @@ function InstallSteps(props: {
   const building = !finished && machine.phase === "installing" && !!machine.phaseAt;
   const failed = finished && !machine.ok;
   const steps: ReadonlyArray<readonly [string, StepState]> = [
-    [`Asked ${clock(install.at)}`, "done"],
+    [`Asked ${clock(askedAt(install, machine.machine))}`, "done"],
     [
       building && machine.phaseAt
         ? `Picked up ${clock(machine.phaseAt)}`
@@ -271,7 +275,7 @@ export function MachinesCard(props: {
     !!install &&
     install.machines.includes(machine.machine) &&
     machine.installDone === install.id &&
-    props.nowMs - Date.parse(install.at) < DONE_SHOWN_MS;
+    props.nowMs - Date.parse(askedAt(install, machine.machine)) < DONE_SHOWN_MS;
   const rulesLine = (machine: Machine): { text: string; tone: Tone } => {
     if (machine.phase === "updating" || (request && machine.requestDone !== request.id))
       return { text: "Updating now…", tone: "info" };

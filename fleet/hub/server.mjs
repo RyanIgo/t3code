@@ -926,7 +926,24 @@ async function handleUpdates(pathname, req, res, login) {
       .slice(0, 20);
     if (machines.length === 0) return (send(res, 400, { error: "machines required" }), true);
     const state = await changeUpdates((next, at) => {
-      next.install = { id: NodeCrypto.randomBytes(4).toString("hex"), at, by: login, machines };
+      // Machines read one shared install id, so a new ask joins the machines still waiting
+      // instead of replacing them. A machine that already finished this id needs a fresh one.
+      const old = next.install ?? null;
+      const doneWith = (machine) => old && next.machines[machine]?.installDone === old.id;
+      const waiting = old ? old.machines.filter((machine) => !doneWith(machine)) : [];
+      const fresh = !old || machines.some(doneWith);
+      next.install = {
+        id: fresh ? NodeCrypto.randomBytes(4).toString("hex") : old.id,
+        at: fresh ? at : old.at,
+        by: login,
+        machines: [...new Set([...waiting, ...machines])],
+        askedAt: {
+          ...Object.fromEntries(
+            waiting.map((machine) => [machine, old?.askedAt?.[machine] ?? old?.at ?? at]),
+          ),
+          ...Object.fromEntries(machines.map((machine) => [machine, at])),
+        },
+      };
     });
     send(res, 200, state);
     return true;
