@@ -71,6 +71,7 @@ fi
 cp "$repo_root/fleet/hub/server.mjs" "$out_dir/server.mjs"
 cp "$repo_root/fleet/hub/desk.mjs" "$out_dir/desk.mjs"
 cp "$repo_root/fleet/hub/connector.mjs" "$out_dir/connector.mjs"
+cp "$repo_root/fleet/hub/audit.mjs" "$out_dir/audit.mjs"
 # Artifact pages (test sheet, page theme) come from packages/shared so they match T3's look.
 node --input-type=module -e '
   const shared = await import(process.argv[1]);
