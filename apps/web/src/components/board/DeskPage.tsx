@@ -105,6 +105,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { minuteTickToMs } from "./fleetBoard.logic";
+import { HealthView } from "./DeskHealth";
 import { DeskCard, openExternal, STAGE_VARIANT } from "./DeskParts";
 import { BacklogView } from "./DeskBacklog";
 import { AppView, DeskModal, SprintView } from "./DeskViews";
@@ -130,7 +131,15 @@ import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 /** The Desk's tabs; BoardPage shows them in its one tab bar beside Chats. */
-export type DeskTab = "now" | "stories" | "agents" | "machines" | "sprint" | "backlog" | "apps";
+export type DeskTab =
+  | "now"
+  | "stories"
+  | "agents"
+  | "machines"
+  | "health"
+  | "sprint"
+  | "backlog"
+  | "apps";
 const DeskFocusSchema = Schema.NullOr(
   Schema.Struct({
     app: Schema.String,
@@ -1233,6 +1242,7 @@ export function DeskPage(props: {
                   [
                     ["agents", "Agents"],
                     ["machines", "Machines"],
+                    ["health", "Health"],
                     ["backlog", "Backlog"],
                     ["apps", "Apps"],
                   ] as const
@@ -1416,6 +1426,14 @@ export function DeskPage(props: {
             else if (card.stage === "merge" && card.pr) openPr(card.pr);
             else if (card.item) openItemIn([])(card.item);
           }}
+        />
+      ) : mode === "health" ? (
+        <HealthView
+          chats={props.chats}
+          items={items}
+          notes={notes.notes}
+          app={app}
+          onOpenChat={openChat}
         />
       ) : mode === "machines" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-3 pb-6">

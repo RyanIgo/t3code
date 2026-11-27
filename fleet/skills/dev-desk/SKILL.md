@@ -283,11 +283,21 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   - **Keep the list short and moving.** At every `plan set`, look at his open lines: each shows on
     his queue with how long it has waited. One that has sat two days is stuck: ask yourself why
     (unclear, not ready, not his, or he doesn't agree) and fix that, rather than leaving it.
+- **The audit is your checklist's other half.** `plan set` ends with what `audit` finds on your
+  app (also on the Board's Health tab): to-dos without steps or stuck, items with no Feature,
+  priority or plain words, leads with no whose-move line, stale cards. Fix what's yours that turn;
+  `node desk.mjs audit "<app>"` lists it all. The hub fills an item's App from its repo and moves
+  it to In Progress when a chat leads it, so don't spend turns on those. `plan set` keeps only the
+  10 latest done lines.
+- **Close a sprint with one card.** In the sprint's last three days the audit lists its unfinished
+  items; put them on one `decide` card for Rigo (carry each to the next sprint, or drop it), not a
+  to-do per item.
 - **End every story-lead turn with `next` saying whose move it is.** His queue lists a finished
   turn only when its `next` starts with "Rigo:" and names one of his verbs: **review** (a mockup
   round), **test** (the sheet), **merge**, or **do** (a step only he can take), e.g.
   `next "Rigo: review mockup round 2 of #276 (3 screens, ~5 min)"` or
-  `next "Rigo: test bid intake on its sheet (11 checks, ~15 min)"`. Never "Rigo: read …",
+  `next "Rigo: test bid intake on its sheet (11 checks, ~15 min)"`; `next` refuses any other
+  verb after "Rigo:". Never "Rigo: read …",
   "look at …" or "check the chat": if he needs to know something, it belongs on the sheet, the
   mockup or a `decide` card. Anything else ("waiting on CI", "merging after the release") folds
   under "Agents on it", where he doesn't need to open it.

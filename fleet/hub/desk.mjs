@@ -204,7 +204,7 @@ const recentlyClosed = (item, now) =>
   item.state === "draft" ||
   (item.closedAt && now - Date.parse(item.closedAt) < KEEP_CLOSED_DAYS * 86_400_000);
 
-export function createDesk({ dataRoot, project, token, log }) {
+export function createDesk({ dataRoot, project, token, log, onSynced }) {
   const [owner, number] = (project ?? "").split("/");
   const file = NodePath.join(dataRoot, "desk.json");
   let snapshot = { syncedAt: null, error: null, project: null, fields: {}, items: [] };
@@ -294,6 +294,7 @@ export function createDesk({ dataRoot, project, token, log }) {
     };
     await NodeFSP.writeFile(file, JSON.stringify(snapshot), { mode: 0o600 });
     log("desk synced", { items: items.length });
+    onSynced?.();
   }
 
   function run() {

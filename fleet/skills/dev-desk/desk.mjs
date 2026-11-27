@@ -272,6 +272,12 @@ async function focus(given, options) {
 async function nextStep(text) {
   const threadId = thisThread();
   const value = text?.trim() ? text.trim().slice(0, 500) : null;
+  const verb = value?.match(/^Rigo:\s*([A-Za-z-]+)/)?.[1]?.toLowerCase();
+  if (verb && !["review", "test", "merge", "do"].includes(verb)) {
+    fail(
+      `"Rigo: ${verb}" isn't one of his verbs. Use review (a mockup), test (a sheet), merge, or do (a step only he can take), e.g. next "Rigo: do pick the rotation evening on the planner's card". Anything he only needs to know goes on a sheet or a decide card.`,
+    );
+  }
   await changeNotes((doc, at) => {
     const mine = doc.work[threadId] ?? { items: [] };
     doc.work[threadId] = { ...mine, next: value, updatedAt: at };
@@ -596,6 +602,15 @@ async function plan(action, rest) {
       `Rigo's lines link claude.ai pages: ${claudePages.map((line) => `"${line.text}"`).join(", ")}. They can't open beside his to-do. Publish the page on the hub instead (t3-artifacts; a test sheet hands over as next "Rigo: test …"), then link the hub page.`,
     );
   }
+  // Finished lines bury the open ones: keep the latest few (the sprint notes hold the rest).
+  const doneLines = clean.filter((line) => line.done);
+  if (doneLines.length > DONE_KEPT) {
+    const dropped = new Set(doneLines.slice(DONE_KEPT));
+    clean.splice(0, clean.length, ...clean.filter((line) => !dropped.has(line)));
+    console.log(
+      `Kept the first ${DONE_KEPT} done lines and dropped ${dropped.size} older ones; put anything worth keeping in the sprint notes.`,
+    );
+  }
   const thin = clean.filter((line) => line.who === "you" && !line.done && (!line.why || !line.how));
   if (thin.length > 0) {
     console.log(
@@ -620,6 +635,41 @@ async function plan(action, rest) {
   console.log(
     `Checklist saved: ${clean.length} lines, ${clean.filter((line) => !line.done).length} open.`,
   );
+  // What the audit finds on this app, every time: the checks no prompt has to carry.
+  const app = (await call("/fleet/desknotes").then((r) => JSON.parse(r.body?.document ?? "{}")))
+    .work?.[threadId]?.app;
+  if (app) await audit(app, { quiet: true });
+}
+
+/**
+ * `audit [app]`: what's off on the Desk against these rules (the hub's checks, also on the
+ * Board's Health tab): items, planners, Rigo's to-dos, story leads, helpers and decisions.
+ */
+async function audit(given, { quiet = false } = {}) {
+  const result = (await call("/fleet/desk/audit")).body ?? {};
+  const desk = given ? (await call("/fleet/desk")).body : null;
+  const app = given ? resolveApp(desk, given) : null;
+  const findings = (result.findings ?? []).filter((entry) => !app || entry.app === app);
+  if (findings.length === 0) {
+    if (!quiet) console.log(app ? `Audit: nothing off on ${app}.` : "Audit: nothing off.");
+    return;
+  }
+  console.log(
+    `Audit${app ? ` of ${app}` : ""}: ${findings.length} to fix (also on the Board's Health tab).`,
+  );
+  const byKind = new Map();
+  for (const entry of findings) byKind.set(entry.kind, [...(byKind.get(entry.kind) ?? []), entry]);
+  for (const [kind, entries] of byKind) {
+    console.log(`## ${kind} (${entries.length})`);
+    for (const entry of entries.slice(0, quiet ? 8 : 200)) {
+      const where = entry.url?.match(/\/([^/]+)\/(?:issues|pull)\/(\d+)/);
+      console.log(
+        `- ${where ? `${where[1]}#${where[2]} ` : ""}${entry.rule}${entry.detail ? `: ${entry.detail.slice(0, 90)}` : ""} → ${entry.fix}${!app && entry.app ? ` [${entry.app}]` : ""}`,
+      );
+    }
+    if (quiet && entries.length > 8)
+      console.log(`- … ${entries.length - 8} more: node desk.mjs audit "${app}"`);
+  }
 }
 
 /**
@@ -827,6 +877,8 @@ async function capture(text, options) {
 }
 
 const ROLES = ["today", "planner", "work", "helper"];
+/** Done lines a checklist keeps; older ones go (the sprint notes hold what matters). */
+const DONE_KEPT = 10;
 
 // T3 thread ids: a UUID for chats started from the sidebar, longer ids with ":" and "%" for chats
 // another chat started (mcp:launch:…, thread:delegated-task:…). The Board reads the same pattern.
@@ -1149,11 +1201,12 @@ else if (command === "plan") await plan(first, rest);
 else if (command === "option") await option(first, rest);
 else if (command === "field") await field(first, rest);
 else if (command === "agents") await agents(first);
+else if (command === "audit") await audit(first);
 else if (command === "propose") await propose(first, rest[0], rest.slice(1));
 else if (command === "capture") await capture(first, rest);
 else if (command === "report" && first === "--hook") await reportHook().catch(() => {});
 else if (command === "report") await report([first, ...rest]);
 else
   fail(
-    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | feedback [done <id> "<what>"] | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | decide "<question>" … | decisions [app] | retire <id> "<why>" | plan set|show',
+    'Usage: node desk.mjs context [app or repo] | note <app or repo> "<text>" | focus <item> [--thread <id>] | next "<text>" | inbox | feedback [done <id> "<what>"] | propose <id> <action> … | capture "<text>" | role <level> … | agents [app] | audit [app] | decide "<question>" … | decisions [app] | retire <id> "<why>" | plan set|show',
   );

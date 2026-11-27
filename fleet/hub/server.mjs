@@ -10,6 +10,7 @@ import * as NodeFSP from "node:fs/promises";
 import * as NodeHttp from "node:http";
 import * as NodePath from "node:path";
 
+import { auditDesk, tidyChanges } from "./audit.mjs";
 import { createConnector } from "./connector.mjs";
 import { createDesk } from "./desk.mjs";
 
@@ -778,11 +779,58 @@ const desk = createDesk({
   project: readSetting("desk-project", "HUB_DESK_PROJECT"),
   token: readSetting("github-token", "HUB_GITHUB_TOKEN"),
   log,
+  onSynced: () => void tidyDesk(),
 });
+
+async function readNotesDocument() {
+  const record = await readDocument("desknotes");
+  try {
+    return record.document ? JSON.parse(record.document) : {};
+  } catch {
+    return {};
+  }
+}
+
+// The fields no agent should have to remember: an item's app from its repo, and In Progress
+// once a chat leads it. Runs after every sync; each change is a GitHub field write.
+let lastTidy = { at: null, changes: [], errors: [] };
+let tidying = false;
+async function tidyDesk() {
+  if (tidying || !desk.configured) return;
+  tidying = true;
+  try {
+    const changes = tidyChanges(desk.view(), await readNotesDocument());
+    const done = [];
+    const errors = [];
+    for (const change of changes.slice(0, 100)) {
+      try {
+        await desk.setField(change.itemId, change.field, change.value);
+        done.push(change);
+      } catch (error) {
+        errors.push({ ...change, error: String(error.message ?? error) });
+      }
+    }
+    if (changes.length > 0) {
+      lastTidy = { at: new Date().toISOString(), changes: done, errors };
+      log("desk tidied", { changed: done.length, failed: errors.length });
+    }
+  } finally {
+    tidying = false;
+  }
+}
 
 async function handleDesk(pathname, req, res) {
   if (pathname === "/fleet/desk" && req.method === "GET") {
     send(res, 200, desk.view());
+    return true;
+  }
+  if (pathname === "/fleet/desk/audit" && req.method === "GET") {
+    const view = desk.view();
+    send(res, 200, {
+      syncedAt: view.syncedAt,
+      findings: auditDesk(view, await readNotesDocument()),
+      tidy: lastTidy,
+    });
     return true;
   }
   if (pathname === "/fleet/desk/refresh" && req.method === "POST") {
