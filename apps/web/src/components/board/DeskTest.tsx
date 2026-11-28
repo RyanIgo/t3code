@@ -28,6 +28,7 @@ import type { CardChatState } from "./boardCards.logic";
 import { chatStatus, chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import type { DeskNotes } from "./deskNotes.logic";
 import { useSendToChat } from "./deskSend";
+import { openSplitScreen } from "./DeskParts";
 import { type SheetSummary, useSheetDetail, useSheetRelay } from "./deskSheets";
 import { openChatTerminal, ReviewAppCard } from "./DeskWork";
 import { uploadPicture } from "./deskStore";
@@ -151,12 +152,33 @@ export function TestPage(props: {
     .replace(/[*_`#]+/g, "");
   const appUrl = detail?.app?.url ?? null;
 
+  // Dev opens beside the sheet in T3's browser; Live (production data, his sign-ins) opens split
+  // screen in his own browser. Either can switch: T3's streamed browser can be slow.
+  const [view, setView] = useState<"beside" | "split" | null>(null);
+  const shown = view ?? (detail?.where?.env === "live" ? "split" : "beside");
+  const openSplit = (url: string) => {
+    if (openSplitScreen(url) === "snap") {
+      toastManager.add({
+        type: "info",
+        title: "Opened in your browser",
+        description: "Snap it to the right half: Windows key + →.",
+      });
+    }
+  };
+  const showView = (next: "beside" | "split") => {
+    setView(next);
+    if (next === "split" && appUrl) openSplit(appUrl);
+    if (next === "beside" && appUrl) void openInBrowser(appUrl);
+  };
+  // Links from the sheet follow the mode: T3's browser beside, or his own browser split screen.
+  const openLink = (url: string) => (shown === "split" ? openSplit(url) : void openInBrowser(url));
+
   // Submitted: the sheet is the chat's now, so he goes back to his queue, told where it went.
   useSheetRelay(
     frame,
     chat,
     title,
-    (url) => void openInBrowser(url),
+    (url) => openLink(url),
     () => {
       toastManager.add({
         type: "success",
@@ -167,7 +189,7 @@ export function TestPage(props: {
     },
   );
 
-  const openApp = useEffectEvent((url: string) => void openInBrowser(url));
+  const openApp = useEffectEvent((url: string) => openLink(url));
   // The app under test opens in the browser once, when the page first shows this sheet.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the app in the chat's browser once per sheet
   useEffect(() => {
@@ -266,6 +288,26 @@ export function TestPage(props: {
         >
           Terminal{runningLabel}
         </Button>
+      ) : null}
+      {appUrl ? (
+        <span className="inline-flex overflow-hidden rounded-md border border-border">
+          {(["beside", "split"] as const).map((option) => (
+            <Button
+              key={option}
+              size="xs"
+              variant={shown === option ? "default" : "ghost"}
+              aria-pressed={shown === option}
+              onClick={() => showView(option)}
+            >
+              {option === "beside" ? "Beside" : "Split screen"}
+            </Button>
+          ))}
+        </span>
+      ) : null}
+      {detail?.where ? (
+        <Badge variant={detail.where.env === "live" ? "error" : "outline"} size="sm">
+          {detail.where.env === "live" ? "Live data" : "Dev"}
+        </Badge>
       ) : null}
       {chat ? (
         <Button size="xs" variant="outline" onClick={() => setConversation(!conversation)}>

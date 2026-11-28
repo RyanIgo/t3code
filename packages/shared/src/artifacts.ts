@@ -50,7 +50,7 @@ export function artifactThemeHead(): string {
 export function artifactSheetHtml(): string {
   return injectHtmlRenderBootstrap(`<!doctype html><html><head><title>Test sheet</title>
 <style>${SHEET_CSS}</style></head><body>
-<header><div class="in-t3" id="in-t3" hidden><span>Test this in T3: the app in T3's browser beside the sheet, the chat that built it, and its terminal on that machine.</span><a id="test-page" href="#">Open the Test page →</a></div><h1 id="title"></h1>
+<header><div class="in-t3" id="in-t3" hidden><span>Test this in T3: the app in T3's browser beside the sheet, the chat that built it, and its terminal on that machine.</span><a id="test-page" href="#">Open the Test page →</a></div><h1 id="title"></h1><span class="where" id="where" hidden></span>
 <section class="app" id="app" hidden><div class="app-line"><span class="label">App</span><a id="app-link" href="#"></a></div>
 <div class="app-line" id="start-line" hidden><span class="label" id="start-label">If it doesn't load, start it:</span><code id="start"></code><button type="button" id="copy">Copy</button></div></section>
 <details class="intro-box" id="intro-box" open><summary>About this test</summary><p class="intro" id="intro"></p></details><p class="tally" id="tally"></p>
@@ -63,6 +63,13 @@ export function artifactSheetHtml(): string {
 
 const SHEET_CSS = `
 body{padding:14px 16px 18px;max-width:960px}
+.row[data-type]{border-left-width:4px;border-left-style:solid}
+.row[data-type=verify]{border-left-color:#2563eb}.row[data-type=workflow]{border-left-color:#7c3aed}.row[data-type=data]{border-left-color:#d97706}.row[data-type=reconcile]{border-left-color:#0d9488}
+.type{display:inline-block;font-size:11px;font-weight:700;padding:1px 8px;border-radius:999px;margin-right:6px;background:var(--muted);color:var(--foreground)}
+.goto,.pass{font-size:13px;margin-top:4px}.goto b,.pass b{font-weight:600}
+.steps{margin:4px 0 0;padding-left:18px;font-size:13px}
+.where{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;margin:2px 0 6px;background:var(--muted)}
+.where.live{background:#fee2e2;color:#991b1b}
 h1{font-size:16px;margin:0 0 4px}
 .intro{margin:0 0 6px;color:var(--muted-foreground);white-space:pre-wrap}
 .intro:empty{display:none}.intro-box>summary{cursor:pointer;color:var(--muted-foreground);font-size:12px;margin-bottom:4px}
@@ -130,6 +137,8 @@ const SHEET_SCRIPT = `(function(){var a=window.t3artifact,rows=a.rows||[],V=[["p
 var hostOpens=false;addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.type==="t3-host:opens-links"){hostOpens=true;document.body.classList.add("hosted");document.getElementById("intro-box").open=false;}});
 document.addEventListener("click",function(e){if(!hostOpens||window.parent===window)return;var x=e.target&&e.target.closest?e.target.closest("a[href]"):null;if(!x||!/^https?:/.test(x.getAttribute("href")||""))return;e.preventDefault();parent.postMessage({type:"t3-page:open",url:x.href},"*");},true);
 document.title=a.title;document.getElementById("title").textContent=a.title;document.getElementById("intro").textContent=a.intro||"";if(!a.intro)document.getElementById("intro-box").hidden=true;
+if(a.where){var wh=document.getElementById("where");wh.hidden=false;wh.className="where "+a.where.env;wh.textContent=(a.where.env==="live"?"Live: production data":"Dev: test build")+(a.where.why?" · "+a.where.why:"");}
+var TYPES={verify:"Verify screen",workflow:"Test workflow",data:"Check data",reconcile:"Reconcile"};
 function short(u){try{var x=new URL(u);var t=x.host+(x.pathname==="/"?"":x.pathname)+x.search+x.hash;return t.length>90?t.slice(0,87)+"…":t;}catch(e){return u;}}
 if(a.app){document.getElementById("app").hidden=false;var al=document.getElementById("app-link");al.href=a.app.url;al.target="_blank";al.rel="noopener";al.textContent=short(a.app.url);
 if(a.app.start){document.getElementById("start-line").hidden=false;document.getElementById("start").textContent=a.app.start;if(a.app.machine)document.getElementById("start-label").textContent="If it doesn't load, start it on "+a.app.machine+":";
@@ -148,11 +157,14 @@ document.getElementById("next").hidden=!open;
 document.getElementById("submit").textContent=(hosted?"Send results":"Save results")+(open?" ("+open+" not checked)":"");
 var rb=document.getElementById("retests");rb.hidden=!rl;document.getElementById("retest-count").textContent=rl===1?"1 check was":rl+" checks were";}
 function when(t){try{return new Date(t).toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});}catch(e){return"";}}
-function render(){var focus=document.activeElement&&document.activeElement.dataset.row,group=null;main.textContent="";if(onlyRetests===null)onlyRetests=retestsLeft()>0;document.getElementById("only-retests").checked=onlyRetests;rows.forEach(function(r){if(onlyRetests&&!r.retest)return;if(r.group&&r.group!==group){group=r.group;var h=document.createElement("h2");h.textContent=group;main.appendChild(h);}var s=st(r.id),el=document.createElement("section");el.className="row";el.dataset.row=r.id;if(s.status)el.dataset.status=s.status;
-var top=document.createElement("div");top.className="top";var what=document.createElement("div");what.className="what";var t=document.createElement("div");t.className="title";t.textContent=r.title;if(r.retest){var bg=document.createElement("span");bg.className="badge";bg.textContent=s.status?"Re-tested":"Retest";t.appendChild(bg);}what.appendChild(t);
+function render(){var focus=document.activeElement&&document.activeElement.dataset.row,group=null;main.textContent="";if(onlyRetests===null)onlyRetests=retestsLeft()>0;document.getElementById("only-retests").checked=onlyRetests;rows.forEach(function(r){if(onlyRetests&&!r.retest)return;if(r.group&&r.group!==group){group=r.group;var h=document.createElement("h2");h.textContent=group;main.appendChild(h);}var s=st(r.id),el=document.createElement("section");el.className="row";el.dataset.row=r.id;if(TYPES[r.type])el.dataset.type=r.type;if(s.status)el.dataset.status=s.status;
+var top=document.createElement("div");top.className="top";var what=document.createElement("div");what.className="what";var t=document.createElement("div");t.className="title";if(TYPES[r.type]){var ty=document.createElement("span");ty.className="type";ty.textContent=TYPES[r.type];t.appendChild(ty);}t.appendChild(document.createTextNode(r.title));if(r.retest){var bg=document.createElement("span");bg.className="badge";bg.textContent=s.status?"Re-tested":"Retest";t.appendChild(bg);}what.appendChild(t);
 if(r.retest){var fx=document.createElement("div");fx.className="fixed";linkify(fx,(/^fixed\\b/i.test(r.retest)?"":"Fixed: ")+r.retest);what.appendChild(fx);}
 if(s.previous&&s.previous.status){var bf=document.createElement("div");bf.className="before";var pn=(s.previous.note||"").replace(/!\\[[^\\]]*\\]\\([^)]*\\)/g,"[screenshot]").replace(/\\s+/g," ").trim();bf.textContent="Before: "+({pass:"passed",fail:"failed",skip:"skipped",blocked:"blocked"}[s.previous.status]||s.previous.status)+(pn?" · "+(pn.length>160?pn.slice(0,157)+"…":pn):"")+(s.previous.at?" ("+when(s.previous.at)+")":"");what.appendChild(bf);}
 if(r.detail){var d=document.createElement("div");d.className="detail";linkify(d,r.detail);what.appendChild(d);}
+if(r.goTo){var gt=document.createElement("div");gt.className="goto";var gb=document.createElement("b");gb.textContent="Go to: ";gt.appendChild(gb);var gl=document.createElement("a");gl.href=r.goTo;gl.target="_blank";gl.rel="noopener";gl.textContent=short(r.goTo)+" ↗";gt.appendChild(gl);what.appendChild(gt);}
+if(r.steps&&r.steps.length){var su=document.createElement("ul");su.className="steps";r.steps.forEach(function(x){var li=document.createElement("li");linkify(li,x);su.appendChild(li);});what.appendChild(su);}
+if(r.pass){var pa=document.createElement("div");pa.className="pass";var pb=document.createElement("b");pb.textContent="Pass if: ";pa.appendChild(pb);pa.appendChild(document.createTextNode(r.pass));what.appendChild(pa);}
 if(r.links&&r.links.length){var ls=document.createElement("div");ls.className="links";r.links.forEach(function(l){var x=document.createElement("a");x.href=l.url;x.target="_blank";x.rel="noopener";x.textContent=l.label||short(l.url);ls.appendChild(x);});what.appendChild(ls);}top.appendChild(what);
 var ch=document.createElement("div");ch.className="choices";ch.setAttribute("role","group");ch.setAttribute("aria-label","Result for "+r.title);V.forEach(function(v){var b=document.createElement("button");b.type="button";b.dataset.v=v[0];b.textContent=(s.status===v[0]?"✓ ":"")+v[1];b.setAttribute("aria-pressed",String(s.status===v[0]));b.onclick=function(){var p={};p[r.id]={status:s.status===v[0]?null:v[0]};save(p);};ch.appendChild(b);});top.appendChild(ch);el.appendChild(top);
 var n=document.createElement("textarea");n.placeholder="Note (what you saw, steps, links). Paste or drop a screenshot.";n.value=s.note||"";n.dataset.row=r.id;n.setAttribute("aria-label","Note for "+r.title);n.onchange=function(){var p={};p[r.id]={note:n.value};save(p);};

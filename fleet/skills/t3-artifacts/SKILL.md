@@ -25,43 +25,58 @@ artifact in the chat. If the script says there's no hub address, ask the user fo
 
 For test plans and checklists, publish a sheet; you write no HTML.
 
+Every check is a **card**: its type, the page it starts on, short steps, and what passing looks
+like. No narrative checks: `publish` refuses a test sheet that isn't on this form and names what's
+missing (checklists with `"checklist": true` are exempt).
+
 ```json
 {
   "title": "#201 Procore login matching",
+  "where": { "env": "dev", "why": "test build on igo-dell, seeded data" },
   "app": {
     "url": "http://igo-dell.tail0392d7.ts.net:5190/people",
     "start": "cd ~/code/cfe-data-warehouse && doppler run -- npm run dev -- --host 0.0.0.0 --port 5190",
     "machine": "igo-dell"
   },
-  "intro": "Mark each one and note what you saw.",
+  "intro": "We matched people by their Procore login. Check the matches below.",
   "rows": [
     {
       "id": "match-exact",
       "group": "Matching",
+      "type": "verify",
       "title": "Exact login matches",
-      "detail": "Open a person whose email matches their Procore login.\nExpect: linked.",
-      "url": "http://igo-dell.tail0392d7.ts.net:5190/people/42",
-      "links": [
-        { "label": "Issue #201", "url": "https://github.com/cfevans/cfe-data-warehouse/issues/201" }
-      ]
+      "goTo": "https://igo-dell.tail0392d7.ts.net:5190/people/42",
+      "steps": ["Open the person", "Look at the Procore column"],
+      "pass": "Shows Linked with their Procore login"
     },
     {
-      "id": "no-user",
-      "group": "Edge cases",
-      "title": "No Procore user",
-      "detail": "Expect: unmatched."
+      "id": "unlink",
+      "type": "workflow",
+      "title": "Unlink and relink",
+      "goTo": "https://igo-dell.tail0392d7.ts.net:5190/people/42",
+      "steps": ["Press Unlink", "Press Link, pick the same login"],
+      "pass": "Linked again, nobody else changed"
     }
   ]
 }
 ```
 
+- `where`, **required**: `"dev"` (a machine's build or staging; it opens in T3's browser beside the
+  sheet) or `"live"` (production data; it opens split screen in Rigo's own signed-in browser),
+  with `why` in one line.
+- `type` on every check: `verify` (look and confirm a screen), `workflow` (do the steps, check the
+  result), `data` (compare numbers or records), `reconcile` (the approved mockup against the built
+  screen; open a sheet with these when screens changed). The sheet shows each as a coloured card.
+- `goTo`: the exact https page the check starts on, as deep as the routes go. `steps`: short
+  actions, one per line. `pass`: one line, what he sees when it passes.
+- The intro says what happened and what it means for him ("We fixed the 2 checks that failed;
+  re-run them"), not how you built it.
 - `app`, **required** (`url`, `start`, `machine`): the app's Tailscale URL, the one-line command
   that starts it again, and the machine. The hub refuses a sheet without it; the Desk's Review
   tab shows them with a Copy button and a way back to this chat and its terminal. For a checklist
   with nothing running (decisions, acceptance criteria), send `"checklist": true` instead.
-- Each row links the exact page to review, as deep as the app's routes go (path, hash route,
-  record id, tab), not just the app's home page: `url`, and/or `links` (`{ url, label? }`, up to
-  10). Use full URLs with the path and record id.
+- Extra pages a check needs go in `links` (`{ url, label? }`, up to 10). Never GitHub issues:
+  those are for agents.
 - Each row gets Pass / Fail / Skip / Blocked and a note. Up to 300 rows.
 - Give rows stable ids. To change the sheet, publish again with `"id": "<id>"` added: results for
   rows you keep stay, removed rows drop out, and open copies reload.

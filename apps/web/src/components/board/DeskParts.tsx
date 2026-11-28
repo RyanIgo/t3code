@@ -32,6 +32,23 @@ export function openExternal(url: string) {
   else window.open(url, "_blank", "noopener,noreferrer");
 }
 
+/**
+ * Split screen (Board contract): a page in his own signed-in browser on the right half of the
+ * screen, beside T3. A browser can place the window; the desktop app can only open his browser,
+ * so it says how to snap it.
+ */
+export function openSplitScreen(url: string): "placed" | "snap" {
+  const api = readLocalApi();
+  if (window.desktopBridge && api) {
+    void api.shell.openExternal(url);
+    return "snap";
+  }
+  const width = Math.floor(window.screen.availWidth / 2);
+  const features = `popup,left=${width},top=0,width=${width},height=${window.screen.availHeight}`;
+  window.open(url, "t3-split-screen", features);
+  return "placed";
+}
+
 export const STAGE_VARIANT = {
   Experiment: "outline",
   Testing: "warning",

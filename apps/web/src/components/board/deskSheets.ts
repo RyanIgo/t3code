@@ -38,7 +38,10 @@ export interface SheetSummary {
 interface SheetDetail {
   readonly id: string;
   readonly app: { readonly url: string; readonly start?: string; readonly machine?: string } | null;
+  /** Dev (a test build, opens beside) or Live (production data, opens split screen). */
+  readonly where: { readonly env: "dev" | "live"; readonly why?: string } | null;
   readonly rows: ReadonlyArray<{
+    readonly goTo?: string;
     readonly id?: string;
     readonly title?: string;
     readonly url?: string;
@@ -97,6 +100,7 @@ export function useSheetDetail(id: string | null): SheetDetail | null {
             setDetail({
               id,
               app: body.app ?? null,
+              where: body.where?.env === "dev" || body.where?.env === "live" ? body.where : null,
               rows: body.rows ?? [],
               results: Object.fromEntries(
                 Object.entries(rows ?? {}).flatMap(([rowId, row]) =>
@@ -171,7 +175,8 @@ export function sheetIsIncomplete(detail: SheetDetail): boolean {
   return (
     !detail.app?.url ||
     !detail.rows.some(
-      (row) => row.url || (row.links?.length ?? 0) > 0 || /https?:\/\//.test(row.detail ?? ""),
+      (row) =>
+        row.url || row.goTo || (row.links?.length ?? 0) > 0 || /https?:\/\//.test(row.detail ?? ""),
     )
   );
 }

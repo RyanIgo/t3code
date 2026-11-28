@@ -6,6 +6,8 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { sheetProblems } from "./sheetForm.mjs";
+
 function fail(message) {
   console.error(message);
   process.exit(1);
@@ -70,6 +72,14 @@ function readSpec(arg) {
   if (Array.isArray(spec.rows) === (typeof spec.html === "string")) {
     fail('Give either "rows" (a test sheet) or "html" / "htmlFile" (a page).');
   }
+  if (Array.isArray(spec.rows) && spec.checklist !== true) {
+    const problems = sheetProblems(spec);
+    if (problems.length > 0) {
+      fail(
+        `This test sheet isn't on the check-card form (t3-artifacts SKILL, "Test sheets"):\n- ${problems.join("\n- ")}`,
+      );
+    }
+  }
   return spec;
 }
 
@@ -81,6 +91,7 @@ async function publish(arg) {
     title: spec.title,
     ...(spec.intro ? { intro: spec.intro } : {}),
     ...(spec.app ? { app: spec.app } : {}),
+    ...(spec.where ? { where: spec.where } : {}),
     ...(spec.checklist === true ? { checklist: true } : {}),
     ...(spec.rows ? { rows: spec.rows } : { html: spec.html }),
     ...(threadId ? { thread: { environmentId: "", threadId } } : {}),

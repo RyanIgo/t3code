@@ -364,6 +364,19 @@ function cleanApp(app) {
   };
 }
 
+const CHECK_TYPES = new Set(["verify", "workflow", "data", "reconcile"]);
+
+/** Where a test runs: Dev (a machine or staging) or Live (production data), and why. */
+function cleanWhere(where) {
+  if (where?.env !== "dev" && where?.env !== "live") return null;
+  return {
+    env: where.env,
+    ...(typeof where.why === "string" && where.why.trim()
+      ? { why: where.why.trim().slice(0, 300) }
+      : {}),
+  };
+}
+
 function cleanRows(rows) {
   if (!Array.isArray(rows)) return null;
   const seen = new Set();
@@ -380,6 +393,23 @@ function cleanRows(rows) {
       ...(links.length > 0 ? { links } : {}),
       ...(typeof row.detail === "string" ? { detail: row.detail.slice(0, 4000) } : {}),
       ...(typeof row.group === "string" ? { group: row.group.slice(0, 120) } : {}),
+      // Check cards (Board contract, 2026-11-28): what kind of check, where to go, the steps, and
+      // what passing looks like. Older sheets without them render as before.
+      ...(CHECK_TYPES.has(row.type) ? { type: row.type } : {}),
+      ...(typeof row.goTo === "string" && /^https:\/\/\S+$/.test(row.goTo)
+        ? { goTo: row.goTo.slice(0, 2000) }
+        : {}),
+      ...(Array.isArray(row.steps)
+        ? {
+            steps: row.steps
+              .filter((step) => typeof step === "string" && step.trim())
+              .slice(0, 10)
+              .map((step) => step.trim().slice(0, 300)),
+          }
+        : {}),
+      ...(typeof row.pass === "string" && row.pass.trim()
+        ? { pass: row.pass.trim().slice(0, 500) }
+        : {}),
       // Set by the chat when it fixed this check: what changed, so Rigo knows what to re-test.
       ...(typeof row.retest === "string" && row.retest.trim()
         ? { retest: row.retest.trim().slice(0, 1000) }
@@ -432,6 +462,7 @@ function artifactPage(artifact) {
     version: artifact.version,
     intro: artifact.intro ?? null,
     app: artifact.app ?? null,
+    where: artifact.where ?? null,
     rows: artifact.rows ?? null,
     state: artifact.state ?? null,
     submittedAt: artifact.submissions?.at(-1)?.at ?? null,
@@ -464,7 +495,7 @@ function call(path,method,body){return fetch(base+path,{method:method,headers:{"
 function toChat(text,data){if(window.parent===window)return Promise.resolve(false);return new Promise(function(done){var id="t3a-"+(++n);function on(e){var m=e.data;if(m&&m.type==="t3-page:result"&&m.id===id){removeEventListener("message",on);done(m.ok===true);}}addEventListener("message",on);parent.postMessage({type:"t3-page:send",id:id,text:text,data:data},"*");setTimeout(function(){removeEventListener("message",on);done(false);},8000);});}
 function refresh(){return call("","GET").then(function(a){if(a.version!==A.version){location.reload();return;}if(JSON.stringify(a.state)!==JSON.stringify(A.state)){A.state=a.state;fns.forEach(function(f){f(A.state);});}}).catch(function(){});}
 setInterval(function(){if(document.visibilityState==="visible")refresh();},15000);document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")refresh();});
-window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,submittedAt:A.submittedAt,
+window.t3artifact={get state(){return A.state;},id:A.id,rows:A.rows,title:A.title,intro:A.intro,app:A.app,where:A.where,submittedAt:A.submittedAt,
 save:function(value){return call("/state","POST",A.kind==="sheet"?value:{data:value}).then(function(a){A.state=a.state;return a.state;});},
 submit:function(text,data){return call("/submit","POST",{text:text}).then(function(){return toChat(text,data);}).then(function(chat){return{saved:true,chat:chat};});},
 onChange:function(f){fns.push(f);},
@@ -716,6 +747,7 @@ async function publishArtifact(id, create, req, reply, login) {
       thread: thread ?? existing?.thread ?? null,
       ...(kind === "html" ? { html: body.html } : {}),
       ...(cleanApp(body.app) ? { app: cleanApp(body.app) } : {}),
+      ...(cleanWhere(body.where) ? { where: cleanWhere(body.where) } : {}),
       ...(typeof body.intro === "string" && body.intro.trim()
         ? { intro: body.intro.trim().slice(0, 2000) }
         : {}),
