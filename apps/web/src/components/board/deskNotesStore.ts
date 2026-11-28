@@ -18,6 +18,7 @@ import {
   type InboxNote,
   withInboxNote,
   withNextStep,
+  withWrapAsked,
   withDecisionAnswer,
   withPushBack,
   withStar,
@@ -199,8 +200,19 @@ export function saveStar(star: Omit<Star, "updatedAt" | "until">, until: string 
   save(withStar(snapshot.notes, star, until, new Date().toISOString()), "Couldn't save the star");
 }
 
+/** Counts one of the Board contract's measures on the hub (shown on Health). Best effort. */
+export function recordMeasure(kind: "later" | "sentBack") {
+  void fetch("/fleet/desk/measure", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
+}
+
 /** Pushes a Now row back until a date, or brings it back (until null). */
 export function savePushBack(key: string, until: string | null, title: string) {
+  if (until !== null) recordMeasure("later");
   save(
     withPushBack(snapshot.notes, key, until, title, new Date().toISOString()),
     "Couldn't save the push back",
@@ -224,6 +236,7 @@ export function saveReportsSent(plannerId: string, threadIds: ReadonlyArray<stri
 
 /** Puts Rigo's question on one of a planner's lines. */
 export function savePlanLineQuestion(threadId: string, text: string, question: string) {
+  recordMeasure("sentBack");
   save(
     withPlanLineQuestion(snapshot.notes, threadId, text, question, new Date().toISOString()),
     "Couldn't save the question",
@@ -259,6 +272,13 @@ export function saveChatRole(
 }
 
 /** Sets the next step a chat's (thread id's) panel shows. */
+export function saveWrapAsked(threadId: string, itemUrl: string, next: string) {
+  save(
+    withWrapAsked(snapshot.notes, threadId, itemUrl, next, new Date().toISOString()),
+    "Couldn't save the wrap-up",
+  );
+}
+
 export function saveNextStep(threadId: string, next: string | null) {
   save(
     withNextStep(snapshot.notes, threadId, next, new Date().toISOString()),

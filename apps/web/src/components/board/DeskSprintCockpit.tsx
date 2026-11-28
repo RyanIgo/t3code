@@ -46,7 +46,7 @@ import {
   type PlannerTodo,
   waitingReports,
 } from "./deskNotes.logic";
-import { savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
+import { recordMeasure, savePlanLineDone, savePlanLineQuestion } from "./deskNotesStore";
 import { uploadPicture } from "./deskStore";
 import { DeskHeading, openExternal, TypeTag, useMachineName } from "./DeskParts";
 import { type DeskPr, isDependencyUpdate, PR_STAGES } from "./deskPrs.logic";
@@ -1297,6 +1297,7 @@ function useNeedRows(input: NeedInput): Need[] {
         setOpenDecision(null);
       };
       const notMine = () => {
+        recordMeasure("sentBack");
         void sendToChat(
           planner,
           `Not mine: "${line.text}". Have an agent do it, or wait until it's ready for me (then put it back with what I do and where). If only I can do it, tell me why in one line. Update the checklist either way.`,

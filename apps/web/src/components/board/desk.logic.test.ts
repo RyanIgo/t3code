@@ -373,7 +373,7 @@ it("names a chat's status, needing the user first", () => {
       .map(chatStatus)
       .sort((a, b) => a.rank - b.rank)
       .map((status) => status.label),
-  ).toEqual(["Needs you", "Checks failing", "Result ready", "Working", "Idle", "Idle"]);
+  ).toEqual(["Needs you", "Checks failing", "Turn done", "Working", "Idle", "Idle"]);
 });
 
 describe("itemByTitleRef", () => {

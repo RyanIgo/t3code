@@ -217,6 +217,8 @@ export interface DeskChatWork {
   readonly planAt?: string | null;
   /** When a planner last got its chats' reports. */
   readonly updatesSentAt?: string | null;
+  /** The item URL the Board last asked this chat to wrap up, so it asks once per item. */
+  readonly wrapAsked?: string | null;
   readonly updatedAt: string;
 }
 
@@ -1038,6 +1040,7 @@ function readWork(value: unknown): Record<string, DeskChatWork> {
               ? { updatesSentAt: work.updatesSentAt }
               : {}),
             ...(typeof work.planAt === "string" ? { planAt: work.planAt } : {}),
+            ...(typeof work.wrapAsked === "string" ? { wrapAsked: work.wrapAsked } : {}),
             updatedAt: work.updatedAt,
           },
         ],
@@ -1184,6 +1187,20 @@ export function withNextStep(
       },
     },
   };
+}
+
+/** Records that the Board asked a chat to wrap up an item: its next step and the item, once. */
+export function withWrapAsked(
+  notes: DeskNotes,
+  chatKey: string,
+  itemUrl: string,
+  next: string,
+  at: string,
+): DeskNotes {
+  const updated = withNextStep(notes, chatKey, next, at);
+  const work = updated.work[chatKey];
+  if (!work) return updated;
+  return { ...updated, work: { ...updated.work, [chatKey]: { ...work, wrapAsked: itemUrl } } };
 }
 
 /** Records a chat's (thread id's) level, and for a planner its app, for a helper its parent. */

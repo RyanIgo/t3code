@@ -6,6 +6,7 @@
 import type { CardChatState } from "./boardCards.logic";
 import type { DeskItem } from "./desk.logic";
 import { chatFocus, type ChatRole, chatRoleOf, dayKey, type DeskNotes } from "./deskNotes.logic";
+import { isStaleAsk } from "./wrapUp.logic";
 
 export interface WorkRow {
   readonly chat: CardChatState;
@@ -16,6 +17,8 @@ export interface WorkRow {
   readonly app: string | null;
   /** A helper's story lead (thread id), when it's recorded; the sidebar nests it there. */
   readonly parent: string | null;
+  /** The chat waits on Rigo; false for a stale ask on finished work. */
+  readonly needsYou: boolean;
 }
 
 export interface WorkApp {
@@ -102,8 +105,9 @@ export function buildWorkSidebar(input: {
       item,
       app,
       parent: role === "helper" ? (input.notes.work[chat.threadId]?.parent ?? null) : null,
+      needsYou: chat.needsYou && !isStaleAsk(chat, input.notes, input.items),
     };
-    const busy = chat.working || chat.needsYou;
+    const busy = chat.working || row.needsYou;
     if (link?.kind === "today") {
       if (link.day === today) todayRow = row;
       else if (!busy) wrapUp.push(row);
@@ -133,9 +137,7 @@ export function buildWorkSidebar(input: {
     Date.parse(b.chat.since ?? "") - Date.parse(a.chat.since ?? "");
   return {
     today: todayRow,
-    needsYou: needsYou.toSorted(
-      (a, b) => Number(b.chat.needsYou) - Number(a.chat.needsYou) || newest(a, b),
-    ),
+    needsYou: needsYou.toSorted((a, b) => Number(b.needsYou) - Number(a.needsYou) || newest(a, b)),
     apps: [...groups]
       .toSorted(([a], [b]) => order(a) - order(b) || a.localeCompare(b))
       .map(([app, rows]) => ({
@@ -144,7 +146,7 @@ export function buildWorkSidebar(input: {
         work: nestHelpers(
           rows.work.toSorted(
             (a, b) =>
-              Number(b.chat.needsYou) - Number(a.chat.needsYou) ||
+              Number(b.needsYou) - Number(a.needsYou) ||
               Number(b.chat.working) - Number(a.chat.working) ||
               newest(a, b),
           ),

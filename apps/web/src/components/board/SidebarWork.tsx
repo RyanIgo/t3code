@@ -110,7 +110,7 @@ export function SidebarWork() {
   };
 
   const row = (entry: WorkRow, options: { readonly showApp?: boolean } = {}) => {
-    const status = chatStatus(entry.chat);
+    const status = chatStatus(entry.needsYou ? entry.chat : { ...entry.chat, needsYou: false });
     const age = formatFleetBoardAge(entry.chat.since, nowMs);
     const level = deskLevel(entry.role, entry.item);
     return (
@@ -133,7 +133,7 @@ export function SidebarWork() {
                 : chatTitle(entry.chat.title)}
             </span>
             <span className="shrink-0">
-              {entry.chat.needsYou ? (
+              {entry.needsYou ? (
                 <VerbChip verb="Needs you" className="w-auto" />
               ) : (
                 <Badge variant={status.tone} size="sm">

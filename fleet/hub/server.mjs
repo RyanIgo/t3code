@@ -791,6 +791,34 @@ async function readNotesDocument() {
   }
 }
 
+// The Board contract's measures (2026-11-28): Laters pressed, to-dos sent back, handoffs the desk
+// tool bounced. Counted per day, 30 days kept; shown on the Health tab.
+const MEASURE_KINDS = new Set(["later", "sentBack", "bounced"]);
+const measuresFile = NodePath.join(DATA_ROOT, "measures.json");
+let measuresWrite = Promise.resolve();
+async function readMeasures() {
+  try {
+    return JSON.parse(await NodeFSP.readFile(measuresFile, "utf8"));
+  } catch {
+    return { days: {} };
+  }
+}
+function countMeasure(kind) {
+  measuresWrite = measuresWrite
+    .then(async () => {
+      const measures = await readMeasures();
+      const day = new Date().toISOString().slice(0, 10);
+      const counts = measures.days[day] ?? {};
+      counts[kind] = (counts[kind] ?? 0) + 1;
+      measures.days[day] = counts;
+      const keep = Object.keys(measures.days).toSorted().slice(-30);
+      measures.days = Object.fromEntries(keep.map((key) => [key, measures.days[key]]));
+      await NodeFSP.writeFile(measuresFile, JSON.stringify(measures), { mode: 0o600 });
+    })
+    .catch((error) => log("measure failed", { error: String(error) }));
+  return measuresWrite;
+}
+
 // The fields no agent should have to remember: an item's app from its repo, and In Progress
 // once a chat leads it. Runs after every sync; each change is a GitHub field write.
 let lastTidy = { at: null, changes: [], errors: [] };
@@ -830,7 +858,18 @@ async function handleDesk(pathname, req, res) {
       syncedAt: view.syncedAt,
       findings: auditDesk(view, await readNotesDocument()),
       tidy: lastTidy,
+      measures: (await readMeasures()).days,
     });
+    return true;
+  }
+  if (pathname === "/fleet/desk/measure" && req.method === "POST") {
+    const body = JSON.parse((await readBody(req)) || "{}");
+    if (!MEASURE_KINDS.has(body?.kind)) {
+      send(res, 400, { error: `Unknown measure "${body?.kind}".` });
+      return true;
+    }
+    await countMeasure(body.kind);
+    send(res, 200, { ok: true });
     return true;
   }
   if (pathname === "/fleet/desk/refresh" && req.method === "POST") {

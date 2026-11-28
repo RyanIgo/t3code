@@ -650,7 +650,8 @@ export function chatStatus(chat: CardChatState): ChatStatus {
   if (chat.pullRequests.some((pr) => pr.state === "open" && pr.checks === "failing")) {
     return { label: "Checks failing", tone: "error", rank: 1 };
   }
-  if (chat.column === "done") return { label: "Result ready", tone: "success", rank: 2 };
+  // A finished turn is news, not a task: his move shows on Now only when the chat hands it to him.
+  if (chat.column === "done") return { label: "Turn done", tone: "secondary", rank: 2 };
   if (chat.working) return { label: "Working", tone: "info", rank: 3 };
   // The board's "queued" column is idle chats plus starting ones, which count as working above.
   return { label: "Idle", tone: "secondary", rank: 4 };

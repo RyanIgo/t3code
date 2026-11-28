@@ -451,7 +451,7 @@ export function DeskModal(props: {
   const { item } = props;
   const notes = useDeskNotes().notes;
   const hubSheets = useHubSheets();
-  // The window only looks at a chat; Mark reviewed is what clears its "Result ready".
+  // The window only looks at a chat; Mark reviewed is what clears its "Turn done".
   const acknowledge = useAcknowledgeThreadWoke();
   const itemSheets = item ? sheetsForItem(hubSheets, item, notes) : [];
   const yourTest =

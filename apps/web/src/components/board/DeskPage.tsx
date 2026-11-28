@@ -14,6 +14,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { isElectron } from "../../env";
 import { useLocalStorage, writeLocalStorageValue } from "../../hooks/useLocalStorage";
 import { useNowMinute } from "../../hooks/useNowMinute";
+import { useThreadActions } from "../../hooks/useThreadActions";
 import { cn } from "../../lib/utils";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
@@ -76,6 +77,7 @@ import {
   saveDeskPin,
   useDeskNotes,
   saveNextStep,
+  saveWrapAsked,
   savePushBack,
   saveStar,
 } from "./deskNotesStore";
@@ -93,7 +95,7 @@ import {
 } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
 import { toastManager } from "../ui/toast";
-import { chatsToWrapUp, WRAP_ASKED, wrapUpMessage } from "./wrapUp.logic";
+import { chatsToSettle, chatsToWrapUp, WRAP_ASKED, wrapUpMessage } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
 import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
@@ -203,7 +205,9 @@ function useWrapUpNudges(
       const asked = `${chat.threadId} ${item.url}`;
       if (wrapUpAsked.has(asked)) continue;
       wrapUpAsked.add(asked);
-      saveNextStep(chat.threadId, `${WRAP_ASKED} of ${deskRef(item) ?? item.title}`);
+      if (item.url)
+        saveWrapAsked(chat.threadId, item.url, `${WRAP_ASKED} of ${deskRef(item) ?? item.title}`);
+      else saveNextStep(chat.threadId, `${WRAP_ASKED} of ${deskRef(item) ?? item.title}`);
       void sendToChat(chat, wrapUpMessage(item)).then((sent) => {
         if (sent)
           toastManager.add({
@@ -214,6 +218,49 @@ function useWrapUpNudges(
       });
     }
   }, [notes, chats, items, sendToChat]);
+}
+
+// Settled in this page's lifetime, so a slow notes poll doesn't settle the same chat twice.
+const autoSettled = new Set<string>();
+
+/**
+ * The agents settle their chats, not Rigo (2026-11-28): a lead once its item shipped and it wrapped
+ * up, a helper once its parent's item shipped or it went quiet. Unsettle brings one back.
+ */
+function useAutoSettle(
+  notes: DeskNotes,
+  chats: ReadonlyArray<CardChatState>,
+  items: ReadonlyArray<DeskItem>,
+  nowMs: number,
+) {
+  const { settleThread } = useThreadActions();
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- settles finished chats on their machines
+  useEffect(() => {
+    const due = chatsToSettle(notes, chats, items, nowMs).filter(
+      (chat) => !autoSettled.has(`${chat.environmentId}:${chat.threadId}`),
+    );
+    if (due.length === 0) return;
+    for (const chat of due) autoSettled.add(`${chat.environmentId}:${chat.threadId}`);
+    void (async () => {
+      let done = 0;
+      for (const chat of due) {
+        try {
+          await settleThread(
+            scopeThreadRef(chat.environmentId as EnvironmentId, chat.threadId as ThreadId),
+          );
+          done += 1;
+        } catch {
+          // A machine that's off: tried again next page load.
+        }
+      }
+      if (done > 0)
+        toastManager.add({
+          type: "info",
+          title: `Settled ${done} finished chat${done === 1 ? "" : "s"}`,
+          description: "Their work shipped. Find them under Settled chats if you need one back.",
+        });
+    })();
+  }, [notes, chats, items, nowMs, settleThread]);
 }
 
 function launcherApp(context: DeskChatContext): string | null {
@@ -341,6 +388,7 @@ export function DeskPage(props: {
   const sprint = currentSprint(view?.sprints ?? [], nowMs);
   useDeliverReports(notes.notes, items, props.pinnable, nowMs);
   useWrapUpNudges(notes.notes, props.pinnable, items);
+  useAutoSettle(notes.notes, props.chats, items, nowMs);
   // A Desk link followed while already here (e.g. from a chat in the work window) only changes
   // the fragment; apply it the same way and clear it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for `#desk=…` fragment changes in the browser's address

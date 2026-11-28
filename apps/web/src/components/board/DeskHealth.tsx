@@ -14,6 +14,7 @@ import { toastManager } from "../ui/toast";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem } from "./desk.logic";
 import { chatFocus, type DeskNotes } from "./deskNotes.logic";
+import { MEASURES, measureTotals } from "./deskHealth.logic";
 import { DeskHeading, openExternal } from "./DeskParts";
 
 interface AuditFinding {
@@ -32,6 +33,8 @@ interface AuditResult {
     readonly at: string | null;
     readonly changes: ReadonlyArray<{ field: string; value: string }>;
   };
+  /** Day (YYYY-MM-DD) → counts of the contract's measures. */
+  readonly measures?: Readonly<Record<string, Readonly<Record<string, number>>>>;
 }
 
 const GROUP_TITLE: Record<string, string> = {
@@ -162,6 +165,28 @@ export function HealthView(props: {
               : ""}
           </p>
         </section>
+
+        {audit?.measures ? (
+          <section aria-label="Measures" className="grid grid-cols-3 gap-2 max-sm:grid-cols-1">
+            {MEASURES.map((measure) => {
+              const total = measureTotals(audit.measures ?? {}, props.nowMs)[measure.kind];
+              return (
+                <div key={measure.kind} className="rounded-md border border-border px-3 py-2">
+                  <p className="text-2xs font-semibold uppercase text-muted-foreground">
+                    {measure.label}
+                  </p>
+                  <p className="text-lg font-semibold tabular-nums">
+                    {total?.week ?? 0}
+                    <span className="ms-1 text-xs font-normal text-muted-foreground">
+                      7 days · {total?.today ?? 0} today
+                    </span>
+                  </p>
+                  <p className="text-2xs text-muted-foreground">{measure.note}</p>
+                </div>
+              );
+            })}
+          </section>
+        ) : null}
 
         {finished.length > 0 ? (
           <section className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3">

@@ -29,7 +29,7 @@ import {
   type Star,
   starOn,
 } from "./deskNotes.logic";
-import { savePlanLineDone } from "./deskNotesStore";
+import { recordMeasure, savePlanLineDone } from "./deskNotesStore";
 import {
   AppDot,
   appColor,
@@ -40,7 +40,7 @@ import {
   VerbChip,
 } from "./deskLevels";
 import { arrivals, backAgain, handledLast, stamp } from "./deskFocus.logic";
-import { shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
+import { isStaleAsk, shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useTodoHelper } from "./deskHelper";
 import { useSendToChat } from "./deskSend";
 
@@ -550,6 +550,7 @@ function QueueRow(props: {
   };
   const toAgent = () => {
     if (!planner) return;
+    recordMeasure("sentBack");
     void sendToChat(
       planner,
       `Not mine: "${todoText}". Have an agent do it, or wait until it's ready for me (then put it back with what I do and where). If only I can do it, tell me why in one line. Update the checklist either way.`,
@@ -803,7 +804,11 @@ export function useNowEntries(props: NowInput): {
         }),
       ),
     ...props.chats
-      .filter((chat) => chat.needsYou)
+      .filter(
+        (chat) =>
+          chat.needsYou &&
+          !(props.notes && props.items && isStaleAsk(chat, props.notes, props.items)),
+      )
       .map((chat) =>
         chatEntry(
           chat,

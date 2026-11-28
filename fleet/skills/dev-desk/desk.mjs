@@ -28,6 +28,21 @@ function hubUrl() {
   return new URL(configured).origin;
 }
 
+/** A contract refusal: counted on the hub (Health tab's "bounced"), then the same as fail. */
+async function bounce(message) {
+  try {
+    await fetch(`${hubUrl()}/fleet/desk/measure`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "bounced" }),
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch {
+    // Counting is best effort; the refusal still stands.
+  }
+  fail(message);
+}
+
 async function call(path, init = {}) {
   let response;
   try {
@@ -274,7 +289,7 @@ async function nextStep(text) {
   const value = text?.trim() ? text.trim().slice(0, 500) : null;
   const verb = value?.match(/^Rigo:\s*([A-Za-z-]+)/)?.[1]?.toLowerCase();
   if (verb && !["review", "test", "merge", "do"].includes(verb)) {
-    fail(
+    await bounce(
       `"Rigo: ${verb}" isn't one of his verbs. Use review (a mockup), test (a sheet), merge, or do (a step only he can take), e.g. next "Rigo: do pick the rotation evening on the planner's card". Anything he only needs to know goes on a sheet or a decide card.`,
     );
   }
@@ -380,7 +395,7 @@ async function decide(question, options) {
     ? NodeFS.readFileSync(given["context-file"] === "-" ? 0 : given["context-file"], "utf8")
     : (given.context ?? null);
   const problems = context?.trim() ? proseProblems(context) : null;
-  if (problems) fail(problems);
+  if (problems) await bounce(problems);
   const id = given.id ?? Math.random().toString(36).slice(2, 12);
   // Never ask twice: point at a waiting or recently answered decision about the same items.
   if (!given.id) {
@@ -598,7 +613,7 @@ async function plan(action, rest) {
     (line) => line.who === "you" && line.links.some((link) => /claude\.ai\/.*artifact/.test(link)),
   );
   if (claudePages.length > 0) {
-    fail(
+    await bounce(
       `Rigo's lines link claude.ai pages: ${claudePages.map((line) => `"${line.text}"`).join(", ")}. They can't open beside his to-do. Publish the page on the hub instead (t3-artifacts; a test sheet hands over as next "Rigo: test …"), then link the hub page.`,
     );
   }
