@@ -57,6 +57,7 @@ import {
   ALL_APPS,
   focusedThreads,
   openDecisions,
+  liveTodos,
   plannerTodos,
   type PlannerDecision,
   type PlannerTodo,
@@ -95,7 +96,7 @@ import {
 } from "./deskSheets";
 import { StatusSyncBar } from "./DeskWrapUp";
 import { toastManager } from "../ui/toast";
-import { chatsToSettle, chatsToWrapUp, WRAP_ASKED, wrapUpMessage } from "./wrapUp.logic";
+import { chatsToSettle, chatsToWrapUp, isShipped, WRAP_ASKED, wrapUpMessage } from "./wrapUp.logic";
 import { useSendToChat } from "./deskSend";
 import { FeedbackButton, InboxStrip, QuickNoteButton, QuickNoteDialog } from "./DeskInbox";
 import { MobileBottomBar, MobileNow, type MobileScreen, MobileSprint } from "./DeskMobile";
@@ -389,6 +390,10 @@ export function DeskPage(props: {
   useDeliverReports(notes.notes, items, props.pinnable, nowMs);
   useWrapUpNudges(notes.notes, props.pinnable, items);
   useAutoSettle(notes.notes, props.chats, items, nowMs);
+  const isShippedUrl = (url: string) => {
+    const item = items.find((entry) => entry.url === url);
+    return item !== undefined && isShipped(item);
+  };
   // A Desk link followed while already here (e.g. from a chat in the work window) only changes
   // the fragment; apply it the same way and clear it.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- listens for `#desk=…` fragment changes in the browser's address
@@ -1269,7 +1274,7 @@ export function DeskPage(props: {
           onOpenPr={openPr}
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
-          todos={plannerTodos(notes.notes)}
+          todos={liveTodos(plannerTodos(notes.notes), isShippedUrl)}
           onOpenTodo={openTodo}
           // Always the sheet that was pressed: an item's Review tab shows its newest sheet, so
           // several sheets on one story all opened the same screen.
@@ -1414,7 +1419,7 @@ export function DeskPage(props: {
           onOpenPr={openPr}
           decisions={openDecisions(notes.notes)}
           onOpenDecision={openDecision}
-          todos={plannerTodos(notes.notes)}
+          todos={liveTodos(plannerTodos(notes.notes), isShippedUrl)}
           onOpenTodo={openTodo}
           onOpenSheet={(sheet) => openExternal(testPageUrl(sheet.id))}
         />

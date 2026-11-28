@@ -126,6 +126,24 @@ export interface PlanLine {
   readonly since?: string | null;
   /** The hidden side chat (forked from the planner) that answers his questions and helps him do it. */
   readonly helper?: string | null;
+  /** Do form (Board contract, 2026-11-28): what finishing it unblocks. */
+  readonly unblocks?: string | null;
+  /** Why no agent can do it. */
+  readonly onlyYou?: OnlyYou | null;
+  /** The steps, each with where to go and how he knows it's done. */
+  readonly steps?: ReadonlyArray<DoStep>;
+  /** About how long it takes him. */
+  readonly minutes?: number | null;
+}
+
+const ONLY_YOU = ["sign-in", "phone", "person", "judgement"] as const;
+export type OnlyYou = (typeof ONLY_YOU)[number];
+
+export interface DoStep {
+  readonly text: string;
+  /** The page the step happens on (https). */
+  readonly goTo: string | null;
+  readonly doneWhen: string | null;
 }
 
 export interface PlanQuestion {
@@ -717,6 +735,30 @@ function readPlan(value: unknown): PlanLine[] | null {
             })
             .slice(-20),
           helper: typeof line.helper === "string" && line.helper ? line.helper : null,
+          unblocks: short(line.unblocks, 300),
+          onlyYou: ONLY_YOU.includes(line.onlyYou as OnlyYou) ? (line.onlyYou as OnlyYou) : null,
+          steps: (Array.isArray(line.steps) ? line.steps : [])
+            .flatMap((raw: unknown) => {
+              if (typeof raw !== "object" || raw === null) return [];
+              const step = raw as Record<string, unknown>;
+              const text = short(step.text, 300);
+              if (!text) return [];
+              return [
+                {
+                  text,
+                  goTo:
+                    typeof step.goTo === "string" && /^https:\/\/[^\s]+$/.test(step.goTo)
+                      ? step.goTo
+                      : null,
+                  doneWhen: short(step.doneWhen, 300),
+                },
+              ];
+            })
+            .slice(0, 12),
+          minutes:
+            typeof line.minutes === "number" && line.minutes > 0
+              ? Math.min(Math.round(line.minutes), 600)
+              : null,
         },
       ];
     })
@@ -751,6 +793,17 @@ export function plannerTodos(notes: DeskNotes, app: string | null = null): Plann
           .map((line) => ({ threadId, app: work.app ?? null, line }))
       : [],
   );
+}
+
+/**
+ * Gate 2 of the Do contract: a to-do about an item that has shipped is stale and leaves his lists
+ * (the audit tells the planner to drop it).
+ */
+export function liveTodos(
+  todos: ReadonlyArray<PlannerTodo>,
+  isShippedUrl: (url: string) => boolean,
+): PlannerTodo[] {
+  return todos.filter((todo) => !todo.line.itemUrl || !isShippedUrl(todo.line.itemUrl));
 }
 
 /** The planner a chat reports to: a helper's parent (or its parent's planner), else its app's newest planner. */

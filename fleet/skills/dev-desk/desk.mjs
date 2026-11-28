@@ -7,6 +7,8 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
+import { doFormProblems, ONLY_YOU } from "./doForm.mjs";
+
 function fail(message) {
   console.error(message);
   process.exit(1);
@@ -607,7 +609,45 @@ async function plan(action, rest) {
         .filter((link) => typeof link === "string")
         .slice(0, 8)
         .map((link) => linkUrl(link, deskItems, '"links"')),
+      // The Do form (Board contract): what it unblocks, why only he can, the steps, the minutes.
+      ...(typeof line.unblocks === "string" && line.unblocks.trim()
+        ? { unblocks: line.unblocks.trim().slice(0, 300) }
+        : {}),
+      ...(ONLY_YOU.includes(line.onlyYou) ? { onlyYou: line.onlyYou } : {}),
+      ...(Array.isArray(line.steps)
+        ? {
+            steps: line.steps.slice(0, 12).map((step) => ({
+              text: typeof step?.text === "string" ? step.text.trim().slice(0, 300) : "",
+              goTo:
+                typeof step?.goTo === "string" && step.goTo.trim()
+                  ? linkUrl(step.goTo.trim(), deskItems, '"goTo"')
+                  : null,
+              doneWhen:
+                typeof step?.doneWhen === "string" && step.doneWhen.trim()
+                  ? step.doneWhen.trim().slice(0, 300)
+                  : null,
+            })),
+          }
+        : {}),
+      ...(Number.isFinite(line.minutes) && line.minutes > 0
+        ? { minutes: Math.min(Math.round(line.minutes), 600) }
+        : {}),
     }));
+  // New to-dos for Rigo must be on the Do form; lines already on the list keep working as they are.
+  const previous = new Set(
+    (
+      JSON.parse((await call("/fleet/desknotes")).body?.document ?? "{}").work?.[threadId]?.plan ??
+      []
+    ).map((line) => line.text),
+  );
+  const formProblems = clean
+    .filter((line) => line.who === "you" && !line.done && !previous.has(line.text))
+    .flatMap((line) => doFormProblems(line).map((problem) => `"${line.text}": ${problem}`));
+  if (formProblems.length > 0) {
+    await bounce(
+      `Rigo's new to-dos aren't on the Do form (dev-desk SKILL, "Rigo's lines are his to-do list"):\n- ${formProblems.join("\n- ")}`,
+    );
+  }
   // His lines open their links beside the to-do; claude.ai pages refuse to show inside another page.
   const claudePages = clean.filter(
     (line) => line.who === "you" && line.links.some((link) => /claude\.ai\/.*artifact/.test(link)),
@@ -626,10 +666,12 @@ async function plan(action, rest) {
       `Kept the first ${DONE_KEPT} done lines and dropped ${dropped.size} older ones; put anything worth keeping in the sprint notes.`,
     );
   }
-  const thin = clean.filter((line) => line.who === "you" && !line.done && (!line.why || !line.how));
+  const thin = clean.filter(
+    (line) => line.who === "you" && !line.done && !line.steps?.length && (!line.why || !line.how),
+  );
   if (thin.length > 0) {
     console.log(
-      `Rigo's lines need "why" and "how": ${thin.map((line) => `"${line.text}"`).join(", ")}. Add them so he can do each without asking.`,
+      `Rigo's lines not yet on the Do form: ${thin.map((line) => `"${line.text}"`).join(", ")}. Rewrite them on it (SKILL, "Rigo's lines are his to-do list") so he can do each without asking.`,
     );
   }
   await changeNotes((doc, at) => {

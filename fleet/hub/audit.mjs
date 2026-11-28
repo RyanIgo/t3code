@@ -9,6 +9,17 @@ const RIGO_VERBS = new Set(["review", "test", "merge", "do"]);
 const QUICK_FIX = new Set(["Bug", "Maintenance"]);
 const TESTY = /\b(test sheet|re-?test)\b/i;
 
+/** Closed, or every PR settled with one merged (the Board's isShipped). */
+function shipped(item) {
+  if (item.state === "closed" || item.state === "merged") return true;
+  const prs = item.pullRequests ?? [];
+  return (
+    prs.length > 0 &&
+    prs.every((pr) => pr.state === "merged" || pr.state === "closed") &&
+    prs.some((pr) => pr.state === "merged")
+  );
+}
+
 function days(at, now) {
   const ms = Date.parse(at ?? "");
   return Number.isFinite(ms) ? (now - ms) / DAY : null;
@@ -173,14 +184,38 @@ export function auditDesk(view, notes, now = Date.now()) {
           detail: line.text,
           url: line.itemUrl ?? undefined,
         };
-        if (!line.why || !line.how) {
-          add({ ...base, rule: "No why or no steps", fix: "Planner: add why and how" });
-        }
         if ((line.links ?? []).some((link) => /claude\.ai\//.test(link))) {
           add({
             ...base,
             rule: "Links a claude.ai page",
             fix: "Planner: publish it on the hub (t3-artifacts)",
+          });
+        }
+        // Gate 2 (current): a to-do about shipped work is dropped; one written before its item
+        // last changed is re-checked by the planner.
+        const about = line.itemUrl ? byUrl.get(line.itemUrl) : null;
+        if (about && shipped(about)) {
+          add({
+            ...base,
+            rule: "About an item that already shipped",
+            fix: "Planner: drop it from the checklist (it's hidden from Rigo already)",
+          });
+        } else if (
+          about?.updatedAt &&
+          line.since &&
+          Date.parse(about.updatedAt) - Date.parse(line.since) > DAY
+        ) {
+          add({
+            ...base,
+            rule: "Its item changed after this was written",
+            fix: "Planner: re-check the steps still hold, then plan set",
+          });
+        }
+        if ((line.steps ?? []).length === 0) {
+          add({
+            ...base,
+            rule: "Not on the Do form (no steps with links)",
+            fix: "Planner: rewrite it on the Do form at the next plan set",
           });
         }
         if (TESTY.test(line.text)) {

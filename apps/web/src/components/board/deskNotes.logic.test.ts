@@ -13,6 +13,7 @@ import {
   withRole,
   focusedChat,
   untitledTodayChats,
+  liveTodos,
   plannerTodos,
   goalOf,
   waitingReports,
@@ -219,6 +220,47 @@ describe("desk notes", () => {
     };
     expect(plannerTodos(notes).map((todo) => todo.line.text)).toEqual(["Test the sheet"]);
     expect(plannerTodos(notes, "Materials")).toEqual([]);
+    // Gate 2: a to-do about a shipped item leaves his lists.
+    const onItem = plannerTodos(notes).map((todo) => ({
+      ...todo,
+      line: { ...todo.line, itemUrl: "https://github.com/o/r/issues/1" },
+    }));
+    expect(liveTodos(onItem, () => true)).toEqual([]);
+    expect(liveTodos(onItem, () => false)).toHaveLength(1);
+    // The Do form survives a save: steps keep their link and done-when; bad links drop.
+    const form = {
+      ...notes,
+      work: {
+        "planner-one": {
+          ...notes.work["planner-one"],
+          plan: [
+            {
+              text: "Add the routine",
+              who: "you",
+              done: false,
+              itemUrl: null,
+              onlyYou: "sign-in" as const,
+              minutes: 5,
+              steps: [
+                {
+                  text: "Open Precon",
+                  goTo: "https://precon.cfevans.com/#/claude",
+                  doneWhen: "open",
+                },
+                { text: "Paste", goTo: "javascript:alert(1)", doneWhen: null },
+              ],
+            },
+          ],
+        },
+      },
+    };
+    const line = parseDeskNotes(JSON.stringify(form)).work["planner-one"]?.plan?.[0];
+    expect(line?.onlyYou).toBe("sign-in");
+    expect(line?.minutes).toBe(5);
+    expect(line?.steps).toEqual([
+      { text: "Open Precon", goTo: "https://precon.cfevans.com/#/claude", doneWhen: "open" },
+      { text: "Paste", goTo: null, doneWhen: null },
+    ]);
     const ticked = withPlanLineDone(notes, "planner-one", "Test the sheet", at);
     expect(plannerTodos(ticked)).toEqual([]);
     expect(withPlanLineDone(notes, "planner-one", "Missing", at)).toBe(notes);

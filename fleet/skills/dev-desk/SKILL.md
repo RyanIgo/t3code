@@ -260,20 +260,39 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   or board option, running a script, filing or editing issues: an agent (a work chat or helper)
   does those. If an agent needs his OK for a kind of chore, ask once as a decision for standing
   permission ("May agents restart the reader on the WSL box when a build lands?"), then just do it.
-  Keep each line to one action, and give every one:
-  - `why`: one sentence on why it matters now and what it unblocks.
-  - `how`: numbered steps with the exact screen, menu, command and values. Commands in backticks.
-  - `links`: every page, issue, PR or sheet he needs (URLs or repo#n). The Board shows each
-    with where it stands, and the first one is his **Start here** button, so put the page he
-    starts on first. Pages go on the hub (t3-artifacts), never claude.ai: hub pages open beside
-    the to-do, and `plan set` refuses claude.ai links on his lines.
+  Keep each line to one action. A new line of his must be on the **Do form**; `plan set` refuses
+  it otherwise and names the missing field:
+  ```json
+  {
+    "text": "Add the bid-intake routine to Precon's Claude library",
+    "who": "you",
+    "item": "cfe-drawings#312",
+    "minutes": 5,
+    "onlyYou": "sign-in",
+    "why": "The Set up bid intake panel reads this document.",
+    "unblocks": "#312 closing",
+    "steps": [
+      { "text": "Copy the routine", "goTo": "<hub page>", "doneWhen": "copied" },
+      {
+        "text": "Precon → Claude → Other documents → Add, paste, save",
+        "goTo": "https://precon.cfevans.com/#/claude",
+        "doneWhen": "it shows as version 1"
+      }
+    ]
+  }
+  ```
+  - `onlyYou` is why no agent can: `sign-in`, `phone`, `person` or `judgement`. Can't name one?
+    Then it isn't his: an agent does it.
+  - `steps` are short actions, one per card he ticks. Each says where (`goTo`, an https page he
+    acts on) and how he knows it worked (`doneWhen`). No paragraphs; no GitHub issue links
+    (issues are for agents); no claude.ai pages (publish on the hub with t3-artifacts).
+  - `item` is the repo#n it belongs to: when that ships, the line drops off his list, and the
+    audit tells you to remove it. If the item changes after you wrote the line, re-check it.
   - **A test is not a to-do.** Testing a change is a hub test sheet handed over with
-    `next "Rigo: test …"`, which opens on his Test page with the app beside it.
-    `plan set` warns about a line of his without `why` or `how`. When he asks for the steps,
-    rewrite the line with them and `plan set` again. A question is never a "you" line:
-    it's a `decide`. A line about an item or PR carries `"item"`, so the Board folds it into that
-    item's row instead of listing it twice. "Done: <line>" from him means it's done: tick it in
-    your next `plan set` and act on it; "About "<line>": …" means say exactly what you need.
+    `next "Rigo: test …"`; `plan set` refuses a to-do that is a test.
+  - A question is never a "you" line: it's a `decide`. "Done: <line>" from him means it's done:
+    tick it in your next `plan set` and act on it; "About "<line>": …" means say exactly what
+    you need.
   - **Only what he can do now.** A line waiting on someone else or on an agent ("wait for the
     agent's list, then…", "ask Reed to…" while Reed's sheet isn't ready) is that person's or the
     agents' line until it's ready; then it becomes his. Never put a one-time code on a line: it

@@ -35,6 +35,7 @@ import {
   workKind,
   wrapUpLeft,
 } from "./desk.logic";
+import { DoSteps } from "./DeskDoSteps";
 import { BigPicture, DecisionCard, LinkedThing, linkName, useDecisionActions } from "./DeskAgents";
 import ChatMarkdown from "../ChatMarkdown";
 import {
@@ -172,10 +173,24 @@ function TodoDetails(props: {
   // On the Do page the first link is where he starts: one button, before the reading.
   const start = props.onOpenLink ? links[0] : undefined;
   const linkedItem = props.context.item?.url ? links.includes(props.context.item.url) : false;
+  // A to-do on the Do form: tick cards instead of the free-text how.
+  const formSteps = (line.steps ?? []).length > 0;
+  const planAt = formSteps
+    ? (Object.values(props.notes.work).find((work) => work.plan?.includes(line))?.planAt ?? null)
+    : null;
+  const checkedAgo = planAt ? formatFleetBoardAge(planAt, props.nowMs) : null;
   return (
     <div className="flex flex-col gap-3 text-sm">
       <p className="text-base font-medium">{line.text}</p>
-      {props.pageBeside ? (
+      {formSteps ? (
+        <DoSteps
+          line={line}
+          onOpenLink={props.onOpenLink}
+          opensLabel={props.opensLabel}
+          checked={checkedAgo ? `${checkedAgo} ago` : null}
+        />
+      ) : null}
+      {formSteps ? null : props.pageBeside ? (
         <div className="flex flex-col gap-1 rounded-md border border-border bg-muted/40 px-3 py-2">
           <span className="text-xs font-semibold">Your move</span>
           <span>Follow the steps on the page beside →</span>
@@ -197,15 +212,17 @@ function TodoDetails(props: {
           </span>
         </div>
       ) : null}
-      <section className="flex flex-col gap-1">
-        <DeskHeading>Why</DeskHeading>
-        {line.why ? (
-          <p>{line.why}</p>
-        ) : (
-          <p className="text-muted-foreground">The planner didn't say why.</p>
-        )}
-      </section>
-      {props.pageBeside && line.how ? (
+      {formSteps ? null : (
+        <section className="flex flex-col gap-1">
+          <DeskHeading>Why</DeskHeading>
+          {line.why ? (
+            <p>{line.why}</p>
+          ) : (
+            <p className="text-muted-foreground">The planner didn't say why.</p>
+          )}
+        </section>
+      )}
+      {formSteps ? null : props.pageBeside && line.how ? (
         <details className="text-xs text-muted-foreground">
           <summary className="cursor-pointer">The planner's short version of the steps</summary>
           <div className="mt-1 rounded-md bg-muted/50 px-3 py-2 text-sm text-foreground">
