@@ -190,14 +190,6 @@ export function auditDesk(view, notes, now = Date.now()) {
             fix: 'Planner: hub test sheet and next "Rigo: test …"',
           });
         }
-        const waited = days(line.since, now);
-        if (waited !== null && waited > 2) {
-          add({
-            ...base,
-            rule: `Waiting ${Math.floor(waited)} days`,
-            fix: "Planner: is it unclear, not ready, or not his?",
-          });
-        }
       }
       continue;
     }

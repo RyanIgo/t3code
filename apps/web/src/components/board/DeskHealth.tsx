@@ -40,8 +40,7 @@ const GROUP_TITLE: Record<string, string> = {
   Item: "Items",
 };
 const GROUP_NOTE: Record<string, string> = {
-  "To-do":
-    "Yours, waiting over two days. Do it, or open it and press Ask if it's unclear, not ready or not yours.",
+  "To-do": "Your to-dos the planner needs to fix (steps missing, a page that can't open beside).",
   Decision: "Answer them, or the planner retires the ones overtaken.",
   Planner: "Planner problems. The ones about a missing planner are your call.",
 };
@@ -84,6 +83,7 @@ export function HealthView(props: {
   readonly items: ReadonlyArray<DeskItem>;
   readonly notes: DeskNotes;
   readonly app: string | null;
+  readonly nowMs: number;
   readonly onOpenChat: (chat: CardChatState) => void;
   /** Opens one of his to-dos (by its planner and text) on the Do page. */
   readonly onOpenTodo: (threadId: string, text: string) => void;
@@ -94,9 +94,21 @@ export function HealthView(props: {
   const byUrl = new Map(props.items.map((item) => [item.url, item]));
   const chatById = new Map(props.chats.map((chat) => [chat.threadId, chat]));
 
-  // Chats still open on an item that's closed or Done: the wrap-up nobody did.
+  // Chats still open on an item that's closed or Done (the wrap-up nobody did), and helpers
+  // quiet for three days or whose parent's item is finished.
+  const isFinished = (url: string | null) => {
+    const item = url ? byUrl.get(url) : undefined;
+    return item !== undefined && (item.state !== "open" || item.status === "Done");
+  };
   const finished = props.chats.filter((chat) => {
     if (chat.working || chat.needsYou) return false;
+    const work = props.notes.work[chat.threadId];
+    if (work?.role === "helper") {
+      if (props.app && work.app !== props.app) return false;
+      const quiet = props.nowMs - Date.parse(work.updatedAt) > 3 * 86_400_000;
+      const parentDone = work.parent ? isFinished(chatFocus(props.notes, work.parent)) : false;
+      return quiet || parentDone;
+    }
     const url = chatFocus(props.notes, chat.threadId);
     const item = url ? byUrl.get(url) : undefined;
     if (!item || (props.app && item.app !== props.app)) return false;
@@ -155,7 +167,9 @@ export function HealthView(props: {
           <section className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/5 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold">Your move</span>
-              <span className="text-sm">{finished.length} chats still open on finished work.</span>
+              <span className="text-sm">
+                {finished.length} chats still open on finished work, or helpers gone quiet.
+              </span>
               <Button size="sm" disabled={settling} onClick={() => void settleAll()}>
                 {settling ? "Settling…" : `Settle these ${finished.length} →`}
               </Button>

@@ -1429,6 +1429,7 @@ export function DeskPage(props: {
         />
       ) : mode === "health" ? (
         <HealthView
+          nowMs={nowMs}
           chats={props.chats}
           items={items}
           notes={notes.notes}
