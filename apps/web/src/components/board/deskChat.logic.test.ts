@@ -137,6 +137,10 @@ describe("desk links back", () => {
       sheet: "abc123def456",
     });
     expect(readDeskFragment("#desk=test&sheet=../x")).toBeNull();
+    expect(
+      readDeskFragment("#desk=do&planner=35561033-aaaa&todo=Add+the+bid-intake+routine"),
+    ).toEqual({ kind: "do", planner: "35561033-aaaa", todo: "Add the bid-intake routine" });
+    expect(readDeskFragment("#desk=do&planner=x&todo=y")).toBeNull();
     const app = {
       kind: "app",
       view: "board",

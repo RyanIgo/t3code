@@ -124,6 +124,7 @@ import {
   buildChatPrompt,
   contextLink,
   type DeskChatContext,
+  doPageUrl,
   readDeskFragment,
 } from "./deskChat.logic";
 import type { DraftId } from "../../composerDraftStore";
@@ -319,6 +320,22 @@ export function DeskPage(props: {
   const [testSheet, setTestSheet] = useState<string | null>(
     deepLink?.kind === "test" ? deepLink.sheet : null,
   );
+  const [doTodo, setDoTodo] = useState<{ threadId: string; text: string } | null>(
+    deepLink?.kind === "do" ? { threadId: deepLink.planner, text: deepLink.todo } : null,
+  );
+  // The Do page keeps its own address while it shows, so the tab can be bookmarked or sent.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- mirrors the open Do page into the browser's address
+  useEffect(() => {
+    if (!doTodo) return;
+    const url = doPageUrl(doTodo.threadId, doTodo.text);
+    window.history.replaceState(window.history.state, "", url.slice(window.location.origin.length));
+    return () =>
+      window.history.replaceState(
+        window.history.state,
+        "",
+        window.location.pathname + window.location.search,
+      );
+  }, [doTodo]);
   const { handleNewThread } = useHandleNewThread();
   const [launcher, setLauncher] = useState<DeskChatContext | null>(null);
   const desk = useDesk();
@@ -403,6 +420,9 @@ export function DeskPage(props: {
       if (target === null) return;
       if (target.kind === "test") {
         setTestSheet(target.sheet);
+      } else if (target.kind === "do") {
+        setDoTodo({ threadId: target.planner, text: target.todo });
+        return;
       } else if (target.kind === "today") {
         setMode("now");
       } else if (target.kind === "item") {
@@ -489,7 +509,6 @@ export function DeskPage(props: {
   // A planner's to-do opens as its steps in a side panel, found again by its planner and text.
   const [todoShown, setTodoShown] = useState<{ threadId: string; text: string } | null>(null);
   // On a wide screen a to-do opens as the Do page (its links beside it, like testing).
-  const [doTodo, setDoTodo] = useState<{ threadId: string; text: string } | null>(null);
   const openTodo = (todo: PlannerTodo) =>
     (phone ? setTodoShown : setDoTodo)({ threadId: todo.threadId, text: todo.line.text });
   const openItemIn = (sequence: ReadonlyArray<string>) => (entry: DeskItem) =>

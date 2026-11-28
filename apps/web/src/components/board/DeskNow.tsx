@@ -6,16 +6,19 @@ import { cn } from "../../lib/utils";
 
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
+import { Sheet, SheetPopup, SheetTitle } from "../ui/sheet";
 import { toastManager } from "../ui/toast";
 import type { CardChatState } from "./boardCards.logic";
 import { chatTitle, type DeskItem, deskRef, deskTitle } from "./desk.logic";
 import { isDependencyUpdate, type DeskPr } from "./deskPrs.logic";
+import { doPageUrl } from "./deskChat.logic";
 import { DeskHeading } from "./DeskParts";
 import {
   itemForSheet,
   type SheetSummary,
   sheetsTestingPr,
   sheetTurn,
+  testPageUrl,
   uncheckedRows,
   useHubSheets,
 } from "./deskSheets";
@@ -26,8 +29,6 @@ import {
   type PlannerDecision,
   type PlannerTodo,
   pushedUntil,
-  type Star,
-  starOn,
 } from "./deskNotes.logic";
 import { recordMeasure, savePlanLineDone } from "./deskNotesStore";
 import {
@@ -39,7 +40,7 @@ import {
   LevelMark,
   VerbChip,
 } from "./deskLevels";
-import { arrivals, backAgain, handledLast, stamp } from "./deskFocus.logic";
+import { arrivals, backAgain, stamp } from "./deskFocus.logic";
 import { isStaleAsk, shippedFocus, WRAP_ASKED } from "./wrapUp.logic";
 import { useTodoHelper } from "./deskHelper";
 import { useSendToChat } from "./deskSend";
@@ -111,6 +112,8 @@ export interface Entry {
   readonly feature?: string | null;
   /** The kind of chat or work behind the row: planner, story, helper or quick fix. */
   readonly level?: DeskLevel | null;
+  /** The stage screen's own address, for Open ↗ in a new tab. */
+  readonly href?: string;
   readonly onClick: () => void;
 }
 
@@ -173,24 +176,15 @@ export function NowView(
 ) {
   const { entries: all, bumps } = useNowEntries(props);
   const [appFilter, setAppFilter] = useLocalStorage("t3-fleet:now-app", ANY, Schema.String);
-  const [priorityFilter, setPriorityFilter] = useLocalStorage(
-    "t3-fleet:now-priority",
-    ANY,
-    Schema.String,
-  );
-  // The app Rigo committed to: its rows go to the top of the queue, in their usual order.
-  const [firstApp, setFirstApp] = useLocalStorage("t3-fleet:now-first-app", "", Schema.String);
-  const [order, setOrder] = useLocalStorage("t3-fleet:now-order", ORDERS[0].id, Schema.String);
-  const priorityOf = (entry: Entry) => entry.priority ?? NO_PRIORITY;
+  const [typeFilter, setTypeFilter] = useLocalStorage("t3-fleet:now-type", ANY, Schema.String);
+  // Clicking a row opens its Quick view; Open ↗ goes to the stage screen itself.
+  const [quick, setQuick] = useState<Entry | null>(null);
   const entries = all
     .filter((entry) => appFilter === ANY || entry.app === appFilter)
-    .filter((entry) => priorityFilter === ANY || priorityOf(entry) === priorityFilter)
-    .toSorted((a, b) => Number(b.app === firstApp) - Number(a.app === firstApp));
+    .filter((entry) => typeFilter === ANY || entry.badge === typeFilter);
   const pushedOf = (entry: Entry) =>
     props.notes ? pushedUntil(props.notes, entry.key, props.nowMs) : null;
   const pushed = entries.filter((entry) => entry.mine && pushedOf(entry));
-  const starOf = (entry: Entry) =>
-    props.notes ? starOn(props.notes, entry.app, entry.feature ?? null, props.nowMs) : null;
   // Rows he opened that came back with something new sink below the ones he hasn't seen.
   const [opened, setOpened] = useLocalStorage("t3-fleet:now-opened", NO_TIMES, TIMES);
   const [seen, setSeen] = useLocalStorage("t3-fleet:now-seen", NO_TIMES, TIMES);
@@ -237,16 +231,8 @@ export function NowView(
     setOpened(stamp(opened, [entry.key], props.nowMs));
     entry.onClick();
   };
-  // Starred areas go first whatever the order; within them, the chosen order holds.
-  const ordered = orderQueue(
-    handledLast(
-      entries.filter((entry) => entry.mine),
-      back,
-    ),
-    order,
-    firstApp,
-  ).toSorted((a, b) => Number(starOf(b) !== null) - Number(starOf(a) !== null));
-  // Pushed-back rows stay on the queue, at the bottom, in the same order among themselves.
+  // Always oldest first (Rigo, 2026-11-28); Later moves a row to the bottom.
+  const ordered = oldestFirst(entries.filter((entry) => entry.mine));
   const queue = [
     ...ordered.filter((entry) => !pushedOf(entry)),
     ...ordered.filter((entry) => pushedOf(entry)),
@@ -254,25 +240,11 @@ export function NowView(
   const agents = entries.filter((entry) => entry.fold === "agents");
   const older = entries.filter((entry) => entry.fold === "sheets");
   const mineAll = all.filter((entry) => entry.mine);
-  const countBy = (key: (entry: Entry) => string, list: ReadonlyArray<Entry>) => {
-    const counts = new Map<string, number>();
-    for (const entry of list) counts.set(key(entry), (counts.get(key(entry)) ?? 0) + 1);
-    return counts;
-  };
-  // Counts follow the other filter, so each chip says what picking it would show.
-  const appCounts = countBy(
-    (entry) => entry.app,
-    mineAll.filter((entry) => priorityFilter === ANY || priorityOf(entry) === priorityFilter),
+
+  const appChoices = [...new Set(mineAll.map((entry) => entry.app))].toSorted((x, y) =>
+    x === OTHER ? 1 : y === OTHER ? -1 : x.localeCompare(y),
   );
-  const priorityCounts = countBy(
-    priorityOf,
-    mineAll.filter((entry) => appFilter === ANY || entry.app === appFilter),
-  );
-  const appChoices = [...appCounts.keys()]
-    .filter((app) => app !== OTHER)
-    .toSorted((a, b) => (appCounts.get(b) ?? 0) - (appCounts.get(a) ?? 0) || a.localeCompare(b));
-  if (appFilter !== ANY && !appChoices.includes(appFilter)) appChoices.push(appFilter);
-  if (appCounts.has(OTHER)) appChoices.push(OTHER);
+  const typeChoices = [...new Set(mineAll.map((entry) => entry.badge))].toSorted();
   const minutes = queue
     .filter((entry) => !pushedOf(entry))
     .reduce((sum, entry) => sum + (entry.minutes ?? 0), 0);
@@ -285,7 +257,7 @@ export function NowView(
           <h2 className="text-lg font-semibold">
             {queue.length === 0
               ? "Nothing waits on you"
-              : `Your queue · ${queue.length - pushed.length}${minutes > 0 ? ` · about ${minutes} min` : ""}${pushed.length > 0 ? ` · ${pushed.length} pushed back` : ""}`}
+              : `Your queue · ${queue.length - pushed.length}${minutes > 0 ? ` · about ${minutes} min` : ""}${pushed.length > 0 ? ` · ${pushed.length} later` : ""}`}
           </h2>
           <span className="text-xs text-muted-foreground">
             {queue.length > 0 ? "Work it top to bottom. " : ""}
@@ -295,34 +267,48 @@ export function NowView(
             {bumps > 0 ? ` ${bumps} version bumps not shown.` : ""}
           </span>
         </header>
-        <QueueFilters
-          apps={appChoices.map((app) => ({ value: app, count: appCounts.get(app) ?? 0 }))}
-          priorities={PRIORITIES.map((priority) => ({
-            value: priority,
-            count: priorityCounts.get(priority) ?? 0,
-          }))}
-          app={appFilter}
-          priority={priorityFilter}
-          firstApp={firstApp}
-          total={mineAll.length}
-          onApp={setAppFilter}
-          onPriority={setPriorityFilter}
-          onFirstApp={setFirstApp}
-        />
-        <OrderChoice order={order} onOrder={setOrder} />
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <label htmlFor="now-app" className="text-muted-foreground">
+            App
+          </label>
+          <select
+            id="now-app"
+            value={appFilter}
+            onChange={(event) => setAppFilter(event.target.value)}
+            className="h-7 rounded-md border border-border bg-background px-1.5"
+          >
+            <option value={ANY}>All apps</option>
+            {appChoices.map((app) => (
+              <option key={app} value={app}>
+                {app}
+              </option>
+            ))}
+          </select>
+          <label htmlFor="now-type" className="text-muted-foreground">
+            Type
+          </label>
+          <select
+            id="now-type"
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+            className="h-7 rounded-md border border-border bg-background px-1.5"
+          >
+            <option value={ANY}>All types</option>
+            {typeChoices.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+          <span className="text-muted-foreground">Oldest first · Later moves a row down</span>
+        </div>
         {queue.length > 0 ? (
           <ul className="flex flex-col gap-1.5">
             {queue.map((entry, index) => {
               const previous = queue[index - 1];
               const isPushed = pushedOf(entry) !== null;
               const rowGroup = (row: Entry | undefined) =>
-                !row
-                  ? null
-                  : pushedOf(row) !== null
-                    ? "Pushed back · not your priority right now"
-                    : order === "verb" && back[row.key] !== undefined
-                      ? "Back again · you answered these; each has something new"
-                      : groupOf(row, order);
+                row && pushedOf(row) !== null ? "Later · not now" : null;
               const group = rowGroup(entry);
               const startsGroup = group !== null && group !== rowGroup(previous);
               return (
@@ -334,11 +320,11 @@ export function NowView(
                   ) : null}
                   <QueueRow
                     entry={entry}
+                    number={index + 1}
                     chats={props.chats}
                     onPushBack={props.onPushBack}
                     pushed={isPushed}
-                    star={starOf(entry)}
-                    onOpen={() => open(entry)}
+                    onOpen={() => setQuick(entry)}
                   />
                 </Fragment>
               );
@@ -357,157 +343,33 @@ export function NowView(
         />
         {props.done}
       </section>
+      <NowQuickView
+        entry={quick}
+        onClose={() => setQuick(null)}
+        onOpen={(entry) => {
+          setQuick(null);
+          open(entry);
+        }}
+        onLater={
+          props.onPushBack
+            ? (entry) => {
+                setQuick(null);
+                props.onPushBack?.(entry, true);
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }
 
 const ANY = "Any";
-const NO_PRIORITY = "No priority";
-const PRIORITIES = ["P0", "P1", "P2", "P3", NO_PRIORITY];
 
-const ORDERS = [
-  { id: "verb", label: "Next step" },
-  { id: "app", label: "App" },
-  { id: "priority", label: "Priority" },
-  { id: "oldest", label: "Oldest first" },
-] as const;
-
-const PRIORITY_RANK = (entry: Entry) => {
-  const index = PRIORITIES.indexOf(entry.priority ?? NO_PRIORITY);
-  return index === -1 ? PRIORITIES.length : index;
-};
 const sinceMs = (entry: Entry) => (entry.since ? Date.parse(entry.since) || Infinity : Infinity);
 
-/** The queue in the order Rigo picked; within a group, the usual next-step order. */
-function orderQueue(list: ReadonlyArray<Entry>, order: string, firstApp: string): Entry[] {
-  if (order === "app")
-    return list.toSorted(
-      (a, b) =>
-        Number(b.app === firstApp) - Number(a.app === firstApp) ||
-        Number(a.app === OTHER) - Number(b.app === OTHER) ||
-        a.app.localeCompare(b.app),
-    );
-  if (order === "priority") return list.toSorted((a, b) => PRIORITY_RANK(a) - PRIORITY_RANK(b));
-  // First in, first out: what has waited on him longest comes first; rows with no date go last.
-  if (order === "oldest") return list.toSorted((a, b) => sinceMs(a) - sinceMs(b));
-  return [...list];
-}
-
-function groupOf(entry: Entry | undefined, order: string): string | null {
-  if (!entry) return null;
-  if (order === "app") return entry.app;
-  if (order === "priority") return entry.priority ?? NO_PRIORITY;
-  return null;
-}
-
-function OrderChoice(props: { readonly order: string; readonly onOrder: (order: string) => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 px-1">
-      <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">Order</span>
-      {ORDERS.map((choice) => (
-        <Chip
-          key={choice.id}
-          on={props.order === choice.id}
-          onClick={() => props.onOrder(choice.id)}
-        >
-          {choice.label}
-        </Chip>
-      ))}
-    </div>
-  );
-}
-
-function Chip(props: {
-  readonly on: boolean;
-  readonly onClick: () => void;
-  readonly children: ReactNode;
-}) {
-  return (
-    <Button
-      size="xs"
-      variant={props.on ? "default" : "outline"}
-      aria-pressed={props.on}
-      onClick={props.onClick}
-    >
-      {props.children}
-    </Button>
-  );
-}
-
-/** Narrow the queue to one app or one priority, and put the app Rigo committed to first. */
-function QueueFilters(props: {
-  readonly apps: ReadonlyArray<{ readonly value: string; readonly count: number }>;
-  readonly priorities: ReadonlyArray<{ readonly value: string; readonly count: number }>;
-  readonly app: string;
-  readonly priority: string;
-  readonly firstApp: string;
-  readonly total: number;
-  readonly onApp: (app: string) => void;
-  readonly onPriority: (priority: string) => void;
-  readonly onFirstApp: (app: string) => void;
-}) {
-  const filtered = props.app !== ANY || props.priority !== ANY;
-  return (
-    <div className="flex flex-col gap-1.5 rounded-md border border-border bg-muted/30 px-3 py-2">
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">App</span>
-        <Chip on={props.app === ANY} onClick={() => props.onApp(ANY)}>
-          All · {props.total}
-        </Chip>
-        {props.apps.map((app) => (
-          <Chip key={app.value} on={props.app === app.value} onClick={() => props.onApp(app.value)}>
-            {props.firstApp === app.value ? "★ " : ""}
-            {app.value} · {app.count}
-          </Chip>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="w-14 shrink-0 text-2xs font-medium text-muted-foreground">Priority</span>
-        <Chip on={props.priority === ANY} onClick={() => props.onPriority(ANY)}>
-          Any
-        </Chip>
-        {props.priorities.map((priority) => (
-          <Chip
-            key={priority.value}
-            on={props.priority === priority.value}
-            onClick={() => props.onPriority(priority.value)}
-          >
-            {priority.value} · {priority.count}
-          </Chip>
-        ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
-        {props.firstApp ? (
-          <>
-            <span>
-              ★ <b className="font-medium text-foreground">{props.firstApp}</b> goes first in the
-              queue.
-            </span>
-            <Button size="xs" variant="ghost" onClick={() => props.onFirstApp("")}>
-              Stop
-            </Button>
-          </>
-        ) : null}
-        {props.app !== ANY && props.app !== OTHER && props.firstApp !== props.app ? (
-          <Button size="xs" variant="outline" onClick={() => props.onFirstApp(props.app)}>
-            ★ Put {props.app} first
-          </Button>
-        ) : null}
-        {filtered ? (
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={() => {
-              props.onApp(ANY);
-              props.onPriority(ANY);
-            }}
-          >
-            Show everything
-          </Button>
-        ) : null}
-      </div>
-    </div>
-  );
+/** First in, first out: what has waited on him longest comes first; rows with no date go last. */
+function oldestFirst(list: ReadonlyArray<Entry>): Entry[] {
+  return list.toSorted((a, b) => sinceMs(a) - sinceMs(b));
 }
 
 function QueueRow(props: {
@@ -516,7 +378,8 @@ function QueueRow(props: {
   readonly onPushBack?: ((entry: Entry, pushed: boolean) => void) | undefined;
   /** It's pushed back: shown at the bottom, dimmed, with Move up. */
   readonly pushed?: boolean;
-  readonly star?: Star | null;
+  /** Its place in the queue, 1–x, so he can refer to it. */
+  readonly number?: number;
   readonly onOpen?: (() => void) | undefined;
 }) {
   const { entry } = props;
@@ -578,6 +441,11 @@ function QueueRow(props: {
         onClick={props.onOpen ?? entry.onClick}
         className="flex min-w-0 flex-[1_1_20rem] cursor-pointer items-start gap-2 text-left"
       >
+        {props.number ? (
+          <span className="mt-0.5 w-5 shrink-0 text-right text-xs font-semibold tabular-nums text-muted-foreground">
+            {props.number}
+          </span>
+        ) : null}
         <VerbChip verb={entry.badge} className="mt-0.5" />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="line-clamp-2 text-sm font-medium">{entry.title}</span>
@@ -585,11 +453,6 @@ function QueueRow(props: {
             <span className="line-clamp-2 text-xs text-muted-foreground">{entry.ask}</span>
           ) : null}
           <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-2xs text-muted-foreground">
-            {props.star ? (
-              <span className="font-semibold text-warning-foreground">
-                ★ {props.star.reason || "starred"}
-              </span>
-            ) : null}
             {entry.level ? <LevelMark level={entry.level} short /> : null}
             {entry.app === OTHER ? null : (
               <span className="inline-flex items-center gap-1">
@@ -641,20 +504,26 @@ function QueueRow(props: {
             variant="ghost"
             onClick={() => props.onPushBack?.(entry, !props.pushed)}
           >
-            {props.pushed ? "Move up" : "Push back"}
+            {props.pushed ? "Move up" : "Later"}
           </Button>
         ) : null}
-        <Button
-          size="xs"
-          variant={decide && entry.todo ? "ghost" : "default"}
-          onClick={entry.onClick}
-        >
-          {entry.badge === "Sheet done" || (decide && entry.todo)
-            ? "Open"
-            : entry.todo
-              ? "Do it →"
-              : entry.badge}
-        </Button>
+        {entry.href ? (
+          <Button
+            size="xs"
+            variant={decide && entry.todo ? "ghost" : "default"}
+            render={<a href={entry.href} target="_blank" rel="noreferrer" />}
+          >
+            Open ↗
+          </Button>
+        ) : (
+          <Button
+            size="xs"
+            variant={decide && entry.todo ? "ghost" : "default"}
+            onClick={entry.onClick}
+          >
+            Open
+          </Button>
+        )}
       </span>
     </li>
   );
@@ -907,6 +776,7 @@ export function useNowEntries(props: NowInput): {
         priority:
           (props.notes ? itemForSheet(sheet, props.items ?? [], props.notes)?.priority : null) ??
           null,
+        href: testPageUrl(sheet.id),
         onClick: () => props.onOpenSheet(sheet),
       };
       // Submitted: the chat has his results and notes; it comes back as re-tests when fixed.
@@ -1085,7 +955,8 @@ export function useNowEntries(props: NowInput): {
           ? "Its sheet is finished: press Done to tell the planner"
           : (todo.line.why ?? "from the planner"),
         mine: true,
-        ...(decide ? { minutes: 1 } : {}),
+        ...(decide ? { minutes: 1 } : todo.line.minutes ? { minutes: todo.line.minutes } : {}),
+        href: doPageUrl(todo.threadId, todo.line.text),
         ...(todo.line.since
           ? { waiting: ago(props.nowMs, todo.line.since), since: todo.line.since }
           : {}),
@@ -1099,4 +970,83 @@ export function useNowEntries(props: NowInput): {
     entries: [...decisions, ...todos, ...entries].toSorted((a, b) => order(a) - order(b)),
     bumps,
   };
+}
+
+/**
+ * Quick view (Board contract): the bar and the brief only (what it is, why, how long, what's
+ * asked of him) with one primary Open; the stage screen holds the rest.
+ */
+function NowQuickView(props: {
+  readonly entry: Entry | null;
+  readonly onClose: () => void;
+  readonly onOpen: (entry: Entry) => void;
+  readonly onLater?: ((entry: Entry) => void) | undefined;
+}) {
+  const { entry } = props;
+  const line = entry?.todo?.line;
+  return (
+    <Sheet open={entry !== null} onOpenChange={(open) => (open ? undefined : props.onClose())}>
+      <SheetPopup side="right" className="w-[min(30rem,100vw)]">
+        {entry ? (
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-5 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <VerbChip verb={entry.badge} />
+              {entry.app === OTHER ? null : (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <AppDot app={entry.app} />
+                  {entry.app}
+                </span>
+              )}
+              {entry.waiting ? (
+                <span className="text-xs text-muted-foreground">waiting {entry.waiting}</span>
+              ) : null}
+            </div>
+            <SheetTitle>{entry.title}</SheetTitle>
+            <section className="flex flex-col gap-1 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
+              <span className="text-xs font-semibold">
+                Required from you{entry.minutes ? ` · about ${entry.minutes} min` : ""}
+              </span>
+              <span>{entry.ask ?? entry.meta}</span>
+            </section>
+            {line?.unblocks ? (
+              <p className="text-muted-foreground">Unblocks: {line.unblocks}</p>
+            ) : null}
+            {line?.steps && line.steps.length > 0 ? (
+              <section className="flex flex-col gap-1">
+                <DeskHeading>Steps · {line.steps.length}</DeskHeading>
+                <ol className="flex flex-col gap-1">
+                  {line.steps.map((step, index) => (
+                    <li key={step.text} className="flex gap-2">
+                      <span className="w-4 shrink-0 text-xs font-semibold tabular-nums text-muted-foreground">
+                        {index + 1}
+                      </span>
+                      <span>{step.text}</span>
+                    </li>
+                  ))}
+                </ol>
+              </section>
+            ) : null}
+            <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-3">
+              <Button className="flex-1" onClick={() => props.onOpen(entry)}>
+                Open: full screen
+              </Button>
+              {entry.href ? (
+                <Button
+                  variant="outline"
+                  render={<a href={entry.href} target="_blank" rel="noreferrer" />}
+                >
+                  New tab ↗
+                </Button>
+              ) : null}
+              {props.onLater ? (
+                <Button variant="ghost" onClick={() => props.onLater?.(entry)}>
+                  Later
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </SheetPopup>
+    </Sheet>
+  );
 }

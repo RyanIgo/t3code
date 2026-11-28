@@ -110,6 +110,8 @@ export type DeskTarget =
       readonly tab?: "details" | "chats" | "review";
     }
   | { readonly kind: "today" }
+  /** The Do page for one of Rigo's to-dos: its planner (thread id) and the line's text. */
+  | { readonly kind: "do"; readonly planner: string; readonly todo: string }
   /** The Test page for one hub test sheet. */
   | { readonly kind: "test"; readonly sheet: string };
 
@@ -122,6 +124,13 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
   if (kind === "test") {
     const sheet = params.get("sheet");
     return sheet && /^[\w-]{6,40}$/.test(sheet) ? { kind, sheet } : null;
+  }
+  if (kind === "do") {
+    const planner = params.get("planner");
+    const todo = params.get("todo");
+    return planner && todo && /^[\w:%.-]{6,200}$/.test(planner)
+      ? { kind, planner, todo: todo.slice(0, 300) }
+      : null;
   }
   if (kind === "item") {
     const url = params.get("url");
@@ -145,6 +154,12 @@ export function readDeskFragment(fragment: string): DeskTarget | null {
     };
   }
   return null;
+}
+
+/** The Do page's own address: open it in a tab, bookmark it, or send it. */
+export function doPageUrl(planner: string, todo: string): string {
+  const params = new URLSearchParams({ desk: "do", planner, todo });
+  return `${window.location.origin}/board#${params.toString()}`;
 }
 
 /** The chat's opening message: what Rigo is on, a snapshot, and how to build context. */

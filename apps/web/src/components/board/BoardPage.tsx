@@ -74,7 +74,7 @@ export function BoardPage() {
     const target = readDeskFragment(window.location.hash);
     if (target === null) return null;
     const tab: BoardTab =
-      target.kind === "today" || target.kind === "test"
+      target.kind === "today" || target.kind === "test" || target.kind === "do"
         ? "now"
         : target.kind === "sprint"
           ? "sprint"
