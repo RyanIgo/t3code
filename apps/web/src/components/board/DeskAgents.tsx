@@ -1253,8 +1253,13 @@ export function DecisionCard(props: {
       ) : null}
       <section aria-label="Your answer" className="flex flex-col gap-2 border-t border-border pt-3">
         <DeskHeading>Your answer</DeskHeading>
+        {decision.fallback ? (
+          <span className="text-xs text-muted-foreground">
+            If you don't answer: {decision.fallback}
+          </span>
+        ) : null}
         <div role="radiogroup" aria-label={decision.question} className="flex flex-col gap-1.5">
-          {decision.options.map((option) => {
+          {decision.options.map((option, index) => {
             const outcome = outcomeOf(option);
             const picked = choice === option;
             return (
@@ -1280,7 +1285,7 @@ export function DecisionCard(props: {
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <span className="flex flex-wrap items-center gap-1.5 text-sm font-medium">
-                    {option}
+                    {index + 1} · {option}
                     {option === decision.recommended ? (
                       <Badge variant="info" size="sm">
                         Recommended

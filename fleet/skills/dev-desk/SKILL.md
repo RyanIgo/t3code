@@ -164,20 +164,29 @@ node ~/.claude/skills/dev-desk/desk.mjs plan show                           # th
 
 Rigo plans from the Plan pane beside your chat, not from your messages, so keep it current:
 
+Every new `decide` card is on the Decide form: an `--effect` for each option, a `--link` or
+`--item` for what it's about, and `--fallback "<by when>: <what happens if he doesn't answer>"`.
+`decide` refuses a card without them. He sees the options numbered and can add a note; your card's
+background follows "Write the background on the card for a manager".
+
 ```sh
-node ~/.claude/skills/dev-desk/desk.mjs decide "Settle the 4 finished warehouse chats?" \
-  --options "Settle all|Only those whose item is closed|Not now" --rec "Settle all" \
-  --why "Their items are closed; settling clears Wrap up." \
-  --link cfe-data-warehouse#201 --link cfe-data-warehouse#236 \
-  --effect "Settle all=>Hides the 4 chats from Rigo's lists; their history stays" \
-  --effect "Only those whose item is closed=>Same, for the 3 with a closed item" \
-  --effect "Not now=>Nothing changes; they stay in Wrap up"
+node ~/.claude/skills/dev-desk/desk.mjs decide "Carry bid intake (#312) into Sprint 2?" \
+  --options "Carry it|Drop it to Backlog|Not yet" --rec "Carry it" \
+  --why "Its last step waits on the library document; the rest is built." \
+  --item cfe-drawings#312 \
+  --effect "Carry it=>Moves to Sprint 2; the planner lists what's left" \
+  --effect "Drop it to Backlog=>Leaves the sprint; nothing is deleted" \
+  --effect "Not yet=>Stays in Sprint 1; asked again Monday" \
+  --fallback "Monday 9am: it carries over to Sprint 2"
 node ~/.claude/skills/dev-desk/desk.mjs plan set - <<'JSON'
 [{"text":"12 chats given a level","who":"done","done":true},
  {"text":"Remove template 7's Raw marks","who":"you","item":"cfe-data-warehouse#219",
-  "why":"Enforcement is on and the watch is clean; the temporary marks now only widen access.",
-  "how":"1. Open Admin → Access → Templates → 7 (Contract Admin).\n2. Untick Raw on each table that has it.\n3. Save, then press Done here.",
-  "links":["https://<the app>/admin/access/templates/7","cfe-data-warehouse#116"]},
+  "why":"Enforcement is on and the watch is clean; the temporary marks only widen access.",
+  "unblocks":"#219 closing","onlyYou":"judgement","minutes":5,
+  "steps":[
+   {"text":"Open template 7 (Contract Admin)","goTo":"https://<the app>/admin/access/templates/7",
+    "doneWhen":"the template's tables are listed"},
+   {"text":"Untick Raw on each table that has it, then Save","doneWhen":"no table shows Raw"}]},
  {"text":"AP roles agreed","who":"Admin team"},
  {"text":"#229, #238, #245 in progress","who":"agents"}]
 JSON
@@ -320,6 +329,15 @@ node ~/.claude/skills/dev-desk/desk.mjs decisions "Data warehouse & company conn
   "look at …" or "check the chat": if he needs to know something, it belongs on the sheet, the
   mockup or a `decide` card. Anything else ("waiting on CI", "merging after the release") folds
   under "Agents on it", where he doesn't need to open it.
+- **End every turn's reply in the report shape** (story leads and quick fixes; planners end with
+  their checklist; helpers report to their parent only). The Board shows it to his planner:
+  ```
+  Goal: <item, linked> · step 2 of 4
+  Done:
+  - <outcome, under 15 words, no file or function names>
+  Next: Rigo: test bid intake (11 checks, ~15 min)   ← or: Agents: building piece 2 (about 1 hour)
+  Links: <the sheet, mockup or PR the next step needs, never a GitHub issue>
+  ```
 - **Say times as agents actually take them.** A first mockup takes about an hour, a revised round
   less, a piece often an hour or two. Don't say "a day" or "a few days" for agent work unless it
   truly waits on something that long (a person, a release window), and then say what.

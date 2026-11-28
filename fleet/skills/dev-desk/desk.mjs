@@ -349,7 +349,7 @@ async function decide(question, options) {
   // A flag where the question goes (`decide --help`) would be filed as a question to Rigo.
   if (!question?.trim() || question.trim().startsWith("-")) {
     fail(
-      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"] [--goal (the question is a proposed sprint goal)]',
+      'Usage: node desk.mjs decide "<question>" --options "Yes|No" [--rec Yes] [--why "<reason>"] [--item <url>] [--link <url|repo#n>]… [--effect "<option>=><what happens>"]… [--final "<option>"]… [--context "<background>" | --context-file <file|->] [--id <id to update>] [--app "<app>"] [--goal (the question is a proposed sprint goal)] --fallback "<by when>: <what happens if no answer>"',
     );
   }
   const threadId = thisThread();
@@ -398,6 +398,22 @@ async function decide(question, options) {
     : (given.context ?? null);
   const problems = context?.trim() ? proseProblems(context) : null;
   if (problems) await bounce(problems);
+  // The Decide form (Board contract): every option says what happens, the card links what it's
+  // about, and says what happens if he doesn't answer by when. New cards only; goals are exempt.
+  if (!given.id && !goalFor) {
+    const missing = [];
+    const unexplained = choices.filter((name) => !outcomes.some((entry) => entry.option === name));
+    if (unexplained.length > 0)
+      missing.push(
+        `--effect for ${unexplained.map((name) => `"${name}"`).join(", ")} (what happens if he picks it)`,
+      );
+    if (links.length === 0 && !given.item)
+      missing.push("--link or --item (what the card is about)");
+    if (!given.fallback?.trim())
+      missing.push('--fallback "<by when>: <what happens if he doesn\'t answer>"');
+    if (missing.length > 0)
+      await bounce(`This card isn't on the Decide form. Add:\n- ${missing.join("\n- ")}`);
+  }
   const id = given.id ?? Math.random().toString(36).slice(2, 12);
   // Never ask twice: point at a waiting or recently answered decision about the same items.
   if (!given.id) {
@@ -431,6 +447,7 @@ async function decide(question, options) {
       recommended: given.rec ?? null,
       itemUrl: given.item ?? null,
       goalFor: goalFor ?? null,
+      ...(given.fallback?.trim() ? { fallback: given.fallback.trim().slice(0, 300) } : {}),
       createdAt: at,
       updatedAt: at,
       answer: null,

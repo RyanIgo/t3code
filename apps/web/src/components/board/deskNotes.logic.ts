@@ -100,6 +100,8 @@ export interface PlannerDecision {
   }>;
   /** A proposed sprint goal: answering it sets that sprint's goal for the app. */
   readonly goalFor: string | null;
+  /** What happens if Rigo doesn't answer, and by when (the Decide form). */
+  readonly fallback?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly answer: {
@@ -664,6 +666,7 @@ function readDecisions(value: unknown): Record<string, PlannerDecision> {
               },
             ),
             goalFor: short(entry.goalFor, 80),
+            fallback: short(entry.fallback, 300),
             createdAt: entry.createdAt,
             updatedAt: entry.updatedAt,
             answer:
