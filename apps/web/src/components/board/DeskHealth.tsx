@@ -34,6 +34,18 @@ interface AuditResult {
   };
 }
 
+const GROUP_TITLE: Record<string, string> = {
+  "To-do": "Your to-dos",
+  Decision: "Your decision cards",
+  Item: "Items",
+};
+const GROUP_NOTE: Record<string, string> = {
+  "To-do":
+    "Yours, waiting over two days. Do it, or open it and press Ask if it's unclear, not ready or not yours.",
+  Decision: "Answer them, or the planner retires the ones overtaken.",
+  Planner: "Planner problems. The ones about a missing planner are your call.",
+};
+
 const KINDS = ["To-do", "Decision", "Planner", "Story lead", "Quick fix", "Helper", "Item"];
 
 function useAudit(): AuditResult | null {
@@ -73,6 +85,8 @@ export function HealthView(props: {
   readonly notes: DeskNotes;
   readonly app: string | null;
   readonly onOpenChat: (chat: CardChatState) => void;
+  /** Opens one of his to-dos (by its planner and text) on the Do page. */
+  readonly onOpenTodo: (threadId: string, text: string) => void;
 }) {
   const audit = useAudit();
   const { settleThread } = useThreadActions();
@@ -165,15 +179,46 @@ export function HealthView(props: {
         {groups.map((group) => (
           <section key={group.kind} className="flex flex-col gap-1">
             <DeskHeading>
-              {group.kind} · {group.entries.length}
+              {GROUP_TITLE[group.kind] ?? group.kind} · {group.entries.length}
             </DeskHeading>
+            <p className="text-xs text-muted-foreground">
+              {GROUP_NOTE[group.kind] ?? "Agents fix these at their next checklist update."}
+            </p>
             <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
-              {group.entries.slice(0, 60).map((finding, index) => {
+              {group.entries.slice(0, 60).map((finding) => {
                 const ref = refOf(finding.url);
                 const chat = finding.threadId ? chatById.get(finding.threadId) : undefined;
+                if (group.kind === "To-do" && finding.threadId) {
+                  const threadId = finding.threadId;
+                  return (
+                    <li
+                      key={`${threadId}:${finding.detail}:${finding.rule}`}
+                      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-3 py-1.5 text-sm"
+                    >
+                      <span className="min-w-0 flex-1 truncate font-medium">{finding.detail}</span>
+                      {!props.app && finding.app ? (
+                        <Badge variant="outline" size="sm">
+                          {finding.app}
+                        </Badge>
+                      ) : null}
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        onClick={() => props.onOpenTodo(threadId, finding.detail)}
+                      >
+                        Do it →
+                      </Button>
+                      <span className="w-full text-xs text-muted-foreground">
+                        {finding.rule.toLowerCase().startsWith("waiting")
+                          ? `${finding.rule}${ref ? ` · ${ref}` : ""}`
+                          : `${finding.rule}: the planner fixes this`}
+                      </span>
+                    </li>
+                  );
+                }
                 return (
                   <li
-                    key={`${finding.rule}:${finding.url ?? finding.threadId ?? index}`}
+                    key={`${finding.rule}:${finding.url ?? ""}:${finding.threadId ?? ""}:${finding.detail}`}
                     className="flex flex-wrap items-baseline gap-x-2 px-3 py-1.5 text-sm"
                   >
                     <span className="font-medium">{finding.rule}</span>

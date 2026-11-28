@@ -1434,6 +1434,7 @@ export function DeskPage(props: {
           notes={notes.notes}
           app={app}
           onOpenChat={openChat}
+          onOpenTodo={(threadId, text) => (phone ? setTodoShown : setDoTodo)({ threadId, text })}
         />
       ) : mode === "machines" ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pt-3 pb-6">
